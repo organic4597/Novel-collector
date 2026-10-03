@@ -1,0 +1,110 @@
+#site-account-card {
+  grid-column: 1/-1;
+  min-width: 0;
+}
+#site-account-card .site-account-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+#site-account-card .site-account-config-state {
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid #42634f;
+  border-radius: 8px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+#site-account-card .site-account-intro {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.8;
+  max-width: 920px;
+  margin: 12px 0 17px;
+}
+#site-account-card .site-account-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 18px;
+}
+#site-account-card .site-account-fields > div {
+  min-width: 0;
+}
+#site-account-card .site-account-host-field {
+  display: flex;
+  gap: 8px;
+}
+#site-account-card .site-account-host-field input,
+#site-account-card .site-account-host-field select {
+  flex: 1;
+  min-width: 0;
+}
+#site-account-card .site-account-host-field button {
+  margin: 0;
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: 9px 11px;
+}
+#site-account-card .site-account-enabled {
+  margin-top: 19px;
+}
+#site-account-card .site-account-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 10px;
+}
+#site-account-card .site-account-actions button {
+  font-size: 12px;
+  margin: 0;
+}
+#site-account-card .site-account-result {
+  font-size: 12px;
+  color: var(--accent);
+  margin-top: 15px;
+  line-height: 1.8;
+}
+#site-account-card .site-account-result.failed {
+  color: var(--warning);
+}
+#site-account-card .site-account-delete-confirmation {
+  margin-top: 15px;
+  padding: 15px;
+  border: 1px solid #6b4147;
+  background: #332329;
+  border-radius: 9px;
+}
+#site-account-card .site-account-delete-confirmation p {
+  font-size: 12px;
+  color: var(--danger);
+  margin-bottom: 10px;
+  line-height: 1.8;
+}
+#site-account-card .site-account-delete-confirmation button {
+  font-size: 12px;
+  margin: 0 7px 0 0;
+}
+@media (max-width: 720px) {
+  #site-account-card .site-account-heading {
+    flex-direction: column;
+    gap: 8px;
+  }
+  #site-account-card .site-account-config-state {
+    white-space: normal;
+  }
+  #site-account-card .site-account-fields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  #site-account-card .site-account-actions {
+    align-items: stretch;
+  }
+  #site-account-card .site-account-actions button {
+    flex: 1 1 auto;
+  }
+  #site-account-card .site-account-delete-confirmation {
+    padding: 12px;
+  }
+}

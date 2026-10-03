@@ -1,0 +1,24 @@
+{
+  "name": "novel-collector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "test": "node --test --test-concurrency=4 tests/*.test.mjs",
+    "test:captcha": "node --test tests/novel-captcha.test.mjs tests/captcha-trail.test.mjs tests/captcha-analyzer.test.mjs tests/captcha-browser.test.mjs",
+    "test:captcha:images": ".venv-captcha/bin/python -m unittest discover -s tests -p captcha_position_test.py -v"
+  },
+  "dependencies": {
+    "jszip": "3.10.1",
+    "playwright": "1.63.0",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "prettier": "^3.8.1"
+  }
+}

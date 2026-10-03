@@ -1,0 +1,34 @@
+[Unit]
+Description=Novel Collector dashboard and sequential browser worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=novelcollector
+Group=novelcollector
+WorkingDirectory=/opt/novel-collector
+ExecStart=/usr/bin/node /opt/novel-collector/src/server.mjs
+Environment=NODE_ENV=production
+Environment=TZ=Asia/Seoul
+Environment=HOST=127.0.0.1
+Environment=PORT=8788
+Environment=PROFILE_DIR=/opt/novel-collector/profile/chromium
+Environment=XDG_CONFIG_HOME=/opt/novel-collector/profile/config
+Environment=XDG_CACHE_HOME=/opt/novel-collector/profile/cache
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=45
+UMask=0077
+Nice=10
+CPUQuota=100%
+MemoryMax=2G
+TasksMax=256
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/novel-collector/data /opt/novel-collector/profile /opt/novel-collector/secrets
+
+[Install]
+WantedBy=multi-user.target

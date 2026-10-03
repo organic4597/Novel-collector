@@ -1,0 +1,115 @@
+.site-attention-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  padding: 17px 20px;
+  margin-bottom: 20px;
+  background: var(--panel, #18212c);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.site-attention-banner strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.site-attention-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.site-attention-actions :is(button, a) {
+  font-size: 12px;
+}
+.site-attention-actions a {
+  text-decoration: none;
+}
+.captcha-session-modal {
+  width: min(1320px, calc(100vw - 24px));
+  max-width: 1320px;
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+}
+.captcha-session-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.captcha-session-toolbar input {
+  width: min(240px, 100%);
+}
+.captcha-session-toolbar select {
+  width: auto;
+}
+.captcha-transport {
+  color: var(--accent);
+  margin-left: auto;
+}
+#captcha-session-large {
+  text-decoration: none;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+#captcha-session-large[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: wait;
+}
+.captcha-standalone .captcha-session-modal {
+  width: calc(100vw - 16px);
+  max-width: none;
+  max-height: calc(100dvh - 16px);
+}
+.captcha-standalone #captcha-session-frame {
+  max-height: 68dvh;
+}
+.captcha-session-screen {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+#captcha-session-frame {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  max-height: 48dvh;
+  height: auto;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+}
+#captcha-session-frame:not([src]) {
+  visibility: hidden;
+}
+.captcha-session-modal .modal-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 10px;
+  background: var(--panel, #18212c);
+}
+@media (max-width: 800px) {
+  .site-attention-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+@media (max-width: 450px) {
+  .site-attention-actions {
+    gap: 7px;
+  }
+  .site-attention-actions :is(button, a) {
+    padding: 7px 10px;
+  }
+}

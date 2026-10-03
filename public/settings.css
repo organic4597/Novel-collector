@@ -1,0 +1,249 @@
+#settings-view {
+  --settings-gap: 18px;
+}
+#settings-view .settings-heading {
+  align-items: flex-start;
+}
+#settings-view .settings-save-state {
+  font-size: 12px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid #3f644e;
+  background: #1e3328;
+  color: var(--accent);
+  white-space: nowrap;
+  margin-top: 24px;
+}
+#settings-view .settings-save-state.dirty {
+  color: var(--warning);
+  background: #392f21;
+  border-color: #6e5837;
+}
+#settings-view .settings-section-nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+}
+#settings-view .settings-section-nav a {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 6px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+#settings-view .settings-section-nav a:hover {
+  color: var(--accent);
+  text-decoration: none;
+  border-color: #597762;
+}
+#settings-view .settings-presets {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+#settings-view .settings-presets > span {
+  font-size: 12px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+#settings-view .settings-presets button {
+  font-size: 12px;
+  padding: 7px 13px;
+}
+#settings-view .settings-presets .field-help {
+  flex-basis: 100%;
+  margin: 0;
+}
+#settings-view .settings-sections,
+#settings-view .settings-form-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--settings-gap);
+}
+#settings-view .settings-form-shell {
+  grid-column: 1/-1;
+  min-width: 0;
+  margin: 0;
+}
+#settings-view .settings-card {
+  min-width: 0;
+  scroll-margin-top: 20px;
+  padding: 23px;
+}
+#settings-view .settings-card h2 {
+  margin-bottom: 8px;
+  font-size: 18px;
+}
+#settings-view .settings-intro {
+  font-size: 12px;
+  margin-bottom: 22px;
+}
+#settings-view .settings-card .field-help {
+  line-height: 1.7;
+}
+#settings-view .settings-savebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 13px 0 2px;
+}
+#settings-view .settings-savebar > div {
+  min-width: 0;
+  flex: 1;
+}
+#settings-view .settings-savebar .error-text:empty {
+  min-height: 0;
+  margin: 0;
+}
+#settings-view .settings-savebar button {
+  flex-shrink: 0;
+  margin: 0;
+}
+#settings-view .password-field {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#settings-view .password-field input {
+  flex: 1;
+  min-width: 0;
+}
+#settings-view .password-field button {
+  margin: 0;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+#settings-view .settings-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+#settings-view .settings-card-heading button {
+  margin: 0;
+  font-size: 11px;
+  padding: 6px 10px;
+}
+#settings-view .system-operation {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 11px 12px;
+  background: #213329;
+  border-radius: 8px;
+  margin: 17px 0;
+}
+#settings-view .system-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+#settings-view .system-stats > div {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 0;
+  background: #151a22;
+}
+#settings-view .system-stats dt {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+#settings-view .system-stats dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+#settings-view .settings-transfer {
+  grid-column: 1/-1;
+}
+#settings-view .settings-transfer textarea {
+  min-height: 115px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+}
+#settings-view .settings-transfer input[type="file"] {
+  font-size: 12px;
+  padding: 9px;
+}
+#settings-view .settings-transfer-actions {
+  display: flex;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+#settings-view .settings-import-summary {
+  background: #121720;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 14px;
+  margin: 17px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--accent);
+}
+@media (max-width: 1050px) {
+  #settings-view .settings-sections,
+  #settings-view .settings-form-cards {
+    grid-template-columns: 1fr;
+  }
+  #settings-view .settings-transfer,
+  #settings-view .settings-form-shell {
+    grid-column: 1;
+  }
+}
+@media (max-width: 720px) {
+  #settings-view {
+    --settings-gap: 14px;
+  }
+  #settings-view .settings-heading {
+    gap: 12px;
+  }
+  #settings-view .settings-save-state {
+    margin-top: 0;
+    font-size: 11px;
+  }
+  #settings-view .settings-card {
+    padding: 18px;
+  }
+  #settings-view .settings-presets {
+    gap: 8px;
+  }
+  #settings-view .settings-section-nav {
+    gap: 7px;
+  }
+  #settings-view .settings-section-nav a {
+    padding: 6px 11px;
+  }
+  #settings-view .settings-savebar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  #settings-view .settings-savebar button {
+    align-self: flex-end;
+  }
+  #settings-view .system-stats {
+    gap: 8px;
+  }
+  #settings-view .system-stats > div {
+    padding: 10px;
+  }
+  #settings-view .system-stats dd {
+    font-size: 13px;
+  }
+  #settings-view .password-field button {
+    padding: 10px;
+    font-size: 11px;
+  }
+}

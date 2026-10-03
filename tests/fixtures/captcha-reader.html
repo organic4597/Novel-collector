@@ -1,0 +1,61 @@
+<!doctype html><meta charset="utf-8"><title>Local CAPTCHA integration fixture</title>
+<div data-theme-novel-content></div>
+<script>
+// Local test renderer using the observed coordinate contract. No third-party JS.
+const host = document.querySelector('[data-theme-novel-content]');
+const options = window.fixtureOptions || {};
+let captchaToken = null;
+async function content() {
+  const nonce = crypto.randomUUID();
+  const response = await fetch('/api/novel-content', {
+    method: 'POST', headers: {'content-type': 'application/json'},
+    body: JSON.stringify({novelId:'1', episodeId:'2', token:'local-episode', nonce, proof:'local-proof-' + nonce, ...(captchaToken ? {captchaToken} : {})}),
+  });
+  if (options.duplicate && !captchaToken) {
+    const nonce = crypto.randomUUID();
+    void fetch('/api/novel-content', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({novelId:'1',episodeId:'2',nonce,proof:'local-proof-'+nonce})}).then(r => r.json());
+  }
+  const body = await response.json();
+  if (body.error === 'captcha_required_daily_quota') {
+    await puzzle();
+  } else if (body.ok) {
+    host.innerHTML = '<p>Local verified content</p>';
+  }
+}
+async function puzzle() {
+  const response = await fetch('/api/novel-captcha/create', {method:'POST', headers:{'content-type':'application/json','x-novel-client':'shadow-v3'}});
+  const body = await response.json();
+  if (!body.ok) return;
+  const c = body.challenge;
+  host.innerHTML = '<div class="puzzle"><div class="image" style="position:relative;width:320px;height:160px"><img style="width:100%;height:100%"><img style="position:absolute;left:0;width:60px;height:60px"></div><div class="track" style="position:relative;width:334px;height:44px;border:1px solid"><button aria-label="퍼즐 슬라이더" style="position:absolute;left:0;top:0;width:44px;height:44px;padding:0;border:0;touch-action:none">&gt;</button></div></div>';
+  const imgs = host.querySelectorAll('img');
+  imgs[0].src = c.background;
+  imgs[1].src = c.piece || c.background;
+  imgs[1].style.top = c.y + 'px';
+  const button = host.querySelector('button'), track = button.parentElement;
+  let drag, x = 0, trail;
+  button.onpointerdown = (e) => {
+    e.preventDefault(); button.setPointerCapture(e.pointerId);
+    drag = {clientX:e.clientX, startX:x, time:performance.now()};
+    trail = [{x, y:e.clientY, t:0}];
+  };
+  button.onpointermove = (e) => {
+    if (!drag) return;
+    e.preventDefault();
+    x = Math.max(0, Math.min(c.width-c.pieceWidth, drag.startX + (e.clientX-drag.clientX) * (c.width-c.pieceWidth)/Math.max(1, Math.max(160, track.getBoundingClientRect().width)-44)));
+    trail.push({x,y:e.clientY,t:performance.now()-drag.time});
+    button.style.transform = `translateX(${Math.round((track.getBoundingClientRect().width-44)*x/(c.width-c.pieceWidth))}px)`;
+  };
+  button.onpointerup = async (e) => {
+    if (!drag) return;
+    trail.push({x,y:e.clientY,t:performance.now()-drag.time});
+    drag = null;
+    if (options.shortTrail) trail.at(-1).t = 1000;
+    const response = await fetch('/api/novel-captcha/verify', {method:'POST',headers:{'content-type':'application/json','x-novel-client':'shadow-v3'},body:JSON.stringify({challengeId:c.challengeId,x:Math.round(x),y:c.y,trail})});
+    const body = await response.json();
+    if (body.ok && typeof body.token === 'string') { captchaToken = body.token; await content(); }
+    else setTimeout(puzzle, 30);
+  };
+}
+content();
+</script>

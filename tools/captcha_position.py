@@ -18,6 +18,37 @@ class AnalysisError(Exception):
     pass
 
 
+def peaks(scores, piece_width):
+    scores = np.nan_to_num(scores.copy(), nan=-1.0, posinf=-1.0, neginf=-1.0)
+    candidates = []
+    for _ in range(5):
+        x = int(np.argmax(scores))
+        score = float(scores[x])
+        if score < 0:
+            break
+        # A pixel-grid maximum does not imply an integer physical position.
+        # Center a contiguous flat peak, otherwise interpolate its parabola.
+        left = right = x
+        while left > 0 and abs(float(scores[left - 1]) - score) <= 1e-6:
+            left -= 1
+        while right + 1 < len(scores) and abs(float(scores[right + 1]) - score) <= 1e-6:
+            right += 1
+        refined = (left + right) / 2.0
+        if left == right and 0 < x < len(scores) - 1:
+            before, after = float(scores[x - 1]), float(scores[x + 1])
+            curvature = before - 2 * score + after
+            if curvature < -1e-8 and before >= 0 and after >= 0:
+                refined += max(-.5, min(.5, .5 * (before - after) / curvature))
+        candidates.append({"x": refined, "score": min(1.0, score)})
+        radius = max(4, piece_width // 3)
+        scores[max(0, x - radius):min(len(scores), x + radius + 1)] = -1
+    return candidates
+
+
+def margin(candidates):
+    return max(0.0, candidates[0]["score"] - (candidates[1]["score"] if len(candidates) > 1 else 0.0)) if candidates else 0.0
+
+
 def decode(data_url, width, height):
     try:
         if not isinstance(data_url, str) or not data_url.startswith("data:image/png;base64,"):
@@ -55,6 +86,13 @@ def analyze(challenge, profile=None):
     gray = cv2.cvtColor(background, cv2.COLOR_BGRA2GRAY)
     candidates = []
     method = "contour"
+    proposals = []
+    calibrated = isinstance(profile, dict) and all(
+        type(profile.get(k)) in (int, float) and math.isfinite(profile[k]) and 0 < profile[k] <= 1
+        for k in ("minScore", "minMargin")
+    )
+    def qualified(points):
+        return bool(calibrated and points and points[0]["score"] >= profile["minScore"] and margin(points) >= profile["minMargin"])
     if challenge.get("piece"):
         piece = decode(challenge["piece"], pw, ph)
         mask = (piece[:, :, 3] >= 200).astype(np.uint8) * 255
@@ -63,17 +101,30 @@ def analyze(challenge, profile=None):
             # CCOEFF tolerates a uniform dark overlay over the cutout. Alpha mask
             # preserves the jigsaw silhouette; no assumption about tolerance=8.
             scores = cv2.matchTemplate(gray[y:y + ph, :], template, cv2.TM_CCOEFF_NORMED, mask=mask)[0]
-            scores = np.nan_to_num(scores, nan=-1.0, posinf=-1.0, neginf=-1.0)
-            method = "masked-template"
-            for _ in range(5):
-                x = int(np.argmax(scores))
-                score = float(scores[x])
-                if score < 0:
-                    break
-                candidates.append({"x": x, "score": min(1.0, score)})
-                # Nearby pixels of the same peak are not independent candidates.
-                radius = max(4, pw // 3)
-                scores[max(0, x - radius):min(len(scores), x + radius + 1)] = -1
+            points = peaks(scores, pw)
+            if points:
+                proposals.append(("masked-template", points))
+        # Some sources paint a flat cutout: its pixels do not retain the piece's
+        # texture. Match the alpha silhouette instead of lowering texture scores.
+        # This score is the fraction of boundary pixels within two image pixels
+        # of a background edge, not a probability or the server's tolerance.
+        occupancy = np.count_nonzero(mask) / (pw * ph)
+        boundary = (cv2.Canny(mask, 40, 100) > 0).astype(np.float32)
+        count = float(np.sum(boundary))
+        if .2 < occupancy < .95 and count >= 20:
+            background_edges = cv2.Canny(gray, 40, 100)
+            distance = cv2.distanceTransform(255 - background_edges, cv2.DIST_L2, 3)
+            coverage = (distance[y:y + ph, :] <= 2).astype(np.float32)
+            scores = cv2.matchTemplate(coverage, boundary, cv2.TM_CCORR)[0] / count
+            points = peaks(scores, pw)
+            if points:
+                proposals.append(("alpha-edge", points))
+    accepted_proposals = [(name, points) for name, points in proposals if qualified(points)]
+    disagreement = len(accepted_proposals) > 1 and max(points[0]["x"] for _, points in accepted_proposals) - min(points[0]["x"] for _, points in accepted_proposals) > 2
+    if proposals:
+        method, candidates = (accepted_proposals or sorted(
+            proposals, key=lambda item: item[1][0]["score"] * margin(item[1]), reverse=True
+        ))[0]
     if not candidates:
         # Background-only diagnostics: geometry alone is insufficient to certify
         # a puzzle silhouette, so this path never authorizes submission.
@@ -88,17 +139,12 @@ def analyze(challenge, profile=None):
         candidates.sort(key=lambda c: c["score"], reverse=True)
         candidates = candidates[:5]
     best = candidates[0] if candidates else {"x": None, "score": 0.0}
-    margin = max(0.0, best["score"] - (candidates[1]["score"] if len(candidates) > 1 else 0.0))
-    calibrated = isinstance(profile, dict) and all(
-        type(profile.get(k)) in (int, float) and math.isfinite(profile[k]) and 0 < profile[k] <= 1
-        for k in ("minScore", "minMargin")
-    )
-    accept = bool(calibrated and method == "masked-template" and best["x"] is not None
-                  and best["score"] >= profile["minScore"] and margin >= profile["minMargin"])
+    candidate_margin = margin(candidates)
+    accept = bool(method in ("masked-template", "alpha-edge") and qualified(candidates) and not disagreement)
     result = {"challengeId": challenge.get("challengeId"), "targetX": best["x"], "targetY": y,
-              "matchScore": best["score"], "candidateMargin": margin,
+              "matchScore": best["score"], "candidateMargin": candidate_margin,
               "decision": "accept" if accept else "abstain", "method": method,
-              "reason": "ACCEPTED" if accept else "POSITION_UNCERTAIN" if calibrated else "UNCALIBRATED",
+              "reason": "METHOD_DISAGREEMENT" if disagreement else "ACCEPTED" if accept else "POSITION_UNCERTAIN" if calibrated else "UNCALIBRATED",
               "candidates": candidates}
     return result, background
 
@@ -116,8 +162,9 @@ def main():
         result, image = analyze(challenge, value.get("profile"))
         if args.diagnostic:
             for c in result["candidates"]:
-                cv2.rectangle(image, (c["x"], challenge["y"]),
-                              (c["x"] + challenge["pieceWidth"], challenge["y"] + challenge["pieceHeight"]),
+                x = int(math.floor(c["x"] + .5))
+                cv2.rectangle(image, (x, challenge["y"]),
+                              (x + challenge["pieceWidth"], challenge["y"] + challenge["pieceHeight"]),
                               (0, 255, 0, 255), 1)
             if not cv2.imwrite(args.diagnostic, image):
                 raise AnalysisError("DIAGNOSTIC_WRITE_FAILED")

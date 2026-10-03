@@ -21,3 +21,17 @@ test("trail coordinates, monotonic time and challenge association are checked in
     { trail: [{ x: 0, y: 1, t: 0 }, { x: 100, y: 1, t: 2500 }, { x: 117, y: 1, t: 2400 }] },
   ]) assert.throws(() => validateTrail({ ...payload(2400), ...patch }, challenge, answer), { code: "TRAIL_INVALID" });
 });
+
+test("fractional pointer positions and timestamps are preserved, only final x is rounded", () => {
+  const body = { ...payload(2400), trail: [
+    { x: 0, y: 696, t: 0 },
+    { x: 119.24137931034483, y: 693, t: 1930.0999999940395 },
+    { x: 118.3448275862069, y: 693, t: 1954.7000000029802 },
+    { x: 117.44827586206897, y: 693, t: 2403.2999999970198 },
+  ] };
+  const original = JSON.stringify(body);
+  assert.equal(validateTrail(body, challenge, answer), body.trail);
+  assert.equal(JSON.stringify(body), original);
+  assert.equal(body.trail.at(-1).x, 117.44827586206897);
+  assert.equal(body.x, 117);
+});

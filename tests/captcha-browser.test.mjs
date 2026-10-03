@@ -88,6 +88,8 @@ test("native browser trail hands a validated token to fresh content nonce/proof 
   assert.equal(submitted.x, 117);
   assert.equal(submitted.y, 51);
   assert.ok(submitted.trail.at(-1).t >= 1800 && submitted.trail.at(-1).t <= 4500);
+  assert.ok(submitted.trail.some((point) => !Number.isInteger(point.x)), "native fractional x samples survive unchanged");
+  assert.ok(submitted.trail.some((point) => !Number.isInteger(point.t)), "native performance timestamps retain fractional milliseconds");
   assert.equal(f.calls.content.length, 2);
   assert.equal(f.calls.content[1].captchaToken, "local-captcha-grant");
   assert.notEqual(f.calls.content[0].nonce, f.calls.content[1].nonce);

@@ -1,6 +1,7 @@
 """Evaluate labeled, saved challenges offline; never submit to a CAPTCHA server."""
 import argparse
 import json
+import math
 from pathlib import Path
 
 import cv2
@@ -34,8 +35,9 @@ def main():
             if args.diagnostics:
                 for candidate in result["candidates"]:
                     c = sample["challenge"]
-                    cv2.rectangle(image, (candidate["x"], c["y"]),
-                                  (candidate["x"] + c["pieceWidth"], c["y"] + c["pieceHeight"]),
+                    x = int(math.floor(candidate["x"] + .5))
+                    cv2.rectangle(image, (x, c["y"]),
+                                  (x + c["pieceWidth"], c["y"] + c["pieceHeight"]),
                                   (0, 255, 0, 255), 1)
                 if not cv2.imwrite(str(args.diagnostics / f"sample-{index:04d}.png"), image):
                     raise AnalysisError("DIAGNOSTIC_WRITE_FAILED")

@@ -10,7 +10,7 @@ const challenge = () => JSON.parse(execFileSync(python, ["-c",
 
 test("OpenCV subprocess returns original coordinates with a test-only evaluated profile", async () => {
   const result = await createCaptchaAnalyzer({ profile: { minScore: .85, minMargin: .12 } })(challenge());
-  assert.equal(result.targetX, 117);
+  assert.ok(Math.abs(result.targetX - 117) <= .5);
   assert.equal(result.targetY, 51);
   assert.equal(result.decision, "accept");
 });

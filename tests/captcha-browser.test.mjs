@@ -22,10 +22,15 @@ async function fixture(t, options = {}) {
     res.setHeader("content-type", "application/json");
     const kind = req.url.endsWith("/create") ? "create" : "verify";
     calls[kind].push({ raw, headers: req.headers });
-    if (kind === "create") res.end(JSON.stringify({ ok: true, challenge: options.challenge ?? challenge }));
+    if (kind === "create") res.end(JSON.stringify({ ok: true, challenge: {
+      ...(options.challenge ?? challenge), challengeId: `local-challenge-${calls.create.length}`,
+    } }));
     else {
       if (options.verifyDelay) await new Promise((r) => setTimeout(r, options.verifyDelay));
-      res.end(JSON.stringify(options.verifyBody ?? { ok: true, token: "local-captcha-grant", remaining: 50 }));
+      if (options.verifyStatus) res.statusCode = options.verifyStatus;
+      res.end(JSON.stringify(calls.verify.length <= (options.rejectCount ?? 0)
+        ? { ok: false, error: "position_mismatch" }
+        : options.verifyBody ?? { ok: true, token: "local-captcha-grant", remaining: 50 }));
     }
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -65,10 +70,12 @@ async function fixture(t, options = {}) {
       url: `http://127.0.0.1:${server.address().port}${new URL(route.request().url()).pathname}` }),
     analyze: options.analyze ?? (async (c) => {
       calls.analyze++;
-      return { challengeId: c.challengeId, targetX: 117.4, targetY: c.y, matchScore: .99, candidateMargin: .2, decision: options.abstain ? "abstain" : "accept" };
+      return { challengeId: c.challengeId, targetX: 117.4, targetY: c.y, matchScore: .99, candidateMargin: .2,
+        decision: options.abstain || calls.analyze <= (options.abstainCount ?? 0) ? "abstain" : "accept" };
     }),
   });
   const collector = new Collector({ store: {}, captchaSupport: support, contentTimeoutMs: 5000,
+    captchaMaxAttempts: options.maxAttempts ?? 1,
     viewerOrigins: { resolve: () => target, assertNavigation: (_a, actual) => assert.equal(actual, target) },
   });
   return { calls, page, support, collector };
@@ -84,7 +91,7 @@ test("native browser trail hands a validated token to fresh content nonce/proof 
   assert.equal(f.calls.create[0].headers["x-nv-session"], undefined);
   assert.match(f.calls.create[0].headers.cookie, /local-session=current-cookie/);
   const submitted = JSON.parse(f.calls.verify[0].raw);
-  assert.equal(submitted.challengeId, challenge.challengeId);
+  assert.equal(submitted.challengeId, "local-challenge-1");
   assert.equal(submitted.x, 117);
   assert.equal(submitted.y, 51);
   assert.ok(submitted.trail.at(-1).t >= 1800 && submitted.trail.at(-1).t <= 4500);
@@ -100,6 +107,36 @@ test("no CAPTCHA means no create, analysis, verify, or drag", async (t) => {
   const f = await fixture(t, { noCaptcha: true });
   assert.equal(await f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }), "Local verified content");
   assert.equal(f.calls.create.length + f.calls.verify.length + f.calls.analyze, 0);
+});
+
+test("two uncertain positions retry fresh challenges and the third succeeds without manual attention", async (t) => {
+  const f = await fixture(t, { maxAttempts: 3, abstainCount: 2 });
+  assert.equal(await f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }), "Local verified content");
+  assert.equal(f.calls.create.length, 3);
+  assert.equal(f.calls.verify.length, 1);
+  assert.equal(JSON.parse(f.calls.verify[0].raw).challengeId, "local-challenge-3");
+  assert.equal(new Set(f.calls.content.map((c) => c.nonce)).size, f.calls.content.length);
+});
+
+test("three rejections submit three different challenges then use the existing manual fallback", async (t) => {
+  const f = await fixture(t, { maxAttempts: 3, rejectCount: 3 });
+  await assert.rejects(f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }),
+    (e) => e.code === "NEEDS_ATTENTION" && e.attentionKind === "captcha" && e.captchaAttempts === 3);
+  assert.equal(f.calls.create.length, 3);
+  assert.deepEqual(f.calls.verify.map((v) => JSON.parse(v.raw).challengeId),
+    ["local-challenge-1", "local-challenge-2", "local-challenge-3"]);
+  await new Promise((r) => setTimeout(r, 100));
+  assert.equal(f.calls.create.length, 3, "no fourth native automatic attempt");
+  await f.support.release(f.page);
+  assert.equal(f.support.pages.has(f.page), false);
+});
+
+test("a server rate limit stops immediately instead of spending the three-attempt budget", async (t) => {
+  const f = await fixture(t, { maxAttempts: 3, verifyStatus: 429, verifyBody: { ok: false, error: "rate_limited" } });
+  await assert.rejects(f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }),
+    (e) => e.httpStatus === 429 && e.retryAfterMs >= 600000);
+  assert.equal(f.calls.create.length, 1);
+  assert.equal(f.calls.verify.length, 1);
 });
 
 test("a delayed quota response from a concurrent original request shares the ongoing attempt", async (t) => {

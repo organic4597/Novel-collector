@@ -9,6 +9,7 @@ Node.js·Playwright 기반 소설 수집기와 웹 대시보드입니다. 최대
 - 같은 브라우저 세션을 유지하는 사이트 인증과 사용자 CAPTCHA 창
 - 서버의 `captcha_required_daily_quota` 응답에만 실행되는 조건부 CAPTCHA 모듈
 - 세션별 단일 CAPTCHA 처리, OpenCV 후보 분석, 1.8~4.5초의 실제 브라우저 드래그 기록 검증
+- 새 챌린지로 최대 3회 자동 시도 후 기존 수동 CAPTCHA 방식으로 전환
 
 CAPTCHA 자동 제출은 평가된 이미지 점수·후보 차이 임계값을 설정한 경우에만 활성화됩니다. 기본값은 분석 후 제출 보류입니다. 자세한 규약은 [CAPTCHA 문서](docs/CAPTCHA.md)를 확인하세요.
 

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { browserProxyOptions } from "./browser-proxy.mjs";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { join } from "node:path";
@@ -268,6 +267,13 @@ const delay = (ms, signal) =>
   });
 
 const networkGuards = new WeakMap();
+const retryableCaptcha = new Set([
+  "CREATE_INVALID_RESPONSE", "IMAGE_DECODE_FAILED", "IMAGE_SIZE_MISMATCH",
+  "POSITION_UNCERTAIN", "ANALYSIS_TIMEOUT", "CHALLENGE_EXPIRED",
+  "TRAIL_INVALID", "TRAIL_DURATION_OUT_OF_RANGE", "VERIFY_REJECTED",
+  "VERIFY_INVALID_RESPONSE", "VERIFY_RESULT_UNKNOWN", "CAPTCHA_TIMEOUT",
+  "CAPTCHA_REPEAT_LIMIT",
+]);
 
 export class Collector {
   constructor({
@@ -286,7 +292,10 @@ export class Collector {
     contextPool = null,
     slotId = null,
     captchaSupport = null,
+    captchaMaxAttempts = 3,
   }) {
+    if (!Number.isInteger(captchaMaxAttempts) || captchaMaxAttempts < 1 || captchaMaxAttempts > 3)
+      throw new TypeError("CAPTCHA automatic attempts must be 1..3");
     this.store = store;
     this.browserPath = browserPath;
     this.profileDir = profileDir;
@@ -302,6 +311,7 @@ export class Collector {
     this.contextPool = contextPool;
     this.slotId = slotId;
     this.captchaSupport = captchaSupport;
+    this.captchaMaxAttempts = captchaMaxAttempts;
     this.captchaReaders = new WeakMap();
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
@@ -331,6 +341,7 @@ export class Collector {
       contextPool: this.contextPool,
       slotId,
       captchaSupport: this.captchaSupport,
+      captchaMaxAttempts: this.captchaMaxAttempts,
     });
   }
 
@@ -359,11 +370,9 @@ export class Collector {
   async openContext() {
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
-    const connection = browserProxyOptions();
-    if (this.launchContext) return this.launchContext(connection);
+    if (this.launchContext) return this.launchContext();
     const { chromium } = await import("playwright");
     return chromium.launchPersistentContext(this.profileDir, {
-      ...connection,
       executablePath: this.browserPath || undefined,
       headless: true,
       chromiumSandbox: true,
@@ -555,16 +564,33 @@ export class Collector {
     });
   }
   async chapterText(page, chapter, signal) {
-    const monitor = await this.captchaSupport?.attach(page, {
-      url: this.viewerOrigins?.resolve(chapter.url) || chapter.url,
-      signal,
-    });
-    if (monitor) this.captchaReaders.set(page, monitor);
-    try {
-      return await this.readChapterText(page, chapter, signal);
-    } finally {
-      this.captchaReaders.delete(page);
-      await monitor?.dispose();
+    const limit = this.captchaSupport ? this.captchaMaxAttempts : 1;
+    for (let attempt = 1; attempt <= limit; attempt++) {
+      abortIfNeeded(signal);
+      const monitor = await this.captchaSupport?.attach(page, {
+        url: this.viewerOrigins?.resolve(chapter.url) || chapter.url,
+        signal,
+      });
+      if (monitor) this.captchaReaders.set(page, monitor);
+      try {
+        return await this.readChapterText(page, chapter, signal);
+      } catch (error) {
+        abortIfNeeded(signal);
+        if (error.captchaCode) error.captchaAttempts = attempt;
+        if (!monitor || !retryableCaptcha.has(error.captchaCode) || attempt === limit) {
+          if (error.captchaCode && attempt === limit && attempt > 1)
+            error.message = `CAPTCHA 자동 처리가 ${attempt}회 실패했습니다. 서버 인증 창에서 직접 확인하세요. (${error.captchaCode})`;
+          throw error;
+        }
+        // The next navigation belongs to the existing renderer: it generates
+        // fresh nonce/proof and, only if required again, a new challenge. No
+        // previous verify payload or token is replayed. Disposal drains input
+        // and HTTP work before another attempt may own this page.
+      } finally {
+        this.captchaReaders.delete(page);
+        await monitor?.dispose();
+      }
+      await delay(250, signal);
     }
   }
 

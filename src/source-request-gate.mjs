@@ -1,5 +1,4 @@
 import { lookup } from "node:dns/promises";
-import { browserProxyOptions } from "./browser-proxy.mjs";
 import { isPublicAddress, readReaderDocument } from "./collector.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 
@@ -95,12 +94,10 @@ export class SourceRequestGate {
     this.assertAvailable(host);
     const owner = this.owner;
     let context;
-    const connection = browserProxyOptions();
-    if (owner.launchContext) context = await owner.launchContext(connection);
+    if (owner.launchContext) context = await owner.launchContext();
     else {
       const { chromium } = await import("playwright");
       context = await chromium.launchPersistentContext(owner.profileDir, {
-        ...connection,
         executablePath: owner.browserPath || undefined,
         headless: true,
         chromiumSandbox: true,

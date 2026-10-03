@@ -4,6 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { isPublicAddress } from "./collector.mjs";
 import { CaptchaError, NovelCaptcha, CAPTCHA_REQUIRED, abortable, verifyResult } from "./novel-captcha.mjs";
 import { createCaptchaAnalyzer } from "./captcha-analyzer.mjs";
+import { parseRetryAfter } from "./retry-after.mjs";
 import { validateTrail, TRAIL_TARGET_MS, TRAIL_MIN_MS, TRAIL_MAX_MS } from "./captcha-trail.mjs";
 
 const endpoints = /\/api\/novel-captcha\/(create|verify)$/;
@@ -166,6 +167,12 @@ class CaptchaPage {
     let response;
     try {
       await Promise.all([...this.reading]);
+      // A retired renderer may fire its delayed create while a new navigation
+      // is starting. Block it without poisoning the new document's attempt.
+      if (!this.attempted) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: '{"ok":false,"error":"no_active_challenge"}' });
+        return;
+      }
       if (!this.current() || this.failure || !this.attempted ||
           request.url() !== `${this.origin}/api/novel-captcha/${kind}` ||
           request.method() !== "POST" || request.frame() !== this.page.mainFrame())
@@ -187,6 +194,11 @@ class CaptchaPage {
       // Redirects/retries are disabled. No captured headers or body are replayed.
       response = await this.support.fetchResponse(route, { timeout: 10000, maxRedirects: 0, maxRetries: 0 });
       if (!this.current(epoch) || this.failure) throw new CaptchaError(this.failure || "CONTEXT_CHANGED");
+      const retryAfterMs = parseRetryAfter(response.headers()["retry-after"]);
+      if (response.status() === 429 || retryAfterMs > 0) {
+        this.requestBackoff = { httpStatus: response.status(), retryAfterMs: Math.max(response.status() === 429 ? 600000 : 0, retryAfterMs) };
+        throw new CaptchaError("REQUEST_BLOCKED");
+      }
       let body;
       try { body = await response.json(); } catch {
         throw new CaptchaError(kind === "verify" ? "VERIFY_RESULT_UNKNOWN" : "CREATE_INVALID_RESPONSE");
@@ -269,7 +281,7 @@ class CaptchaPage {
   async settle() {
     await Promise.all([...this.reading]);
     if (this.work) await this.work;
-    if (this.failure) throw attention(this.failure);
+    if (this.failure) throw Object.assign(attention(this.failure), this.requestBackoff ?? {});
     return this.result?.ok === true;
   }
 

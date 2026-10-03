@@ -23,7 +23,6 @@ import { createCaptchaSessionRouter } from "./captcha-session-api.mjs";
 import { AdminSessions, SESSION_TTL_MS } from "./admin-sessions.mjs";
 import { createAdminSessionRouter } from "./admin-session-api.mjs";
 import { retainedBrowserOptions } from "./browser-retention.mjs";
-import { testProxyStatus } from "./browser-proxy.mjs";
 import {
   requestProtocol,
   requestOrigin,
@@ -308,7 +307,6 @@ export function createApp({
           return send(response, 200, {
             service: "running",
             source: activeSourceStatus(viewerOrigins),
-            testConnection: testProxyStatus(),
             runner: {
               status: scheduler.currentJobId ? "running" : "idle",
               ...(scheduler.collector?.availability ?? {

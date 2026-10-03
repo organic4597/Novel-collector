@@ -128,6 +128,37 @@ test("normal catalog parser scopes title, count, rows and more button", () => {
   dom.window.close();
 });
 
+test("an initially stalled catalog gets one fresh navigation before failing the job", async (t) => {
+  const f = fixture(t, { count: 0, total: 3, contentTimeoutMs: 60 });
+  f.dom.window.document.querySelector("button").disabled = true;
+  const goto = f.page.goto.bind(f.page);
+  f.page.goto = async (url) => {
+    const response = await goto(url);
+    if (f.page.visits.length === 2) {
+      f.dom.window.document.querySelector("ul").innerHTML = [0, 1, 2].map(row).join("");
+      f.dom.window.document.querySelector("button").remove();
+    }
+    return response;
+  };
+  const catalog = await f.collector.catalog(f.page, { url: `${source}?epage=3` }, f.hooks);
+  assert.equal(catalog.chapters.length, 3);
+  assert.deepEqual(f.page.visits, [viewer, viewer]);
+  assert.equal(f.events.filter(([level]) => level === "warn").length, 1);
+});
+
+test("persistent partial catalog reports counts and button state without treating it as complete", async (t) => {
+  const f = fixture(t, { count: 2, total: 4, contentTimeoutMs: 60, onClick: () => {} });
+  await assert.rejects(f.collector.catalog(f.page, { url: source }, f.hooks), (error) => {
+    assert.equal(error.code, "CATALOG_LOAD_TIMEOUT");
+    assert.equal(error.catalogState.loaded, 2);
+    assert.equal(error.catalogState.expected, 4);
+    assert.equal(error.catalogState.hasMore, false);
+    assert.match(error.message, /누적 2\/4/);
+    return true;
+  });
+  assert.equal(f.page.visits.length, 2);
+});
+
 test("normal catalog includes explicitly disabled not-ready rows using their publicly declared numeric identity", () => {
   const dom = new JSDOM(html(3, 3, false), { url: viewer });
   const disabled = dom.window.document.querySelectorAll("li")[1];
@@ -268,7 +299,8 @@ test("normal catalog rejects a repeated moving window that contains no new chapt
     f.collector.catalog(f.page, { url: source }, f.hooks),
     /목차.*(?:완료|응답|불러)/,
   );
-  assert.equal(f.clicks(), 1);
+  assert.equal(f.clicks(), 2, "one attempt per fresh navigation, still bounded");
+  assert.equal(f.page.visits.length, 2);
 });
 
 test("mapped old-theme viewer keeps epage pagination and canonical chapter identities", async (t) => {

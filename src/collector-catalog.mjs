@@ -91,6 +91,7 @@ async function waitNormal(
   previous = new Map(),
 ) {
   const deadline = Date.now() + collector.contentTimeoutMs;
+  let lastState;
   do {
     await checkResponse();
     await assertPage(collector, page, source, signal, helpers);
@@ -102,6 +103,13 @@ async function waitNormal(
       ...data.chapters.map((chapter) => [chapter.url, chapter]),
     ]);
     const count = accumulated.size;
+    lastState = {
+      loaded: count,
+      expected: data.expectedChapters ?? null,
+      previous: previous.size,
+      hasMore: data.hasMore === true,
+      moreReady: data.moreReady === true,
+    };
     if (data.expectedChapters && count > data.expectedChapters)
       throw new Error("누적 목차와 작품에 표시된 전체 회차 수가 다릅니다.");
     const complete = data.expectedChapters && count === data.expectedChapters;
@@ -114,8 +122,11 @@ async function waitNormal(
       return { ...data, chapters: [...accumulated.values()] };
     await helpers.delay(50, signal);
   } while (Date.now() < deadline);
-  throw new Error(
-    "목차 불러오기를 완료하지 못했습니다. 회차 목록의 응답 또는 전체 회차 수를 확인하세요.",
+  throw Object.assign(
+    new Error(
+      `목차 불러오기를 완료하지 못했습니다. 회차 목록의 응답 또는 전체 회차 수를 확인하세요. (누적 ${lastState.loaded}/${lastState.expected ?? "미확인"}, 이전 ${lastState.previous}, 더 보기 ${lastState.hasMore ? lastState.moreReady ? "활성" : "대기" : "없음"})`,
+    ),
+    { code: "CATALOG_LOAD_TIMEOUT", catalogState: lastState },
   );
 }
 
@@ -193,8 +204,19 @@ export async function collectCatalog(page, job, hooks, signal, helpers) {
     });
     await this.navigate(page, url.href, signal);
     let data = await page.evaluate(readCatalogDocument);
-    if (data.normalCatalog)
-      data = await expandNormal(this, page, url.href, hooks, signal, helpers);
+    if (data.normalCatalog) {
+      for (let retry = 0; ; retry++) {
+        try {
+          data = await expandNormal(this, page, url.href, hooks, signal, helpers);
+          break;
+        } catch (error) {
+          if (retry !== 0 || error.code !== "CATALOG_LOAD_TIMEOUT") throw error;
+          helpers.abortIfNeeded(signal);
+          await hooks.event("warn", `${error.message} 목차를 새로 불러와 한 번 더 확인합니다.`);
+          await this.navigate(page, url.href, signal);
+        }
+      }
+    }
     else if (!data.chapters.length) {
       await helpers.delay(1000, signal);
       data = await page.evaluate(readCatalogDocument);

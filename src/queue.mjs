@@ -221,6 +221,7 @@ export class Scheduler {
                   status:
                     job.executor === "server" ? "queued" : "needs_attention",
                   phase: "서비스 중지",
+                  resumeCatalog: true,
                 }
               : null,
           ),

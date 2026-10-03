@@ -512,6 +512,7 @@ export class FolderStore {
         number: chapter.number,
         title: chapter.title.slice(0, 1000),
         url: validateUrl(chapter.url),
+        ...(chapter.notReady === true ? { notReady: true } : {}),
       };
     });
     if (new Set(chapters.map((chapter) => chapter.id)).size !== chapters.length)

@@ -185,10 +185,12 @@ test("resuming a verified complete catalog avoids source rescan and still applie
   const f=await fixture(t);
   const id=makeBookId(f.job.url);
   const chapters=[1,2,3].map(n=>({id:chapterIdFor(chapterUrl(n)),number:n,title:`${n}화`,url:chapterUrl(n)}));
+  chapters[2].notReady=true;
   await f.store.writeCatalog(id,{title:bookTitle,chapters,expectedChapters:3});
   f.collector.catalog=async()=>assert.fail("should reuse complete saved catalog");
   const plan=await f.collector.collectionPlan({}, {...f.job,resumeCatalog:true,startEpisode:2,endEpisode:2}, f.hooks,undefined,id);
   assert.equal(plan.allChapters.length,3);assert.deepEqual(plan.chapters.map(c=>c.number),[2]);
+  assert.equal(plan.allChapters[2].notReady,true);
 });
 
 function catalogHtml(numbers, maxPage = 1) {

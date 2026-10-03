@@ -163,7 +163,7 @@ test("CAPTCHA offers a server session action for the current site", async (t) =>
   );
   assert.equal(
     w.document.querySelectorAll("#site-attention-actions button").length,
-    1,
+    2,
   );
   assert.equal(
     calls.length,
@@ -175,6 +175,7 @@ test("CAPTCHA offers a server session action for the current site", async (t) =>
     0,
   );
   assert.equal(action(w, "captcha").textContent, "CAPTCHA 풀기");
+  assert.equal(action(w, "captcha-auto").textContent, "자동 CAPTCHA 재시도");
 });
 test("Product uses a CAPTCHA popup while preserving account and reader features", async (t) => {
   const { w } = await fixture(t, { kind: "captcha" });
@@ -226,7 +227,7 @@ test("Login status reporting CAPTCHA overrides old authentication hold controls"
   assert.equal(action(w, "retry"), undefined);
   assert.equal(
     w.document.querySelectorAll("#site-attention-actions button").length,
-    1,
+    2,
   );
 });
 test("CAPTCHA details expose source-specific login errors without obsolete warning", async (t) => {
@@ -616,4 +617,17 @@ test("Logout drops queued input and late responses; text field clears before sen
     false,
   );
   assert.equal(frame.hasAttribute("src"), false);
+});
+test("automatic retry hides the manual screen and disables input while attempts remain", async t => {
+  let automatic=false;
+  const f=await fixture(t,{kind:"captcha",autoLogin:automaticState(),sessionHandler:(path)=>{
+    if(path.endsWith("/retry"))automatic=true;
+    return{open:true,host:"newtoki1.org",width:1280,height:900,pendingSlots:[1],automatic:automatic?{active:true,state:"running",attempt:2,maxAttempts:5,stage:"ANALYZING"}:null};
+  }});
+  function automaticState(){return{configured:true,enabled:true,state:"needs_attention",failureKind:"captcha"};}
+  action(f.w,"captcha-auto").click();await tick();await tick();
+  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden,true);
+  assert.equal(f.w.document.getElementById("captcha-session-text-form").hidden,true);
+  assert.equal(f.w.document.getElementById("captcha-session-retry").disabled,true);
+  assert.match(f.w.document.getElementById("captcha-session-status").textContent,/2\/5/);
 });

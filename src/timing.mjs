@@ -8,7 +8,7 @@ export class ChapterTiming {
     if (!Number.isFinite(durationMs) || durationMs < 0) return;
     this.samples = [...this.samples, durationMs].slice(-this.windowSize);
   }
-  estimate(remainingAttempts) {
+  estimate(remainingAttempts, { extraMs = 0 } = {}) {
     const samples = this.samples.length;
     const meanChapterMs = samples
       ? this.samples.reduce((sum, value) => sum + value, 0) / samples
@@ -25,7 +25,7 @@ export class ChapterTiming {
       remainingAttempts === 0
         ? 0
         : samples
-          ? Math.ceil((meanChapterMs * remainingAttempts) / 1000)
+           ? Math.ceil((meanChapterMs * remainingAttempts + Math.max(0, extraMs)) / 1000)
           : null;
     return {
       estimatedSecondsRemaining,

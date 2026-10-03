@@ -16,6 +16,7 @@ const state = {
   generation: 0,
   booksFetchedAt: 0,
   jobSignature: "",
+  cardCache: new Map(),
   pendingActions: new Set(),
 };
 const statuses = {
@@ -107,6 +108,7 @@ async function api(path, options = {}, timeoutMs = 12000) {
 function showLogin() {
   state.authenticated = false;
   state.generation += 1;
+  state.cardCache.clear();
   clearTimeout(state.timer);
   $("app-view").hidden = true;
   $("login-view").hidden = false;
@@ -118,6 +120,7 @@ function showApp() {
   state.authenticated = true;
   state.generation += 1;
   state.jobSignature = "";
+  state.cardCache.clear();
   state.booksFetchedAt = 0;
   $("login-view").hidden = true;
   $("app-view").hidden = false;
@@ -171,14 +174,15 @@ async function poll() {
       new CustomEvent("collector:status", { detail: { ...state.status } }),
     );
     if (state.selectedJob && !document.hidden)
-      await loadEvents(state.selectedJob, generation);
+      loadEvents(state.selectedJob, generation).catch(() => {});
     if (
       state.view === "library" &&
+      !$("captcha-session-dialog").open &&
       (!state.booksFetchedAt ||
         Date.now() - state.booksFetchedAt >
           Math.max(8000, window.CollectorUI.preferences().refreshIntervalMs))
     ) {
-      await loadBooks(generation);
+      loadBooks(generation).catch(error => errorNotice(textError(error)));
     }
   } catch (error) {
     if (generation === state.generation && state.authenticated) {
@@ -192,6 +196,7 @@ async function poll() {
         poll,
         state.refreshRequested
           ? 0
+          : $("captcha-session-dialog").open ? Math.max(10000, window.CollectorUI.preferences().refreshIntervalMs)
           : window.CollectorUI.preferences().refreshIntervalMs,
       );
   }
@@ -312,8 +317,9 @@ function renderJobs() {
       ),
     );
   if (state.view === "queue") {
-    for (const job of visible) fragment.append(jobCard(job, queued));
-    $("jobs-list").replaceChildren(fragment);
+    const cards = visible.map(job => cachedCard(job, queued));
+    if (!cards.length) $("jobs-list").replaceChildren(fragment);
+    else reconcileCards($("jobs-list"), cards);
   }
   const history = state.jobs.filter((job) => {
     if (state.historyFilter === "failed") return job.status === "failed";
@@ -328,9 +334,9 @@ function renderJobs() {
   });
   $("history-count").textContent = count(history.length);
   if (state.view === "history")
-    $("history-list").replaceChildren(
-      ...(history.length
-        ? [...history].reverse().map((job) => jobCard(job, queued, true))
+    reconcileCards($("history-list"),
+      (history.length
+        ? [...history].reverse().map((job) => cachedCard(job, queued, true))
         : [
             empty(
               "수집 기록이 없습니다",
@@ -339,6 +345,25 @@ function renderJobs() {
           ]),
     );
   if (focusId) $(focusId)?.focus({ preventScroll: true });
+}
+function reconcileCards(list, cards) {
+  for (const [index, card] of cards.entries()) {
+    if (list.children[index] !== card) list.insertBefore(card, list.children[index] || null);
+  }
+  const wanted = new Set(cards);
+  for (const node of [...list.children]) if (!wanted.has(node)) node.remove();
+}
+function cachedCard(job, queued, history = false) {
+  const key = `${history ? "history" : "queue"}:${job.id}`;
+  const signature = JSON.stringify([job, state.selectedJob === job.id, state.pendingActions.has(job.id),
+    state.status.backoff?.active, queued.findIndex(item => item.id === job.id),
+    (state.status.siteAttention || []).map(s => [s.host, s.kind])]);
+  const cached = state.cardCache.get(key);
+  if (cached?.signature === signature) return cached.node;
+  const node = jobCard(job, queued, history);
+  state.cardCache.set(key, { signature, node });
+  if (state.cardCache.size > 400) state.cardCache.delete(state.cardCache.keys().next().value);
+  return node;
 }
 function jobCard(job, queued, inHistory = false) {
   const captchaPending =
@@ -430,6 +455,8 @@ function jobCard(job, queued, inHistory = false) {
   ])
     detail.append(node("span", "", value));
   card.append(top, tags, progressHead, track, detail);
+  if (job.captcha?.active) card.append(node("p", "job-current",
+    `자동 CAPTCHA ${job.captcha.attempt}/${job.captcha.maxAttempts} · ${job.captcha.stage} · 예상 시간 갱신 중`));
   if (job.status === "running") {
     const seconds = Number(job.estimatedSecondsRemaining);
     const estimated =
@@ -577,7 +604,7 @@ async function loadBooks() {
 }
 function switchView(view) {
   state.view = view;
-  for (const id of ["queue", "library", "history", "discover", "settings"])
+  for (const id of ["queue", "library", "history", "discover", "settings", "activity"])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
     const selected = button.dataset.view === view;

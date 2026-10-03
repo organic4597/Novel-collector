@@ -369,6 +369,9 @@ export class FolderStore {
         updatedAt: new Date().toISOString(),
       };
       await this.atomic(this.path("jobs", id, "job.json"), next);
+      if (next.status !== job.status || next.phase !== job.phase) {
+        try { this.onOperation?.({ scope: "job", jobId: id, message: `${next.status} · ${next.phase || ""}` }); } catch {}
+      }
       return next;
     });
   }
@@ -379,6 +382,7 @@ export class FolderStore {
         throw Object.assign(new Error("작업을 찾을 수 없습니다."), {
           status: 404,
         });
+      try { this.onOperation?.({ scope: "job", jobId: id, level, message }); } catch {}
       await appendFile(
         this.path("jobs", id, "events.jsonl"),
         JSON.stringify({

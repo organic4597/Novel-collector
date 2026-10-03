@@ -1692,3 +1692,14 @@ select:focus {
     font-size: 13px;
   }
 }
+/* Bounded operations log and offscreen card rendering. */
+.activity-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+.activity-toolbar label { display:flex; align-items:center; gap:8px; }
+.activity-toolbar input { flex:1; min-width:180px; }
+.activity-list { max-height:68vh; overflow:auto; overscroll-behavior:contain; margin:16px 0; }
+.activity-row { border-bottom:1px solid var(--line,#303645); border-left:3px solid #455568; padding:12px 16px; content-visibility:auto; contain-intrinsic-size:auto 90px; }
+.activity-row.warn { border-left-color:#e7ac52; }.activity-row.error { border-left-color:#ec7182; }
+.activity-meta { display:flex; flex-wrap:wrap; gap:14px; font-size:12px; }
+.activity-row p { white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; }
+.activity-details { white-space:pre-wrap; font-size:12px; margin:0; opacity:.8; }
+.job-card { content-visibility:auto; contain-intrinsic-size:auto 280px; }

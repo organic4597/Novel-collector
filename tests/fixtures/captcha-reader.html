@@ -4,6 +4,7 @@
 // Local test renderer using the observed coordinate contract. No third-party JS.
 const host = document.querySelector('[data-theme-novel-content]');
 const options = window.fixtureOptions || {};
+if (options.belowFold) host.style.marginTop = '1400px';
 let captchaToken = null;
 async function content() {
   const nonce = crypto.randomUUID();

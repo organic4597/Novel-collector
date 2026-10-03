@@ -90,6 +90,7 @@ export async function runCollection(job, hooks, signal, bookId) {
       ...metadata,
       url: sourceUrl.href,
       chapters: allChapters,
+      catalogVerifiedAt: catalog.catalogVerifiedAt || new Date().toISOString(),
     };
     await this.store.upsertBook(bookId, { ...metadata, url: sourceUrl.href });
     await this.store.writeCatalog(bookId, fullCatalog);
@@ -191,7 +192,19 @@ export async function runCollection(job, hooks, signal, bookId) {
         const attemptStart = this.clock();
         let sourceFailed = true;
         try {
-          const text = await this.chapterText(page, chapter, signal);
+          const text = await this.chapterText(page, chapter, signal, {
+            onProgress: async (progress) => {
+              abortIfNeeded(signal);
+              const elapsed = Math.max(0, this.clock() - attemptStart);
+              await hooks.report({
+                captcha: progress,
+                phase: progress.active ? `CAPTCHA 자동 ${progress.attempt}/${progress.maxAttempts} · ${progress.stage}` : "본문 읽는 중",
+                ...timing.estimate(remainingAttempts, { extraMs: elapsed + (progress.active ? 20000 : 0) }),
+              });
+              await hooks.event(progress.stage === "FAILED" ? "warn" : "info",
+                `CAPTCHA ${progress.attempt}/${progress.maxAttempts} · ${progress.stage} · ${Math.round(progress.elapsedMs || 0)}ms${progress.code ? ` · ${progress.code}` : ""}`);
+            },
+          });
           abortIfNeeded(signal);
           if (Buffer.byteLength(text, "utf8") > 2 * 1024 * 1024)
             throw new Error("회차 본문 크기가 제한을 초과했습니다.");
@@ -251,6 +264,7 @@ export async function runCollection(job, hooks, signal, bookId) {
         completed,
         skipped,
         failed,
+        captcha: null,
         phase: "회차 파일 저장 완료",
         lastActivity: new Date().toISOString(),
         failedChapters: [...failedChapters],
@@ -276,6 +290,7 @@ export async function runCollection(job, hooks, signal, bookId) {
       failedChapters,
       blockedReason,
       backoffResumeChapterId: null,
+      resumeCatalog: false,
       ...timing.estimate(0),
       phase: "수집 완료",
       status: blockedReason

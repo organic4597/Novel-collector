@@ -18,6 +18,7 @@ export async function navigate(
       waitUntil: "domcontentloaded",
       timeout: 45000,
     });
+    this.lastNavigationResponse = response;
     abortIfNeeded(signal);
     const problem = await this.responseProblem(response);
     if (

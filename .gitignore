@@ -35,6 +35,13 @@
 !/docs/CAPTCHA.md
 !/docs/TESTING.md
 !/docs/CONTRACT.md
+!/docs/INSTALL.md
+!/docs/UPDATE.md
+!/docs/TROUBLESHOOTING.md
+!/docs/DASHBOARD.md
+!/docs/assets/
+/docs/assets/*
+!/docs/assets/*.svg
 /deploy/*
 !/deploy/novel-collector.service
 

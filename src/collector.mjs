@@ -269,7 +269,7 @@ const delay = (ms, signal) =>
 const networkGuards = new WeakMap();
 const retryableCaptcha = new Set([
   "CREATE_INVALID_RESPONSE", "IMAGE_DECODE_FAILED", "IMAGE_SIZE_MISMATCH",
-  "POSITION_UNCERTAIN", "ANALYSIS_TIMEOUT", "CHALLENGE_EXPIRED",
+  "POSITION_UNCERTAIN", "ANALYSIS_TIMEOUT", "CHALLENGE_EXPIRED", "CAPTCHA_INPUT_BLOCKED",
   "TRAIL_INVALID", "TRAIL_DURATION_OUT_OF_RANGE", "VERIFY_REJECTED",
   "VERIFY_INVALID_RESPONSE", "VERIFY_RESULT_UNKNOWN", "CAPTCHA_TIMEOUT",
   "CAPTCHA_REPEAT_LIMIT",
@@ -292,10 +292,11 @@ export class Collector {
     contextPool = null,
     slotId = null,
     captchaSupport = null,
-    captchaMaxAttempts = 3,
+    captchaMaxAttempts = 5,
+    onCaptchaProgress = null,
   }) {
-    if (!Number.isInteger(captchaMaxAttempts) || captchaMaxAttempts < 1 || captchaMaxAttempts > 3)
-      throw new TypeError("CAPTCHA automatic attempts must be 1..3");
+    if (!Number.isInteger(captchaMaxAttempts) || captchaMaxAttempts < 1 || captchaMaxAttempts > 5)
+      throw new TypeError("CAPTCHA automatic attempts must be 1..5");
     this.store = store;
     this.browserPath = browserPath;
     this.profileDir = profileDir;
@@ -312,6 +313,7 @@ export class Collector {
     this.slotId = slotId;
     this.captchaSupport = captchaSupport;
     this.captchaMaxAttempts = captchaMaxAttempts;
+    this.onCaptchaProgress = onCaptchaProgress;
     this.captchaReaders = new WeakMap();
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
@@ -342,6 +344,7 @@ export class Collector {
       slotId,
       captchaSupport: this.captchaSupport,
       captchaMaxAttempts: this.captchaMaxAttempts,
+      onCaptchaProgress: this.onCaptchaProgress,
     });
   }
 
@@ -563,13 +566,15 @@ export class Collector {
       attention,
     });
   }
-  async chapterText(page, chapter, signal) {
+  async chapterText(page, chapter, signal, { onProgress = this.onCaptchaProgress } = {}) {
     const limit = this.captchaSupport ? this.captchaMaxAttempts : 1;
     for (let attempt = 1; attempt <= limit; attempt++) {
       abortIfNeeded(signal);
       const monitor = await this.captchaSupport?.attach(page, {
         url: this.viewerOrigins?.resolve(chapter.url) || chapter.url,
         signal,
+        onProgress: async (event) => onProgress?.({ ...event, attempt, maxAttempts: limit,
+          active: !["SUCCEEDED", "FAILED"].includes(event.stage) }),
       });
       if (monitor) this.captchaReaders.set(page, monitor);
       try {
@@ -583,6 +588,8 @@ export class Collector {
           throw error;
         }
         // The next navigation belongs to the existing renderer: it generates
+        await onProgress?.({ stage: "RETRYING", attempt: attempt + 1, maxAttempts: limit,
+          active: true, elapsedMs: 0, code: error.captchaCode });
         // fresh nonce/proof and, only if required again, a new challenge. No
         // previous verify payload or token is replayed. Disposal drains input
         // and HTTP work before another attempt may own this page.
@@ -676,11 +683,17 @@ export class Collector {
   }
 
   async collectionPlan(page, job, hooks, signal, bookId) {
-    const cached = job.retryOnlyFailed
-      ? await this.store.readCatalog(bookId)
-      : null;
+    const stored = await this.store.readCatalog(bookId);
+    const complete = stored?.chapters?.length > 0 &&
+      stored.expectedChapters === stored.chapters.length &&
+      new Set(stored.chapters.map(c => c.url)).size === stored.chapters.length;
+    const fresh = Date.now() - Date.parse(stored?.catalogVerifiedAt || "") < 30 * 60 * 1000;
+    const cached = job.retryOnlyFailed || (complete && (job.resumeCatalog || fresh)) ? stored : null;
+    if (cached) await hooks.event("info", "검증된 저장 목차 재사용 · 목차 재스캔 생략");
     const plan = cached
-      ? { ...cached, allChapters: cached.chapters }
+      ? { ...cached, allChapters: cached.chapters, chapters: cached.chapters.filter(c =>
+          (job.startEpisode == null || c.number >= job.startEpisode) &&
+          (job.endEpisode == null || c.number <= job.endEpisode)) }
       : await this.catalog(page, job, hooks, signal);
     if (!job.retryOnlyFailed) return plan;
     const allChapters = plan.allChapters;

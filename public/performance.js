@@ -18,23 +18,13 @@
       ? String(value.title || value.name || value.id || "")
       : String(value);
   }
+  const dateFormat = new Intl.DateTimeFormat("ko-KR", { month:"numeric", day:"numeric", hour:"2-digit", minute:"2-digit", timeZone:"Asia/Seoul", hour12:false });
+  const timeFormat = new Intl.DateTimeFormat("ko-KR", { hour:"2-digit",minute:"2-digit",second:"2-digit",timeZone:"Asia/Seoul",hour12:false });
   function date(value, timeOnly = false) {
     if (!value) return "—";
     const parsed = new Date(value);
     if (!Number.isFinite(parsed.getTime())) return "—";
-    const options = timeOnly
-      ? { hour: "2-digit", minute: "2-digit", second: "2-digit" }
-      : {
-          month: "numeric",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        };
-    return parsed.toLocaleString("ko-KR", {
-      ...options,
-      timeZone: "Asia/Seoul",
-      hour12: false,
-    });
+    return (timeOnly ? timeFormat : dateFormat).format(parsed);
   }
   function sourceNotice(value) {
     const text = safeString(value);

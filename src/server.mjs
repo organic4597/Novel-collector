@@ -112,6 +112,7 @@ export function createApp({
   recovery = null,
   captchaSession = null,
   viewerOrigins = null,
+  activity = null,
 }) {
   if (!credentials && (typeof adminPassword !== "string" || !adminPassword))
     throw Error("관리자 인증 설정이 필요합니다.");
@@ -213,6 +214,14 @@ export function createApp({
     });
     response.end(JSON.stringify(value));
   };
+  let jobsSnapshot = null, jobsAt = 0, jobsWork = null;
+  const recordActivity = event => { try { activity?.add?.(event); } catch {} };
+  const dashboardJobs = async () => {
+    if (jobsSnapshot && Date.now() - jobsAt < 750) return jobsSnapshot;
+    if (!jobsWork) jobsWork = store.listJobs().then(jobs => { jobsSnapshot = jobs; jobsAt = Date.now(); return jobs; })
+      .finally(() => { jobsWork = null; });
+    return jobsWork;
+  };
   const app = createServer(async (request, response) => {
     try {
       const retryAfterSeconds = requestRetrySeconds(
@@ -233,6 +242,10 @@ export function createApp({
       const url = new URL(request.url, "http://localhost");
       const parts = url.pathname.split("/").filter(Boolean);
       const method = request.method;
+      if (["/api/login", "/api/logout"].includes(url.pathname) && method === "POST") {
+        response.once("finish", () => recordActivity({scope:"api",message:`관리자 ${url.pathname.endsWith("login") ? "로그인" : "로그아웃"} · ${response.statusCode}`,
+          level:response.statusCode >= 400 ? "warn" : "info",details:{status:response.statusCode}}));
+      }
       if (url.pathname.startsWith("/api")) {
         if (method !== "GET" && request.headers.origin) {
           let origin;
@@ -275,6 +288,26 @@ export function createApp({
         }
         const session = authenticated(request);
         if (!session) throw HTTP_ERROR("로그인이 필요합니다.", 401);
+        if (method !== "GET" && method !== "HEAD") {
+          jobsAt = 0;
+          const route = url.pathname.replace(/\/[a-f0-9-]{20,}(?=\/|$)/g, "/:id");
+          recordActivity({ scope: "api", message: `${method} ${route}`, details: { method } });
+          response.once("finish", () => { jobsAt = 0; recordActivity({ scope: "api",
+            level: response.statusCode >= 400 ? "warn" : "info", message: `${method} ${route} · ${response.statusCode}`,
+            details: { status: response.statusCode } }); });
+        }
+        if (url.pathname === "/api/activity" && method === "GET") {
+          if (!activity) throw HTTP_ERROR("상세 로그를 사용할 수 없습니다.", 503);
+          const number = (key, fallback) => {
+            if (!url.searchParams.has(key)) return fallback;
+            const value = Number(url.searchParams.get(key));
+            if (!Number.isSafeInteger(value) || value < 0) throw HTTP_ERROR("로그 조회 범위를 확인하세요.", 400);
+            return value;
+          };
+          return send(response, 200, activity.query({ after: number("after", 0), before: number("before", Infinity),
+            limit: Math.min(200, Math.max(1, number("limit", 100))), level: url.searchParams.get("level") || "all",
+            scope: url.searchParams.get("scope") || "all", jobId: url.searchParams.get("jobId") || null }));
+        }
         if (
           await siteBrowserRouter({
             request,
@@ -320,6 +353,10 @@ export function createApp({
               (scheduler.currentJobId ? [scheduler.currentJobId] : []),
             maxConcurrency: scheduler.maxConcurrency ?? 2,
             queuePaused: scheduler.queuePaused ?? false,
+            captchaAutomatic: [
+              ...(await dashboardJobs()).filter(job => job.status === "running" && job.captcha).map(job => ({jobId:job.id,...job.captcha})),
+              ...(captchaSession?.autoStatus?.()?.active ? [captchaSession.autoStatus()] : []),
+            ],
             siteAttention:
               scheduler.attention
                 ?.snapshot()
@@ -334,7 +371,7 @@ export function createApp({
               consecutiveFailures: 0,
               reason: null,
             },
-            jobCount: (await store.listJobs()).length,
+            jobCount: (await dashboardJobs()).length,
             browserAgents: scheduler.browserAgents?.() ?? [],
           });
         if (url.pathname === "/api/jobs/batch" && method === "POST") {
@@ -406,7 +443,7 @@ export function createApp({
         }
         if (url.pathname === "/api/jobs") {
           if (method === "GET")
-            return send(response, 200, await store.listJobs());
+            return send(response, 200, await dashboardJobs());
           if (method === "POST") {
             const job = await store.createJob(await body(request));
             const registered = jobProfiles
@@ -519,6 +556,7 @@ export function createApp({
         "/site-account.css": "site-account.css",
         "/library.js": "library.js",
         "/logs.js": "logs.js",
+        "/activity.js": "activity.js",
         "/queue-ui.js": "queue-ui.js",
         "/style.css": "style.css",
         "/styles.css": "styles.css",
@@ -600,6 +638,10 @@ export async function startServer({
   port = Number(process.env.PORT ?? 8788),
 } = {}) {
   const store = await new FolderStore(join(rootDir, "data")).init();
+  const { ActivityLog } = await import("./activity-log.mjs");
+  const activity = await new ActivityLog({ path: join(rootDir, "data", "activity", "events.jsonl") }).load();
+  store.onOperation = (event) => activity.add(event);
+  activity.add({ scope: "service", message: "서비스 시작" });
   const credentials = await openCredentials({
     directory: join(rootDir, "secrets"),
   });
@@ -639,7 +681,8 @@ export async function startServer({
       profile: minScore > 0 && minScore <= 1 && minMargin > 0 && minMargin <= 1
         ? { minScore, minMargin } : null,
     }),
-    log: (event) => console.info("[NovelCaptcha] " + JSON.stringify(event)),
+    log: (event) => { console.info("[NovelCaptcha] " + JSON.stringify(event));
+      activity.add({ scope: "captcha", level: event.stage === "FAILED" ? "warn" : "info", message: `CAPTCHA ${event.stage}`, details: event }); },
   });
   const { Discovery } = await import("./discovery.mjs");
   const discovery = new Discovery({
@@ -696,6 +739,7 @@ export async function startServer({
     captchaSession,
   } = createSourceSessions({
     captchaSupport,
+    activity,
     ...retainedBrowser,
     store,
     scheduler,
@@ -709,6 +753,7 @@ export async function startServer({
   autoAuth = sourceAuth;
   recovery = sourceRecovery;
   const app = createApp({
+    activity,
     store,
     scheduler,
     credentials,
@@ -755,6 +800,8 @@ export async function startServer({
     await downloads.close();
     await discovery.close();
     await sessionStore.flush();
+    activity.add({ scope: "service", message: "서비스 종료" });
+    await activity.close();
     app.closeAllConnections();
     await new Promise((r) => app.close(r));
   };
@@ -774,6 +821,8 @@ export async function startServer({
     attention,
     accounts,
     autoAuth,
+    recovery,
+    captchaSession,
     close,
   };
 }

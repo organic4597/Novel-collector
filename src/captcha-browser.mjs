@@ -44,13 +44,13 @@ export class CaptchaBrowserSupport {
     if (previous) await previous.dispose(false);
   }
 
-  async attach(page, { url, signal } = {}) {
+  async attach(page, { url, signal, onProgress } = {}) {
     if (!page.on || !page.route || !page.context || !origins.has(new URL(url).origin)) return null;
     await this.release(page);
     const context = page.context();
     let session = this.sessions.get(context);
     if (!session) { session = { key: randomUUID() }; this.sessions.set(context, session); }
-    const monitor = new CaptchaPage(this, page, session, url, signal);
+    const monitor = new CaptchaPage(this, page, session, url, signal, onProgress);
     this.pages.set(page, monitor);
     await monitor.install();
     return monitor;
@@ -58,8 +58,8 @@ export class CaptchaBrowserSupport {
 }
 
 class CaptchaPage {
-  constructor(support, page, session, url, signal) {
-    Object.assign(this, { support, page, session, url, signal });
+  constructor(support, page, session, url, signal, onProgress) {
+    Object.assign(this, { support, page, session, url, signal, onProgress });
     this.origin = new URL(url).origin;
     this.controller = new AbortController();
     this.requests = new WeakMap();
@@ -144,6 +144,10 @@ class CaptchaPage {
       session: this.session, requestId: randomUUID(),
       event: { source: "response", error: body.error },
       signal: this.controller.signal, isCurrent: () => this.current(epoch),
+      onProgress: (event) => {
+        this.progressWork = (this.progressWork || Promise.resolve()).catch(() => {}).then(() => this.onProgress?.(event));
+        return this.progressWork;
+      },
       create: ({ signal }) => abortable(this.created.promise, signal),
       verify: (challenge, answer, options) => {
         this.dragWork = this.drag(challenge, answer, options);
@@ -237,17 +241,24 @@ class CaptchaPage {
     let down = false;
     try {
       await slider.waitFor({ state: "visible", timeout: 5000 });
+      if (signal.aborted || !this.current()) throw new CaptchaError("CANCELLED");
+      // Visibility alone includes elements below the viewport. Native mouse
+      // coordinates must target the slider after ordinary page scrolling.
+      await slider.scrollIntoViewIfNeeded({ timeout: 5000 });
       const geometry = await slider.evaluate((button) => {
         const track = button.parentElement;
         const box = button.getBoundingClientRect();
         const rail = track.getBoundingClientRect();
         const images = track.previousElementSibling?.querySelectorAll("img");
+        const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
         return { x: box.x + box.width / 2, y: box.y + box.height / 2,
           trackWidth: Math.max(160, rail.width), knobWidth: box.width,
           atStart: Math.abs(box.left - rail.left - track.clientLeft) < 2,
+          hitButton: hit === button || button.contains(hit),
           background: images?.[0]?.getAttribute("src"), piece: images?.[1]?.getAttribute("src") };
       });
       if (signal.aborted) throw new CaptchaError("CANCELLED");
+      if (!geometry.hitButton) throw new CaptchaError("CAPTCHA_INPUT_BLOCKED");
       if (!this.current() || !geometry.atStart || Math.abs(geometry.knobWidth - 44) > 0.5 ||
           geometry.background !== challenge.background || (challenge.piece && geometry.piece !== challenge.piece))
         throw new CaptchaError("CLIENT_CONTRACT_CHANGED");
@@ -281,6 +292,7 @@ class CaptchaPage {
   async settle() {
     await Promise.all([...this.reading]);
     if (this.work) await this.work;
+    await this.progressWork?.catch(() => {});
     if (this.failure) throw Object.assign(attention(this.failure), this.requestBackoff ?? {});
     return this.result?.ok === true;
   }
@@ -289,6 +301,7 @@ class CaptchaPage {
     this.closed = true;
     this.controller.abort();
     await this.dragWork?.catch(() => {});
+    await this.progressWork?.catch(() => {});
     await Promise.allSettled([...this.routing]);
     this.signal?.removeEventListener("abort", this.onAbort);
     this.page.off("request", this.onRequest);

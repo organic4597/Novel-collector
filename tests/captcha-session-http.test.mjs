@@ -16,6 +16,7 @@ test("server-session CAPTCHA routes require administrator cookie and same-origin
         bytes: Buffer.from("fixture-image"),
         mimeType: "image/jpeg",
       }),
+      retry: async () => ({ open: true, automatic: { active: true, attempt: 1, maxAttempts: 5 } }),
     },
   });
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
@@ -46,6 +47,14 @@ test("server-session CAPTCHA routes require administrator cookie and same-origin
   });
   assert.equal(image.status, 200);
   assert.equal(image.headers.get("cache-control"), "no-store");
+  const retry = await fetch(origin + "/api/captcha-session/retry", {
+    method:"POST",headers:{cookie,origin,"content-type":"application/json"},body:"{}",
+  });
+  assert.equal(retry.status,202);
+  assert.equal((await retry.json()).automatic.maxAttempts,5);
+  assert.equal((await fetch(origin+"/api/captcha-session/retry", {
+    method:"POST",headers:{cookie,origin,"content-type":"application/json"},body:'{"token":"not-allowed"}',
+  })).status,400);
   const html = await fetch(origin + "/");
   assert.match(
     html.headers.get("content-security-policy"),

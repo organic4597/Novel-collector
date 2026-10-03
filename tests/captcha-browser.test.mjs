@@ -44,7 +44,7 @@ async function fixture(t, options = {}) {
   const context = await browser.newContext();
   await context.addCookies([{ name: "local-session", value: "current-cookie", url: new URL(target).origin }]);
   const page = await context.newPage();
-  await page.addInitScript((opts) => { window.fixtureOptions = opts; }, { shortTrail: !!options.shortTrail, duplicate: !!options.duplicate });
+  await page.addInitScript((opts) => { window.fixtureOptions = opts; }, { shortTrail: !!options.shortTrail, duplicate: !!options.duplicate, belowFold: !!options.belowFold });
   const html = await readFile(new URL("./fixtures/captcha-reader.html", import.meta.url), "utf8");
   // All browsing is fulfilled locally. Only the isolated server receives POSTs.
   await page.route("**/*", async (route) => {
@@ -109,6 +109,14 @@ test("no CAPTCHA means no create, analysis, verify, or drag", async (t) => {
   assert.equal(f.calls.create.length + f.calls.verify.length + f.calls.analyze, 0);
 });
 
+test("a slider below the viewport is scrolled into view before native pointer input", async (t) => {
+  const f = await fixture(t, { belowFold: true });
+  assert.equal(await f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }), "Local verified content");
+  assert.equal(f.calls.verify.length, 1);
+  const trail = JSON.parse(f.calls.verify[0].raw).trail;
+  assert.ok(trail.every(point => point.y >= 0 && point.y < 720));
+});
+
 test("two uncertain positions retry fresh challenges and the third succeeds without manual attention", async (t) => {
   const f = await fixture(t, { maxAttempts: 3, abstainCount: 2 });
   assert.equal(await f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" }), "Local verified content");
@@ -137,6 +145,18 @@ test("a server rate limit stops immediately instead of spending the three-attemp
     (e) => e.httpStatus === 429 && e.retryAfterMs >= 600000);
   assert.equal(f.calls.create.length, 1);
   assert.equal(f.calls.verify.length, 1);
+});
+
+test("five uncertain positions reach manual fallback only after exhausting the automatic budget", async t => {
+  const f=await fixture(t,{maxAttempts:5,abstain:true});
+  await assert.rejects(f.collector.chapterText(f.page,{url:"https://newtoki1.org/novel/1/2"}),e=>e.captchaAttempts===5);
+  assert.equal(f.calls.create.length,5);assert.equal(f.calls.verify.length,0);
+});
+
+test("four uncertain positions then fifth success retain a single content flow without manual fallback", async t => {
+  const f=await fixture(t,{maxAttempts:5,abstainCount:4});
+  assert.equal(await f.collector.chapterText(f.page,{url:"https://newtoki1.org/novel/1/2"}),"Local verified content");
+  assert.equal(f.calls.create.length,5);assert.equal(f.calls.verify.length,1);
 });
 
 test("a delayed quota response from a concurrent original request shares the ongoing attempt", async (t) => {

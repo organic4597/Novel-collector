@@ -176,3 +176,33 @@ test("browser expiry resumes recovery even after the dialog stops polling", asyn
   assert.deepEqual(f.calls.at(-1), ["resume", host]);
   assert.equal((await f.service.status()).state, "closed");
 });
+
+test("automatic retry is single-flight, reports five-attempt status and blocks human input until failure", async () => {
+  const f=fixture(); await f.service.open({host});
+  let fail;
+  f.browser.retryAutomatic=async ({onProgress,signal})=>{
+    onProgress({attempt:4,stage:"VERIFYING"});
+    return new Promise((_,reject)=>{fail=()=>reject(new Error("private-cookie"));signal.addEventListener("abort",fail,{once:true});});
+  };
+  assert.equal((await f.service.retry()).automatic.active,true);
+  await Promise.resolve();
+  const state=await f.service.status();
+  assert.equal(state.automatic.maxAttempts,5);
+  assert.equal(state.automatic.attempt,4);
+  await assert.rejects(f.service.input({type:"click",x:1,y:2}),{status:409});
+  assert.equal((await f.service.retry()).automatic.active,true);
+  fail();await f.service.automatic.work;
+  assert.equal((await f.service.status()).automatic.state,"failed");
+  assert.ok(!JSON.stringify(await f.service.status()).includes("private-cookie"));
+  await f.service.input({type:"click",x:1,y:2});await f.service.close();
+});
+
+test("closing an automatic retry aborts it and releases only the owned browser", async () => {
+  const f=fixture();await f.service.open({host});
+  f.browser.retryAutomatic=({signal})=>new Promise((_,reject)=>{
+    if(signal.aborted)reject(new Error("abort"));else signal.addEventListener("abort",()=>reject(new Error("abort")),{once:true});
+  });
+  await f.service.retry(); await f.service.close();
+  assert.equal((await f.service.status()).open,false);
+  assert.equal(f.site.held,true);
+});

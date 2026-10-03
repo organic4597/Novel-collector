@@ -712,6 +712,36 @@ export class SiteBrowser {
     });
   }
 
+  retryAutomatic({ owner = null, signal, onProgress } = {}) {
+    return this.serialized(async () => {
+      const session = await this.requireSession(owner);
+      if (!this.captchaSupport) throw fail("자동 CAPTCHA 모듈을 사용할 수 없습니다.", 503);
+      this.touch(session);
+      await session.liveCapture?.lease?.close();
+      session.liveCapture = null;
+      const transport = {
+        resolve: () => session.probeUrl,
+        assertNavigation: (_canonical, actual) => {
+          if (actual !== session.probeUrl) throw fail("인증 페이지가 변경됐습니다.");
+        },
+      };
+      const collector = new Collector({ store: this.store, viewerOrigins: transport,
+        captchaSupport: this.captchaSupport, captchaMaxAttempts: 5, contentTimeoutMs: 20000 });
+      try {
+        await collector.chapterText(session.page, { url: session.canonicalProbeUrl }, signal, { onProgress });
+      } finally {
+        // Explicit dashboard operation hands input back to the human UI after
+        // its bounded budget. Remove only this module's native retry latch.
+        await this.captchaSupport.release(session.page);
+      }
+      if (signal?.aborted || this.session !== session || !this.allowedPage(session))
+        throw fail("자동 CAPTCHA 확인이 중단됐습니다.");
+      session.response = collector.lastNavigationResponse;
+      session.lastCheckAt = null;
+      return { ready: true };
+    });
+  }
+
   async parkVerifiedSession(session) {
     if (!this.contextPool) return;
     if (

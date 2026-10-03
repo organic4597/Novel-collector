@@ -181,6 +181,16 @@ test("overwrite cooldown resume reuses prior successes and retains earlier faile
   assert.equal((await f.store.listFailures(bookId)).length, 1);
 });
 
+test("resuming a verified complete catalog avoids source rescan and still applies the requested range", async t => {
+  const f=await fixture(t);
+  const id=makeBookId(f.job.url);
+  const chapters=[1,2,3].map(n=>({id:chapterIdFor(chapterUrl(n)),number:n,title:`${n}화`,url:chapterUrl(n)}));
+  await f.store.writeCatalog(id,{title:bookTitle,chapters,expectedChapters:3});
+  f.collector.catalog=async()=>assert.fail("should reuse complete saved catalog");
+  const plan=await f.collector.collectionPlan({}, {...f.job,resumeCatalog:true,startEpisode:2,endEpisode:2}, f.hooks,undefined,id);
+  assert.equal(plan.allChapters.length,3);assert.deepEqual(plan.chapters.map(c=>c.number),[2]);
+});
+
 function catalogHtml(numbers, maxPage = 1) {
   return `<div class="page-title"><h2><span>${bookTitle}</span></h2></div><div class="theme-detail-info-row"><span class="theme-detail-info-label">작가</span><span class="theme-detail-info-value">작가</span></div><ul class="list-body">${numbers.map((number) => `<li class="list-item"><span class="wr-num">${number}</span><a class="item-subject" href="${chapterUrl(number)}">${number}화 제목</a></li>`).join("")}</ul><div class="pg"><a href="?epage=${maxPage}">마지막</a></div>`;
 }

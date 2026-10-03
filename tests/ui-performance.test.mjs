@@ -137,6 +137,18 @@ test("unchanged refresh preserves DOM and search is debounced rather than rebuil
   assert.equal(list.querySelectorAll(".book-card").length, 1);
   assert.match(list.textContent, /060/);
 });
+
+test("changing one queued job retains the other card nodes and focused controls", async t => {
+  const {w}=await setup(t,0);
+  for(let i=1;i<=20;i++)w.CollectorUI.addJob({id:`job${i}`,title:`작품${i}`,status:"queued",url:`https://newtoki1.org/novel/${i}`,exports:{}});
+  const nodes=[...w.document.querySelectorAll("#jobs-list .job-card")];
+  const button=w.document.getElementById("logs-job10");button.focus();
+  w.CollectorUI.addJob({...w.CollectorUI.job("job1"),phase:"변경된 작업"});
+  const updated=[...w.document.querySelectorAll("#jobs-list .job-card")];
+  assert.notEqual(updated[0],nodes[0]);
+  assert.equal(updated.slice(1).every((node,i)=>node===nodes[i+1]),true);
+  assert.equal(w.document.activeElement,button);
+});
 test("hidden tabs pause polling and log requests, and focus retains a single in-flight refresh", async (t) => {
   const { w, calls } = await setup(t);
   let hidden = false;

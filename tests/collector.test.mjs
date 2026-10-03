@@ -72,6 +72,10 @@ test("chapter timing samples only actual attempts and caps its recent window", (
   for (let index = 0; index < 30; index++) timing.record(1000);
   assert.equal(timing.estimate(3).timing.samples, 20);
   assert.equal(timing.estimate(3).estimatedSecondsRemaining, 3);
+  const baseline=timing.estimate(3);
+  const retry=timing.estimate(3,{extraMs:23000});
+  assert.equal(retry.estimatedSecondsRemaining,baseline.estimatedSecondsRemaining+23);
+  assert.equal(retry.timing.meanChapterMs,baseline.timing.meanChapterMs);
 });
 
 test("collector slots own separate profile directories and browser contexts", async () => {

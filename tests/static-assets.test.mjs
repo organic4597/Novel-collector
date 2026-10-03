@@ -30,4 +30,7 @@ test("static assets use content validators and retain security headers on 304", 
   assert.equal(changed.status, 200);
   const denied = await fetch(base + "/secrets/admin-credentials.json");
   assert.equal(denied.status, 404);
+  const activity=await fetch(base+"/activity.js");
+  assert.equal(activity.status,200);
+  assert.match(activity.headers.get("content-type"),/javascript/);
 });

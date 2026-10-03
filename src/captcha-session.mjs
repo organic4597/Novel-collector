@@ -50,6 +50,7 @@ export class CaptchaSession {
     };
     this.control = Promise.resolve();
     this.frameCapture = null;
+    this.automatic = null;
   }
 
   serialized(operation) {
@@ -67,11 +68,13 @@ export class CaptchaSession {
   }
 
   async ownedState() {
+    if (this.automatic?.active) return { ...this.automatic.status, automatic: this.autoStatus(), state: "automatic" };
     const session = this.session;
     if (!session)
       return {
         ...this.lastState,
-        pendingSlots: [...this.lastState.pendingSlots],
+          pendingSlots: [...this.lastState.pendingSlots],
+          automatic: this.autoStatus(),
       };
     const state = await this.siteBrowser.status({ owner: session.owner });
     if (this.session !== session)
@@ -82,10 +85,11 @@ export class CaptchaSession {
     }
     if (state.host !== session.host)
       throw fail("인증 브라우저가 변경됐습니다.");
-    return { ...state, state: "open" };
+    return { ...state, state: "open", automatic: this.autoStatus() };
   }
 
   async requireOwned() {
+    if (this.automatic?.active) throw fail("자동 CAPTCHA 진행 중입니다. 완료 후 수동 입력을 사용하세요.");
     const state = await this.ownedState();
     if (!this.session || !state.open)
       throw fail("사람이 사용할 인증 세션을 먼저 여세요.");
@@ -114,6 +118,7 @@ export class CaptchaSession {
       if (!slots.length)
         throw fail("이 사이트에 직접 확인할 인증 슬롯이 없습니다.");
       const session = { host, viewerOrigin, owner: randomUUID() };
+      this.automatic = null;
       session.onExpired = async () => {
         if (this.session === session)
           await this.finish("closed", {
@@ -220,6 +225,12 @@ export class CaptchaSession {
         reload: false,
         owner: session.owner,
       });
+      return this.completeProof(session, proof);
+    });
+  }
+
+  async completeProof(session, proof) {
+      if (this.session !== session) throw fail("인증 세션이 변경됐습니다.");
       if (!proof?.verified) throw fail("회차 본문 확인이 필요합니다.");
       const pendingSlots = await this.pending(session.host);
       if (pendingSlots.length) {
@@ -240,6 +251,40 @@ export class CaptchaSession {
         proof.status ?? { host: session.host, pendingSlots: [] },
       );
       return { ...proof, pendingSlots: [], status: { ...this.lastState } };
+  }
+
+  autoStatus() {
+    const a = this.automatic;
+    return a ? { active: a.active, state: a.state, attempt: a.attempt,
+      maxAttempts: 5, stage: a.stage, error: a.error ?? null } : null;
+  }
+
+  retry() {
+    return this.serialized(async () => {
+      if (this.automatic?.active) return { ...this.automatic.status, automatic: this.autoStatus(), state: "automatic" };
+      const session = await this.requireOwned();
+      if (typeof this.siteBrowser.retryAutomatic !== "function") throw fail("자동 CAPTCHA 모듈을 사용할 수 없습니다.", 503);
+      const status = await this.siteBrowser.status({ owner: session.owner });
+      const automatic = { active: true, state: "running", attempt: 1, stage: "CREATING",
+        status, controller: new AbortController(), error: null, work: null };
+      this.automatic = automatic;
+      automatic.work = Promise.resolve().then(async () => {
+        try {
+          await this.siteBrowser.retryAutomatic({ owner: session.owner,
+            signal: automatic.controller.signal,
+            onProgress: (p) => { if (this.automatic === automatic) Object.assign(automatic, { attempt: p.attempt, stage: p.stage }); },
+          });
+          if (automatic.controller.signal.aborted || this.session !== session) return;
+          const proof = await this.siteBrowser.check({ reload: false, owner: session.owner });
+          await this.serialized(() => this.completeProof(session, proof));
+          automatic.state = "succeeded";
+        } catch {
+          automatic.state = automatic.controller.signal.aborted ? "cancelled" : "failed";
+          automatic.error = automatic.state === "cancelled" ? "자동 확인이 취소됐습니다." :
+            "자동 CAPTCHA 확인을 완료하지 못했습니다. 아래 화면에서 직접 확인할 수 있습니다.";
+        } finally { automatic.active = false; }
+      });
+      return { ...status, automatic: this.autoStatus(), state: "automatic" };
     });
   }
 
@@ -260,7 +305,11 @@ export class CaptchaSession {
     }
   }
 
-  close() {
+  async close() {
+    if (this.automatic?.active) {
+      this.automatic.controller.abort();
+      await this.automatic.work;
+    }
     return this.serialized(async () => {
       if (!this.session) return this.ownedState();
       const session = this.session;

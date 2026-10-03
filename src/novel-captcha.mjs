@@ -121,7 +121,9 @@ export class NovelCaptcha {
     };
     const stage = (state, details = {}) => {
       record.state = state;
-      try { this.log({ stage: state, elapsedMs: Math.max(0, this.clock() - started), ...details }); } catch {}
+      const event = { stage: state, elapsedMs: Math.max(0, this.clock() - started), ...details };
+      try { this.log(event); } catch {}
+      try { Promise.resolve(input.onProgress?.(event)).catch(() => {}); } catch {}
     };
     try {
       check();

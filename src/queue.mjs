@@ -172,6 +172,7 @@ export class Scheduler {
                   ? "queued"
                   : "needs_attention",
             phase: "서비스 재시작",
+            resumeCatalog: true,
             error:
               job.executor === "browser"
                 ? "브라우저 연결을 다시 확인하세요."
@@ -294,6 +295,7 @@ export class Scheduler {
         next = await this.store.patchJob(job.id, {
           status: "running",
           phase: "시작",
+          captcha: null,
           currentChapterId: null,
           currentChapter: null,
           error: null,
@@ -479,6 +481,7 @@ export class Scheduler {
                 ? "일시정지"
                 : "취소",
           error: null,
+          resumeCatalog: action === "resume" || action === "retry_failed",
           estimatedSecondsRemaining: null,
           estimatedCompletionAt: null,
           lastActivity: new Date().toISOString(),

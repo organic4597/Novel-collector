@@ -183,10 +183,16 @@
         addAction(fragment, site, "settings", prefix + "계정 설정", () =>
           $("nav-settings")?.click(),
         );
-      if (message.captcha)
+      if (message.captcha) {
+        const active = (UI.status?.().captchaAutomatic || []).some(item => item.active);
+        const auto = addAction(fragment, site, "captcha-auto", prefix + (active ? "자동 CAPTCHA 진행 중" : "자동 CAPTCHA 재시도"), () =>
+          openCaptcha(site.host, false, true));
+        auto.disabled = active;
+        if (!active)
         addAction(fragment, site, "captcha", prefix + "CAPTCHA 풀기", () =>
           openCaptcha(site.host),
         );
+      }
       if (message.retry) {
         const remaining = retryTime(loginState(site)) - Date.now();
         const button = addAction(
@@ -227,7 +233,8 @@
     pointer = null,
     pendingMove = null,
     moveTimer = null,
-    busy = false;
+    busy = false,
+    automaticTimer = null;
   function isVisible() {
     return UI.authenticated() && dialog.open && !document.hidden;
   }
@@ -257,6 +264,9 @@
     ))
       button.disabled = !enabled;
     $("captcha-session-viewer").disabled = busy;
+    $("captcha-session-retry").disabled = busy || !session?.open || Boolean(pointer) || awaitingInputs > 0;
+    dialog.querySelector(".captcha-session-screen").hidden = Boolean(session?.automatic?.active);
+    $("captcha-session-text-form").hidden = Boolean(session?.automatic?.active);
     $("captcha-session-large")?.setAttribute(
       "aria-disabled",
       String(busy || Boolean(pointer) || awaitingInputs > 0),
@@ -397,6 +407,7 @@
   function closeCaptcha() {
     const owned = session;
     sessionEpoch++;
+    clearTimeout(automaticTimer);
     busy = false;
     session = null;
     cancelPointer();
@@ -410,8 +421,9 @@
         .then(() => api("close", {}))
         .catch(() => {});
   }
-  async function openCaptcha(host, remaining = false) {
+  async function openCaptcha(host, remaining = false, automatic = false) {
     if (!UI.authenticated() || !host || busy) return;
+    if (!automatic && (UI.status?.().captchaAutomatic || []).some(item => item.active)) return;
     if (!session) {
       const origin = UI.status?.().source?.origin;
       if (viewerOrigins.has(origin)) $("captcha-session-viewer").value = origin;
@@ -426,7 +438,7 @@
       generation = UI.generation();
     cancelPointer();
     stopFrames();
-    session = { host, generation, open: false };
+    session = { host, generation, open: false, automatic: automatic ? {active:true} : null };
     busy = true;
     $("captcha-session-text").value = "";
     $("captcha-session-error").textContent = "";
@@ -460,7 +472,8 @@
         ? "남은 인증 확인 · 아래 화면에서 완료하세요."
         : "서버 세션 · 아래 화면에서 완료하세요.";
       busy = false;
-      startFrames(epoch);
+      if (automatic || result.automatic?.active) await retryCaptcha(epoch, result.automatic?.active);
+      else startFrames(epoch);
     } catch (exception) {
       if (current(epoch)) {
         busy = false;
@@ -470,6 +483,62 @@
       if (current(epoch)) controls();
     }
   }
+
+  async function retryCaptcha(epoch = sessionEpoch, alreadyRunning = false) {
+    if (!current(epoch) || !session?.open || (busy && !alreadyRunning)) return;
+    busy = true;
+    cancelPointer();
+    session.automatic = { active: true, attempt: 1, maxAttempts: 5 };
+    stopFrames();
+    controls();
+    $("captcha-session-error").textContent = "";
+    try {
+      await inputChain;
+      if (!current(epoch)) return;
+      const result = alreadyRunning ? await api("status") : await api("retry", {});
+      if (!current(epoch)) return;
+      session = { ...result, generation: session.generation };
+      pollAutomatic(epoch);
+    } catch (exception) {
+      if (current(epoch)) {
+        session.automatic = null;
+        busy = false;
+        error(exception);
+        controls();
+        startFrames(epoch);
+      }
+    }
+  }
+  async function pollAutomatic(epoch) {
+    if (!current(epoch) || !isVisible()) return;
+    try {
+      const result = await api("status");
+      if (!current(epoch)) return;
+      session = { ...result, generation: session.generation };
+      const auto = result.automatic;
+      if (auto?.active) {
+        busy = true;
+        $("captcha-session-status").textContent = `자동 CAPTCHA ${auto.attempt || 1}/${auto.maxAttempts || 5} · ${auto.stage || "확인 중"}`;
+        controls();
+        automaticTimer = setTimeout(() => pollAutomatic(epoch), 1000);
+        return;
+      }
+      busy = false;
+      controls();
+      if (auto?.state === "succeeded") {
+        if (result.open && result.pendingSlots?.length) {
+          await retryCaptcha(epoch);
+        } else { closeCaptcha(); UI.refresh?.(); }
+      } else {
+        $("captcha-session-status").textContent = "자동 확인 종료 · 수동 CAPTCHA 확인 가능";
+        if (auto?.error) error(new Error(auto.error));
+        startFrames(epoch);
+      }
+    } catch (exception) {
+      if (current(epoch)) { busy = false; error(exception); controls(); startFrames(epoch); }
+    }
+  }
+  $("captcha-session-retry").addEventListener("click", () => retryCaptcha());
   function sendInput(body, epoch = sessionEpoch) {
     const moving = body.type === "pointer" && body.phase === "move",
       version = inputVersion;
@@ -727,7 +796,8 @@
             return;
           }
           session = { ...result, generation: session.generation };
-          startFrames(epoch);
+          if (result.automatic?.active) { busy = true; pollAutomatic(epoch); }
+          else { busy = false; controls(); startFrames(epoch); }
         })
         .catch((exception) => {
           if (current(epoch)) error(exception);

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+<title id="title">Novel Collector</title><desc id="desc">로컬 보관함, 자동 수집, 관찰 가능한 대시보드</desc>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#10192a"/><stop offset="1" stop-color="#193e45"/></linearGradient><linearGradient id="mark"><stop stop-color="#8be2cb"/><stop offset="1" stop-color="#78aaff"/></linearGradient></defs>
+<rect width="1200" height="340" rx="24" fill="url(#bg)"/>
+<circle cx="1100" cy="35" r="160" fill="#82ead3" opacity=".06"/><circle cx="910" cy="290" r="130" fill="#87aafa" opacity=".08"/>
+<rect x="60" y="64" width="70" height="70" rx="20" fill="url(#mark)"/><text x="95" y="115" text-anchor="middle" font-family="sans-serif" font-size="48" font-weight="700" fill="#132332">N</text>
+<text x="152" y="115" font-family="sans-serif" font-size="48" font-weight="700" fill="#f5fbff">Novel Collector</text>
+<text x="64" y="170" font-family="sans-serif" font-size="22" fill="#b9d0dc">수집은 차례대로. 보관은 로컬에. 진행은 한눈에.</text>
+<g font-family="sans-serif" font-size="16" fill="#cfebe6"><rect x="64" y="215" width="172" height="44" rx="12" fill="#ffffff" opacity=".07"/><text x="86" y="243">예약 · 순차 수집</text><rect x="250" y="215" width="184" height="44" rx="12" fill="#ffffff" opacity=".07"/><text x="272" y="243">TXT / EPUB 보관</text><rect x="448" y="215" width="200" height="44" rx="12" fill="#ffffff" opacity=".07"/><text x="470" y="243">자동 인증 · 상세 로그</text></g>
+<g transform="translate(825 83)"><rect width="270" height="180" rx="16" fill="#121f30" stroke="#486376"/><rect x="22" y="24" width="142" height="12" rx="6" fill="#87d4c4"/><rect x="22" y="58" width="225" height="36" rx="8" fill="#203746"/><rect x="34" y="72" width="160" height="8" rx="4" fill="#77d5be"/><rect x="22" y="106" width="225" height="36" rx="8" fill="#203746"/><rect x="34" y="120" width="106" height="8" rx="4" fill="#86acfa"/><circle cx="235" cy="30" r="6" fill="#7ae4b5"/></g>
+</svg>

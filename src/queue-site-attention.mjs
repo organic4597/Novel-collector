@@ -107,7 +107,7 @@ export async function releaseJobSite(scheduler, host) {
       if (job?.status !== "needs_attention") continue;
       await scheduler.store.patchJob(id, (current) =>
         current.status === "needs_attention"
-          ? { status: "queued", phase: "인증 확인 완료 · 대기", error: null }
+          ? { status: "queued", phase: "인증 확인 완료 · 대기", error: null, resumeCatalog: true }
           : null,
       );
       affected++;

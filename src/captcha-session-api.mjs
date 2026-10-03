@@ -10,7 +10,7 @@ export function createCaptchaSessionRouter({ captchaSession }) {
       !(request.method === "GET" && ["status", "frame"].includes(name)) &&
       !(
         request.method === "POST" &&
-        ["open", "input", "apply", "close"].includes(name)
+        ["open", "input", "apply", "close", "retry"].includes(name)
       )
     )
       return false;
@@ -29,7 +29,7 @@ export function createCaptchaSessionRouter({ captchaSession }) {
     }
     const input = request.method === "POST" ? await readBody(request) : null;
     if (
-      ["apply", "close"].includes(name) &&
+      ["apply", "close", "retry"].includes(name) &&
       (!input ||
         typeof input !== "object" ||
         Array.isArray(input) ||
@@ -39,7 +39,7 @@ export function createCaptchaSessionRouter({ captchaSession }) {
     const state = ["open", "input"].includes(name)
       ? await captchaSession[name](input)
       : await captchaSession[name]();
-    send(response, 200, state, { "Cache-Control": "no-store" });
+    send(response, name === "retry" ? 202 : 200, state, { "Cache-Control": "no-store" });
     return true;
   };
 }

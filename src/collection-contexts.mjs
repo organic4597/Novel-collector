@@ -264,7 +264,7 @@ export class CollectionContexts {
       const record = this.record({ ...opened, slot, origin });
       this.set(slot, record);
       return this.lease(record);
-    } catch {
+    } catch (error) {
       if (opened?.context && this.entries.get(slot) === reservation)
         await this.retire({
           ...reservation,
@@ -274,7 +274,7 @@ export class CollectionContexts {
       else if (opened?.context)
         await this.closeBounded({ context: opened.context });
       else if (this.entries.get(slot) === reservation) this.set(slot, null);
-      throw fail("수집 브라우저를 준비하지 못했습니다.", 503);
+      throw Object.assign(fail("수집 브라우저를 준비하지 못했습니다.", 503), { cause: error });
     }
   }
 

@@ -39,8 +39,6 @@ export function createSourceSessions(options) {
     autoAuth,
     onState: (state) => {
       console.info("[SourceCheck] " + JSON.stringify(state));
-      options.activity?.add({ scope: "service", message: "사이트 접근 재확인",
-        details: { stage: state.state, attempt: state.attempts } });
     },
   });
   const captchaSession = new CaptchaSession({

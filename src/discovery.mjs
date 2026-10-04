@@ -34,6 +34,7 @@ import { openNormalDiscovery } from "./normal-discovery.mjs";
 
 const PAGE_TTL = 30 * 60 * 1000,
   NEGATIVE_TTL = 6 * 60 * 60 * 1000;
+export const DISCOVERY_PAGE_SIZE = 40;
 const SORT = new Set([
   "updated",
   "new",
@@ -58,7 +59,7 @@ const validId = (value) => {
 };
 const attention = (message) =>
   Object.assign(new Error(message), { code: "NEEDS_ATTENTION" });
-export function normalizeDiscoveryQuery(input = {}) {
+export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
   const integer = (value, fallback, max) => {
     const n = value === undefined || value === "" ? fallback : Number(value);
     if (!Number.isSafeInteger(n) || n < 1 || n > max)
@@ -94,7 +95,7 @@ export function normalizeDiscoveryQuery(input = {}) {
   if (minEpisodes !== null && maxEpisodes !== null && minEpisodes > maxEpisodes)
     throw badInput("회차 범위가 잘못됐습니다.");
   return {
-    page: integer(input.page, 1, 1000),
+    page: integer(input.page, 1, pageLimit),
     query,
     genre,
     platform,
@@ -411,6 +412,79 @@ export class Discovery {
     return this.sourceGate.suspend();
   }
   list(input = {}) {
+    // Dashboard pages are independent of the source site's page size. Keep
+    // source-page caches intact and join only the pages covering this range.
+    const query = normalizeDiscoveryQuery(input, 25000);
+    const key = `paged-list:${JSON.stringify(query)}`;
+    return this.dedupe(key, async () => {
+      this.checkOpen();
+      const loaded = new Map();
+      const read = async page => {
+        if (!loaded.has(page)) loaded.set(page, await this.sourceList({
+          ...query, page, minEpisodes: undefined, maxEpisodes: undefined,
+        }));
+        return loaded.get(page);
+      };
+      const first = await read(1);
+      let result;
+      if (!first.normalCatalog && first.items.length <= DISCOVERY_PAGE_SIZE) {
+        // The retained historical DOM adapter is already paged. Its inactive
+        // network route is not used as a fallback for the normal catalog.
+        result = query.page === 1 ? first : await read(query.page);
+      } else {
+        const sourceSize = first.items.length;
+        if (!sourceSize) {
+          if (query.page !== 1) throw badInput("목록의 마지막 페이지를 초과했습니다.");
+          result = { ...first, page: 1, maxPage: 1, total: 0 };
+        } else {
+          let total = first.total;
+          // A missing or inconsistent count is resolved from the final source
+          // page, not an invented full last page. No chapter details are read.
+          if (!Number.isSafeInteger(total) || total <= (first.maxPage - 1) * sourceSize ||
+              total > first.maxPage * sourceSize) {
+            const last = await read(first.maxPage);
+            total = (first.maxPage - 1) * sourceSize + last.items.length;
+          }
+          const maxPage = Math.max(1, Math.ceil(total / DISCOVERY_PAGE_SIZE));
+          if (query.page > maxPage) throw badInput("목록의 마지막 페이지를 초과했습니다.");
+          const start = (query.page - 1) * DISCOVERY_PAGE_SIZE;
+          const end = Math.min(total, start + DISCOVERY_PAGE_SIZE);
+          const items = [];
+          const ids = new Set();
+          const used = [];
+          for (let page = Math.floor(start / sourceSize) + 1;
+               page <= Math.ceil(end / sourceSize); page++) {
+            const data = await read(page);
+            if (data.page !== page || data.maxPage !== first.maxPage ||
+                (page < first.maxPage && data.items.length !== sourceSize))
+              throw Object.assign(new Error("작품 목록이 변경됐습니다. 다시 검색해 주세요."), { status: 409 });
+            used.push(data);
+            const offset = (page - 1) * sourceSize;
+            for (const item of data.items.slice(Math.max(0, start - offset), end - offset)) {
+              if (ids.has(item.id))
+                throw Object.assign(new Error("작품 목록이 변경됐습니다. 다시 검색해 주세요."), { status: 409 });
+              ids.add(item.id);
+              items.push(item);
+            }
+          }
+          if (items.length !== end - start)
+            throw Object.assign(new Error("작품 목록이 변경됐습니다. 다시 검색해 주세요."), { status: 409 });
+          result = { ...first, items, page: query.page, maxPage, total,
+            cacheHit: used.every(data => data.cacheHit),
+            cachedAt: used.map(data => data.cachedAt).sort()[0] || first.cachedAt };
+        }
+      }
+      const unknownEpisodeCount = result.items.filter(item => item.episodeCount == null).length;
+      const hasEpisodeFilter = query.minEpisodes !== null || query.maxEpisodes !== null;
+      const items = hasEpisodeFilter ? result.items.filter(item => item.episodeCount != null &&
+        (query.minEpisodes === null || item.episodeCount >= query.minEpisodes) &&
+        (query.maxEpisodes === null || item.episodeCount <= query.maxEpisodes)) : result.items;
+      const { normalCatalog, ...publicResult } = result;
+      return { ...publicResult, items, pageSize: DISCOVERY_PAGE_SIZE, unknownEpisodeCount,
+        filters: { ...result.filters, ...query, episodeScope: hasEpisodeFilter ? "known-only" : "all" } };
+    });
+  }
+  sourceList(input = {}) {
     const query = normalizeDiscoveryQuery(input),
       remote = { ...query, minEpisodes: null, maxEpisodes: null };
     const key = createHash("sha256")
@@ -501,6 +575,7 @@ export class Discovery {
             );
           return {
             items,
+            normalCatalog: !!data.normalCatalog,
             page: data.page,
             maxPage: data.maxPage,
             total: data.total ?? null,

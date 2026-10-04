@@ -280,6 +280,7 @@
   }
   async function load(target = 1) {
     if (loading || !authenticated() || document.hidden) return;
+    const changingPage = target !== page;
     loading = true;
     stopAuto();
     active = true;
@@ -310,6 +311,11 @@
         `${UI.count(items.length)}개 작품 · ${data.cacheHit ? "저장된 목록" : "최신 목록"}${data.cachedAt ? " · " + UI.date(data.cachedAt) : ""}`,
       );
       render();
+      if (changingPage && !document.hidden && UI.view() === "discover") {
+        const firstWork = $("discover-list").querySelector(".discover-card");
+        firstWork?.scrollIntoView({ block: "start", behavior: "instant" });
+        firstWork?.querySelector(".discover-title-link")?.focus({ preventScroll: true });
+      }
     } catch (error) {
       if (current === version) notice("", UI.textError(error));
     } finally {

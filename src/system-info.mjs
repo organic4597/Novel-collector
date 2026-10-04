@@ -73,7 +73,7 @@ export class SystemInfo {
     return {
       ...stats,
       uptimeSeconds: Math.max(0, Math.floor(this.uptime())),
-      backoff: { threshold: 5, cooldownMs: 600000 },
+      backoff: { threshold: null, cooldownMs: 600000, mode: "server-limit" },
       maxConcurrency: 2,
       computedAtISO: stats.computedAtISO,
       cached,

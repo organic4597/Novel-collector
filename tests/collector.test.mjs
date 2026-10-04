@@ -200,6 +200,13 @@ test("filesystem identities are stable and independent of title text", () => {
   );
 });
 
+test("missing source pages report HTTP404 as missing content rather than CAPTCHA",async()=>{
+  const collector=new Collector({store:{}});
+  const error=await collector.responseProblem({status:()=>404});
+  assert.equal(error.code,"CONTENT_NOT_FOUND");assert.equal(error.httpStatus,404);
+  assert.equal(error.attentionKind,undefined);assert.match(error.message,/업로드 상태와 주소/);
+});
+
 test("TXT and EPUB preserve exactly the collected chapter text", async () => {
   const chapters = [
     { number: 1, title: "첫 회차 & <제목>", text: "첫 줄\n\n둘째 줄" },

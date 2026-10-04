@@ -384,7 +384,7 @@
     $("system-operation").textContent = status.queuePaused
       ? "전체 일시정지 · 직접 시작할 때까지 유지"
       : status.backoff?.active
-        ? "연속 실패로 요청 대기 중"
+        ? "서버 요청 제한으로 대기 중"
         : active
           ? `${active}개 작품 수집 중`
           : "다음 예약을 기다리고 있습니다.";
@@ -413,7 +413,7 @@
         $("system-uptime").textContent =
           `${Math.floor(seconds / 3600)}시간 ${Math.floor((seconds % 3600) / 60)}분`;
         $("system-backoff").textContent =
-          `${count(info.backoff?.threshold ?? 5)}회 실패 후 ${Math.floor((info.backoff?.cooldownMs ?? 600000) / 60000)}분`;
+          `HTTP 429 / Retry-After · 기본 ${Math.floor((info.backoff?.cooldownMs ?? 600000) / 60000)}분`;
         $("system-info-updated").textContent = info.computedAt
           ? `확인 시각 ${new Date(info.computedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}${info.cached ? " · 저장된 통계" : ""}`
           : "서버에서 확인한 정보입니다.";

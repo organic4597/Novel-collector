@@ -70,6 +70,7 @@ export class Scheduler {
     this.enabled = false;
     this.lease = null;
     this.agents = new Map();
+    this.deletions = new Map();
   }
   get activeJobIds() {
     return [...this.active.keys()];
@@ -161,6 +162,11 @@ export class Scheduler {
       if (this.enabled) return;
       await loadQueueState(this);
       await this.attention?.load();
+      for (const job of await this.store.listJobs()) {
+        if (!job.deleting) continue;
+        await this.store.deleteJob(job.id);
+        await this.attention?.forgetJob?.(job.id);
+      }
       for (const job of await this.store.listJobs())
         if (job.status === "running")
           await this.store.patchJob(job.id, {
@@ -417,6 +423,7 @@ export class Scheduler {
           throw Object.assign(new Error("작업을 찾을 수 없습니다."), {
             status: 404,
           });
+        if (job.deleting || this.deletions.has(id)) throw conflict("삭제 중인 예약은 변경할 수 없습니다.");
         if (
           !["pause", "resume", "cancel", "retry", "retry_failed"].includes(
             action,
@@ -507,6 +514,54 @@ export class Scheduler {
         clientId,
         lastSeen: new Date(lastSeen).toISOString(),
       }));
+  }
+
+  async deleteJob(id, { waitMs = 1500 } = {}) {
+    safeId(id);
+    let record = this.deletions.get(id);
+    if (!record) {
+      record = {};
+      this.deletions.set(id, record);
+      record.work = Promise.resolve().then(async () => {
+        let task;
+        await this.withControl(async () => {
+          const job = await this.store.getJob(id);
+          if (!job) throw Object.assign(new Error("작업을 찾을 수 없습니다."), { status: 404 });
+          const entry = this.active.get(id);
+          task = entry?.task;
+          await this.store.patchJob(id, {
+            status: TERMINAL.has(job.status) ? job.status : "cancelled",
+            phase: "예약 삭제 중", deleting: true, captcha: null,
+            estimatedSecondsRemaining: null, estimatedCompletionAt: null,
+          });
+          entry?.controller?.abort(new Error("예약 삭제"));
+          if (this.lease?.jobId === id) { this.lease = null; this.active.delete(id); }
+        });
+        // Worker cleanup may itself need the scheduler control queue. Never
+        // wait for it while holding that queue, and never archive a live writer.
+        await task;
+        const result = await this.withControl(() => this.store.locked("agent:" + id, async () => {
+          const deleted = await this.store.deleteJob(id);
+          await this.attention?.forgetJob?.(id);
+          return deleted;
+        }));
+        this.requestTick();
+        return result;
+      });
+      record.work.then(() => this.deletions.delete(id), async (error) => {
+        this.recordTaskError(id, error);
+        try {
+          if (await this.store.getJob(id)) await this.store.patchJob(id, { deleting: false, phase: "예약 삭제 실패" });
+        } catch {}
+        this.deletions.delete(id);
+      });
+    }
+    let timer;
+    try {
+      return await Promise.race([record.work, new Promise(resolve => {
+        timer = setTimeout(() => resolve({ deleted: false, pending: true }), waitMs);
+      })]);
+    } finally { clearTimeout(timer); }
   }
   async claim(clientId) {
     safeId(clientId);

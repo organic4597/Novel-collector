@@ -805,6 +805,7 @@
     }
   });
   document.addEventListener("collector:status", () => {
+    if (session && !attention(session.host) && !session.automatic?.active) closeCaptcha();
     for (const [host, request] of loginRequests)
       if (!request.pending) loginRequests.delete(host);
     renderBanner();

@@ -49,7 +49,7 @@ test("system stats use only metadata, cache for thirty seconds and never reveal 
   assert.equal(first.bodyBytes, 60);
   assert.equal(first.diskFreeBytes, 409600);
   assert.equal(first.uptimeSeconds, 12);
-  assert.deepEqual(first.backoff, { threshold: 5, cooldownMs: 600000 });
+  assert.deepEqual(first.backoff, { threshold: null, cooldownMs: 600000, mode:"server-limit" });
   assert.equal(first.maxConcurrency, 2);
   assert.equal(first.cached, false);
   assert.equal(first.settings.maxConcurrency, 1);

@@ -158,6 +158,10 @@ async function poll() {
       state.status = results[0].value || {};
     if (results[1].status === "fulfilled")
       state.jobs = Array.isArray(results[1].value) ? results[1].value : [];
+    if (results[1].status === "fulfilled" && state.selectedJob && !state.jobs.some(job => job.id === state.selectedJob)) {
+      state.selectedJob = null;
+      window.CollectorLogs?.close();
+    }
     renderSummary();
     if (["queue", "history"].includes(state.view)) renderJobs();
     if (failure) throw failure.reason;
@@ -227,7 +231,7 @@ function renderSummary() {
       ? safeString(state.status.collector?.lastError || runner?.lastError) ||
         "서버 수집기 확인 필요"
       : state.status.backoff?.active
-        ? "연속 실패로 요청 대기 중"
+        ? "서버 요청 제한으로 대기 중"
         : running.length
           ? `${count(running.length)}개 작품 수집 중 · 최대 ${concurrency}개`
           : "다음 예약을 기다리고 있습니다";
@@ -382,6 +386,7 @@ function jobCard(job, queued, inHistory = false) {
     "article",
     `job-card ${job.status === "running" ? "running" : ""}`,
   );
+  if (job.deleting) card.setAttribute("aria-busy", "true");
   const top = node("div", "job-top");
   const identity = node("div", "job-identity");
   const ordinal =
@@ -512,7 +517,7 @@ function jobCard(job, queued, inHistory = false) {
       label,
     );
     button.id = `${inHistory && job.status === "failed" ? "history-" : ""}${action}-${job.id}`;
-    button.disabled = state.pendingActions.has(job.id);
+    button.disabled = state.pendingActions.has(job.id) || job.deleting === true;
     button.addEventListener("click", () => jobAction(job, action));
     actions.append(button);
   }
@@ -528,16 +533,16 @@ function jobCard(job, queued, inHistory = false) {
   ) {
     const retry = node("button", "secondary", "실패 회차 재수집");
     retry.id = `${inHistory && job.status === "failed" ? "history-" : ""}retry-failed-${job.id}`;
-    retry.disabled = state.pendingActions.has(job.id);
+    retry.disabled = state.pendingActions.has(job.id) || job.deleting === true;
     retry.addEventListener("click", () =>
       window.CollectorLibrary.retryJob(job),
     );
     actions.append(retry);
   }
-  if (inHistory) {
-    const remove = node("button", "danger", "기록 삭제");
+  {
+    const remove = node("button", "danger", job.deleting ? "삭제 중…" : inHistory ? "기록 삭제" : "예약 삭제");
     remove.id = `delete-${job.id}`;
-    remove.disabled = state.pendingActions.has(job.id);
+    remove.disabled = state.pendingActions.has(job.id) || job.deleting === true;
     remove.addEventListener("click", () => deleteRecord(job));
     actions.append(remove);
   }
@@ -577,14 +582,21 @@ async function deleteRecord(job) {
   state.pendingActions.add(job.id);
   renderJobs();
   try {
-    await api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+    const result = await api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+    if (result?.pending) {
+      state.jobs = state.jobs.map(entry => entry.id === job.id ? { ...entry, status: "cancelled", deleting: true, phase: "예약 삭제 중" } : entry);
+      state.refreshRequested = true;
+      toast("수집 종료를 기다린 뒤 예약을 삭제합니다. 저장한 본문은 유지됩니다.");
+      renderSummary();
+      return;
+    }
     state.jobs = state.jobs.filter((entry) => entry.id !== job.id);
     if (state.selectedJob === job.id) {
       state.selectedJob = null;
       window.CollectorLogs?.close();
     }
     renderSummary();
-    toast("기록을 삭제했습니다. 보관함의 본문은 유지됩니다.");
+    toast("예약과 기록을 삭제했습니다. 보관함의 본문은 유지됩니다.");
   } catch (error) {
     errorNotice(textError(error));
   } finally {

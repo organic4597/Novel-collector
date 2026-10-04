@@ -27,7 +27,7 @@ async function fixture(t, options = {}) {
   };
 }
 
-test("five real failures trigger ten minutes; success resets streak without cancelling cooldown", async (t) => {
+test("five ordinary body failures do not pause requests; only server limits start cooldown", async (t) => {
   const { backoff } = await fixture(t);
   for (let index = 0; index < 4; index++)
     assert.equal(
@@ -36,9 +36,10 @@ test("five real failures trigger ten minutes; success resets streak without canc
     );
   assert.equal(backoff.snapshot().active, false);
   const fifth = await backoff.failure({ reason: "reader failure" });
-  assert.equal(fifth.triggered, true);
-  assert.equal(fifth.remainingMs, 600000);
-  assert.equal(backoff.snapshot().remainingSeconds, 600);
+  assert.equal(fifth.triggered, false);
+  assert.equal(fifth.remainingMs, 0);
+  assert.equal(backoff.snapshot().remainingSeconds, 0);
+  await backoff.failure({ reason: "HTTP 429" });
   await backoff.success();
   assert.equal(backoff.snapshot().consecutiveFailures, 0);
   assert.equal(backoff.snapshot().active, true);
@@ -49,18 +50,31 @@ test("parallel failures serialize and cooldown survives restart before expiry re
   const results = await Promise.all(
     Array.from({ length: 5 }, () => backoff.failure({ reason: "failed" })),
   );
-  assert.equal(results.filter((result) => result.triggered).length, 1);
+  assert.equal(results.filter((result) => result.triggered).length, 0);
   assert.equal(backoff.snapshot().consecutiveFailures, 5);
   const restored = new BackoffController({ store, clock });
   await restored.load();
-  assert.equal(restored.snapshot().active, true);
-  advance(600001);
-  await restored.clearAfterExpiry();
   assert.equal(restored.snapshot().active, false);
-  assert.equal(restored.snapshot().consecutiveFailures, 0);
+  await restored.failure({ reason:"HTTP 429",retryAfterMs:600000 });
+  const limited = new BackoffController({ store, clock });await limited.load();
+  assert.equal(limited.snapshot().active,true);
+  advance(600001);
+  await limited.clearAfterExpiry();
+  assert.equal(limited.snapshot().active, false);
+  assert.equal(limited.snapshot().consecutiveFailures, 0);
   const again = new BackoffController({ store, clock });
   await again.load();
   assert.equal(again.snapshot().consecutiveFailures, 0);
+});
+
+test("legacy failure-streak pauses are cleared while legacy explicit HTTP429 waits remain",async t=>{
+  const f=await fixture(t);
+  await f.store.atomic(f.backoff.path,{consecutiveFailures:5,until:new Date(f.clock()+600000).toISOString(),reason:"reader failure"});
+  const migrated=new BackoffController({store:f.store,clock:f.clock});await migrated.load();
+  assert.equal(migrated.snapshot().active,false);
+  await f.store.atomic(f.backoff.path,{consecutiveFailures:1,until:new Date(f.clock()+600000).toISOString(),reason:"HTTP 429"});
+  const rate=new BackoffController({store:f.store,clock:f.clock});await rate.load();
+  assert.equal(rate.snapshot().active,true);
 });
 
 test("positive Retry-After immediately holds for at least ten minutes or a longer server delay", async (t) => {

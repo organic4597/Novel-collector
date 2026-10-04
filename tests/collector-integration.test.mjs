@@ -7,6 +7,7 @@ import { JSDOM } from "jsdom";
 import JSZip from "jszip";
 import { Collector, chapterIdFor, makeBookId } from "../src/collector.mjs";
 import { FolderStore } from "../src/store.mjs";
+import { BackoffController } from "../src/request-backoff.mjs";
 
 const base = "https://newtoki1.org/novel/21104";
 const chapterUrl = (number) => `${base}/${100 + number}`;
@@ -191,6 +192,19 @@ test("resuming a verified complete catalog avoids source rescan and still applie
   const plan=await f.collector.collectionPlan({}, {...f.job,resumeCatalog:true,startEpisode:2,endEpisode:2}, f.hooks,undefined,id);
   assert.equal(plan.allChapters.length,3);assert.deepEqual(plan.chapters.map(c=>c.number),[2]);
   assert.equal(plan.allChapters[2].notReady,true);
+});
+
+test("seven missing bodies are recorded and skipped before the next valid chapter without a global pause",{timeout:3000},async t=>{
+  const numbers=Array.from({length:8},(_,i)=>i+1);
+  const f=await fixture(t,{pages:new Map([[base,{html:catalogHtml(numbers)}],
+    ...numbers.map(n=>[chapterUrl(n),{html:n===8?bodyFor(n):missingBody}])])});
+  const backoff=new BackoffController({store:f.store});await backoff.load();f.collector.backoff=backoff;
+  f.hooks.requestFailure=error=>backoff.failure({reason:error.message});f.hooks.requestSuccess=()=>backoff.success();
+  const result=await f.collector.run(f.job,f.hooks);
+  assert.equal(result.failed,7);assert.equal(result.completed,1);
+  assert.equal(backoff.snapshot().active,false);
+  assert.equal((await f.store.listFailures(makeBookId(base))).length,7);
+  assert.equal((await f.store.readChapter(makeBookId(base),chapterIdFor(chapterUrl(8)))).text,textFor(8));
 });
 
 function catalogHtml(numbers, maxPage = 1) {

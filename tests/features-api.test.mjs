@@ -123,7 +123,7 @@ test("system information requires auth and UI-only settings never configure sche
   const data = await info.json();
   assert.equal(data.bookCount, 0);
   assert.equal(data.chapterCount, 0);
-  assert.deepEqual(data.backoff, { threshold: 5, cooldownMs: 600000 });
+  assert.deepEqual(data.backoff, { threshold: null, cooldownMs: 600000, mode:"server-limit" });
   assert.equal(data.maxConcurrency, 2);
   assert.doesNotMatch(
     JSON.stringify(data),

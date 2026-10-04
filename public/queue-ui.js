@@ -55,7 +55,7 @@
     const title = node(
       "strong",
       "",
-      `연속 ${count(backoff.consecutiveFailures || 5)}회 실패로 요청 대기 중 · 남은 ${remaining}`,
+      `서버 요청 제한으로 대기 중 · 남은 ${remaining}`,
     );
     const deadline = node(
       "p",
@@ -65,7 +65,7 @@
     const hint = node(
       "p",
       "",
-      `${status.queuePaused ? "대기가 끝나도 전체 일시정지는 유지됩니다. " : ""}전체 시작을 눌러도 대기 시간 끝난 뒤 시작합니다. 저장된 파일 내려받기는 계속 사용할 수 있습니다.`,
+      `${status.queuePaused ? "대기가 끝나도 전체 일시정지는 유지됩니다. " : ""}일반 본문 실패는 기록 후 다음 회차로 넘어갑니다. 이 대기는 HTTP 429·Retry-After 등 서버가 명시한 요청 제한이며 CAPTCHA 수동 대기와는 별도입니다. 전체 시작을 눌러도 대기 시간 끝난 뒤 시작합니다. 저장 파일 내려받기는 계속 사용할 수 있습니다.`,
     );
     panel.replaceChildren(title, deadline, hint);
     if (backoff.reason)

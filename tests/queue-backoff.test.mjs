@@ -111,7 +111,7 @@ test("manual start does not bypass an active automatic cooldown", async (t) => {
   assert.equal((await store.getJob(job.id)).status, "queued");
 });
 
-test("fifth request failure queues and aborts both active collectors without changing manual pause", async (t) => {
+test("five body failures leave both collectors running; explicit HTTP429 pauses them", async (t) => {
   const execution = controlledCollectors();
   const { store, scheduler } = await setup(t, execution.collector, {
     collectorFactory: execution.collectorFactory,
@@ -132,6 +132,10 @@ test("fifth request failure queues and aborts both active collectors without cha
   await store.patchJob(jobs[1].id, { currentChapterId: "in-flight-2" });
   for (let index = 0; index < 5; index++)
     await scheduler.requestFailed(jobs[0].id, new Error("reader failed"));
+  assert.equal(scheduler.backoff.snapshot().active,false);
+  assert.equal(scheduler.activeJobIds.length,2);
+  assert.ok(execution.started.every(entry=>!entry.signal.aborted));
+  await scheduler.requestFailed(jobs[0].id,Object.assign(new Error("HTTP 429"),{httpStatus:429}));
   await until(() => scheduler.activeJobIds.length === 0);
   assert.equal(scheduler.queuePaused, false);
   assert.ok(
@@ -157,7 +161,7 @@ test("fifth request failure queues and aborts both active collectors without cha
   assert.equal(execution.started.length, 4);
 });
 
-test("triggering a protected site challenge stops other workers but never auto retries its own work", async (t) => {
+test("an untyped challenge without a server rate limit does not pause unrelated workers", async (t) => {
   const execution = controlledCollectors();
   const { store, scheduler } = await setup(t, execution.collector, {
     collectorFactory: execution.collectorFactory,
@@ -177,7 +181,7 @@ test("triggering a protected site challenge stops other workers but never auto r
     }),
   );
   assert.equal(execution.running.get(first.id).signal.aborted, false);
-  assert.equal(execution.running.get(second.id).signal.aborted, true);
+  assert.equal(execution.running.get(second.id).signal.aborted, false);
   execution.running
     .get(first.id)
     .resolve({ status: "completed_with_errors", completed: 1, failed: 1 });

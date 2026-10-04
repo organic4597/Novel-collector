@@ -484,6 +484,10 @@ export class Collector {
             status === 401 ? "authentication" : "site_blocked",
           )
         : new Error(`페이지 요청 실패 (HTTP ${status}).`);
+      if (status === 404) {
+        error.code = "CONTENT_NOT_FOUND";
+        error.message = "사이트에 작품 또는 회차 페이지가 없습니다 (HTTP 404). 업로드 상태와 주소를 확인하세요.";
+      }
       let retryHeader;
       try {
         retryHeader = response.headerValue

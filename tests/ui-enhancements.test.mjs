@@ -462,7 +462,7 @@ test("Cooldown shows countdown, keeps global controls and downloads available, s
   assert.equal(w.document.getElementById("queue-backoff").hidden, false);
   assert.match(
     w.document.getElementById("queue-backoff").textContent,
-    /연속 5회 실패.*남은.*분/,
+    /서버 요청 제한.*남은.*분/,
   );
   assert.match(
     w.document.getElementById("queue-backoff").textContent,

@@ -5,6 +5,7 @@ const emptyState = () => ({
   until: null,
   reason: null,
   jobId: null,
+  cause: null,
 });
 const aborted = (signal) => {
   if (signal?.aborted)
@@ -17,17 +18,14 @@ const aborted = (signal) => {
 };
 
 export class BackoffController {
-  constructor({ store, clock = Date.now, threshold = 5, cooldownMs = 600000 }) {
+  constructor({ store, clock = Date.now, cooldownMs = 600000 }) {
     if (
-      !Number.isSafeInteger(threshold) ||
-      threshold < 1 ||
       !Number.isSafeInteger(cooldownMs) ||
       cooldownMs < 1
     )
-      throw new Error("연속 실패 제한과 대기 시간이 올바르지 않습니다.");
+      throw new Error("서버 요청 대기 시간이 올바르지 않습니다.");
     this.store = store;
     this.clock = clock;
-    this.threshold = threshold;
     this.cooldownMs = cooldownMs;
     this.path = store.path("request-backoff.json");
     this.state = emptyState();
@@ -51,6 +49,9 @@ export class BackoffController {
     return this.serialized(async () => {
       const saved = await this.store.json(this.path);
       if (saved) {
+        // Previous versions persisted both streak pauses and server limits in
+        // this file. Only explicit server-limit holds belong to the new policy.
+        const serverLimit = saved.cause === "server-limit" || /\bHTTP[_\s-]*429\b|too many requests|retry-after/i.test(saved.reason || "");
         this.state = {
           consecutiveFailures:
             Number.isSafeInteger(saved.consecutiveFailures) &&
@@ -58,21 +59,22 @@ export class BackoffController {
               ? saved.consecutiveFailures
               : 0,
           until:
-            saved.until && Number.isFinite(Date.parse(saved.until))
+            serverLimit && saved.until && Number.isFinite(Date.parse(saved.until))
               ? saved.until
               : null,
           reason: saved.reason ? cleanMessage(saved.reason) : null,
           jobId: typeof saved.jobId === "string" ? saved.jobId : null,
+          cause: serverLimit ? "server-limit" : null,
         };
         const next = this.expiredState();
-        if (next !== this.state) await this.persist(next);
+        if (next !== this.state || saved.until !== this.state.until) await this.persist(next);
       }
       return this.snapshot();
     });
   }
   async failure({
     retryAfterMs = 0,
-    reason = "연속 요청 실패",
+    reason = "본문 요청 실패",
     jobId = null,
   } = {}) {
     return this.serialized(async () => {
@@ -90,8 +92,7 @@ export class BackoffController {
       let until = oldUntil;
       if (
         explicitDelay ||
-        rateLimited ||
-        (consecutiveFailures >= this.threshold && oldUntil <= now)
+        rateLimited
       )
         until = Math.max(
           oldUntil,
@@ -100,8 +101,9 @@ export class BackoffController {
       const next = {
         consecutiveFailures,
         until: until > now ? new Date(until).toISOString() : null,
-        reason: cleanMessage(reason),
+        reason: until > now && !explicitDelay && !rateLimited ? previous.reason : cleanMessage(reason),
         jobId: typeof jobId === "string" ? jobId : null,
+        cause: until > now ? "server-limit" : null,
       };
       await this.persist(next);
       return {

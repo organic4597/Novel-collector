@@ -31,7 +31,7 @@ export async function suspendRequests(scheduler, jobId, error) {
           job.status === "running"
             ? {
                 status: browser ? "needs_attention" : "queued",
-                phase: "연속 오류 요청 대기",
+                phase: "서버 요청 제한 대기",
                 estimatedSecondsRemaining: null,
                 estimatedCompletionAt: null,
                 backoffResumeChapterId:
@@ -45,7 +45,7 @@ export async function suspendRequests(scheduler, jobId, error) {
         scheduler.active.delete(id);
       } else {
         entry.controller.abort(
-          Object.assign(new Error("연속 요청 오류로 자동 대기합니다."), {
+          Object.assign(new Error("서버가 안내한 요청 제한으로 대기합니다."), {
             code: "AUTO_BACKOFF",
           }),
         );

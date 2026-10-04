@@ -94,6 +94,21 @@ export class SiteAttention {
   snapshot() {
     return { sites: structuredClone([...this.sites.values()]) };
   }
+  forgetJob(id) {
+    safeId(id);
+    return this.serialized(async () => {
+      const next = new Map(this.sites);
+      let changed = false;
+      for (const [host, site] of next) {
+        if (!site.jobIds.includes(id)) continue;
+        const jobIds = site.jobIds.filter(value => value !== id);
+        if (!jobIds.length) next.delete(host);
+        else next.set(host, { ...site, jobIds });
+        changed = true;
+      }
+      if (changed) await this.persist(next);
+    });
+  }
   async holdSite(host, { reason, jobIds = [], requiredSlots, kind } = {}) {
     host = hostId(host);
     const slots = slotList(requiredSlots),

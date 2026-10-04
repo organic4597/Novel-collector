@@ -57,7 +57,7 @@ async function fixture(t, { deferLoad = false } = {}) {
           bodyBytes: 2048,
           diskFreeBytes: 4096,
           uptimeSeconds: 3661,
-          backoff: { threshold: 5, cooldownMs: 600000 },
+          backoff: { threshold: null, cooldownMs: 600000,mode:"server-limit" },
           maxConcurrency: 2,
         };
       if (path === "/api/settings/password") return { changed: true };
@@ -210,7 +210,7 @@ test("Server info loads on demand and renders counts, storage and immutable retr
   );
   assert.match(
     w.document.getElementById("system-backoff").textContent,
-    /5회.*10분/,
+    /HTTP 429.*Retry-After.*10분/,
   );
   w.document.dispatchEvent(
     new w.CustomEvent("collector:view", { detail: "settings" }),

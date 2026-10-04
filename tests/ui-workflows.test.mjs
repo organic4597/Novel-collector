@@ -204,6 +204,18 @@ test("Queue separates terminal history, two active jobs show, record deletion pr
   );
 });
 
+test("queue offers reservation deletion for running, queued, paused and attention entries",async t=>{
+  const {w,calls}=await setup(t);
+  for(const id of ["job-0","job-2","job-3","job-4","job-5"]){
+    const button=w.document.getElementById(`delete-${id}`);
+    assert.ok(button);assert.equal(button.textContent,"예약 삭제");
+  }
+  w.document.getElementById("delete-job-2").click();await tick();
+  assert.ok(calls.some(c=>c.path==="/api/jobs/job-2"&&c.options.method==="DELETE"));
+  assert.equal(w.CollectorUI.job("job-2"),undefined);
+  assert.equal(w.document.getElementById("delete-job-2"),null);
+});
+
 test("Multiline links submit one batch; shared settings and duplicate notice retained", async (t) => {
   const { w, calls } = await setup(t);
   click(w, "add-batch-button");

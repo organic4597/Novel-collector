@@ -456,8 +456,10 @@ export function createApp({
           safeId(parts[2]);
           const job = await store.getJob(parts[2]);
           if (!job) throw HTTP_ERROR("작업을 찾을 수 없습니다.", 404);
-          if (parts.length === 3 && method === "DELETE")
-            return send(response, 200, await store.deleteJob(job.id));
+          if (parts.length === 3 && method === "DELETE") {
+            const result = scheduler.deleteJob ? await scheduler.deleteJob(job.id) : await store.deleteJob(job.id);
+            return send(response, result.pending ? 202 : 200, result);
+          }
           if (parts.length === 3 && method === "GET")
             return send(response, 200, job);
           if (

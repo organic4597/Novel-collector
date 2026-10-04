@@ -36,6 +36,23 @@ export function parseArguments(args) {
   return { mode: args.includes("--help") ? "help" : modes[0]?.slice(2) || "start",
     setup: !args.includes("--no-setup") && !args.includes("--check") && !args.includes("--test-images") };
 }
+export async function waitForUpdate(rootDir=ROOT,{sleep=ms=>new Promise(r=>setTimeout(r,ms)),alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}}}={}){
+  const lock=path.join(rootDir,".updates","lock.json");
+  for(let i=0;i<1800;i++){
+    let job;try{job=JSON.parse(await readFile(lock,"utf8"));}catch(e){
+      if(e.code!=="ENOENT")throw failure("UPDATE_LOCK","업데이트 잠금 파일을 확인하세요.");
+      try{job=JSON.parse(await readFile(path.join(rootDir,".updates","pending-verification.json"),"utf8"));}catch(error){if(error.code==="ENOENT")return;throw failure("UPDATE_LOCK","업데이트 검증 기록을 확인하세요.");}
+      if(Number.isSafeInteger(job.pid)&&job.pid>0&&alive(job.pid))return;
+    }
+    if(!Number.isSafeInteger(job.pid)||job.pid<1)throw failure("UPDATE_LOCK","업데이트 잠금 형식을 확인하세요.");
+    if(!alive(job.pid)){
+      const helper=path.join(rootDir,".updates","recover.mjs");
+      if(existsSync(path.join(rootDir,".updates","transaction.json"))){if(!existsSync(helper))throw failure("UPDATE_RECOVERY","업데이트 복구 스크립트를 확인하세요.");const result=await runCommand(process.execPath,[helper,rootDir]);if(result.code!==0)throw failure("UPDATE_RECOVERY","이전 소스 자동 복구를 완료하지 못했습니다.");}
+      const {rm,writeFile}=await import("node:fs/promises");await rm(lock,{force:true});await rm(path.join(rootDir,".updates","pending-verification.json"),{force:true});await writeFile(path.join(rootDir,".updates","job.json"),JSON.stringify({state:"failed",message:"중단된 업데이트에서 이전 소스를 복구했습니다."}),{mode:0o600});return;
+    }
+    await sleep(1000);
+  }throw failure("UPDATE_WAIT","업데이트 완료를 기다리는 중 시간 제한을 초과했습니다.");
+}
 
 export function runCommand(command, args, { cwd = ROOT, env = process.env, capture = false, timeoutMs = 600000 } = {}) {
   return new Promise((resolve, reject) => {
@@ -195,6 +212,7 @@ async function main() {
     return;
   }
   process.chdir(ROOT);
+  if(args.mode==="start")await waitForUpdate(ROOT);
   const { env, python } = await prepareRuntime({ setup: args.setup });
   if (args.mode === "test-images") {
     const result = await runCommand(python.executable, ["-m", "unittest", "discover", "-s", "tests", "-p", "captcha_position_test.py", "-v"], { env });

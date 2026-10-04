@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 const git = (...args) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
 const files = git("ls-files", "-z").split("\0").filter(Boolean);
-const allowed = /^(?:LICENSE|README\.md|\.gitignore|run\.mjs|package(?:-lock)?\.json|requirements-captcha\.txt|src\/[^/]+\.mjs|public\/[^/]+\.(?:js|html|css)|tests\/[^/]+\.test\.mjs|tests\/captcha_position_test\.py|tests\/fixtures\/(?:captcha-reader\.html|work-detail-synthetic\.html|discovery-synthetic\.mjs)|tools\/(?:captcha_position\.py|evaluate_captcha\.py|check-publication\.mjs)|docs\/(?:CAPTCHA|CONTRACT|TESTING|INSTALL|UPDATE|TROUBLESHOOTING|DASHBOARD)\.md|docs\/assets\/[^/]+\.svg|deploy\/novel-collector\.service)$/;
+const allowed = /^(?:LICENSE|README\.md|\.gitignore|run\.mjs|(?:install|start)\.(?:sh|ps1)|package(?:-lock)?\.json|requirements-captcha\.txt|src\/[^/]+\.mjs|public\/[^/]+\.(?:js|html|css)|tests\/[^/]+\.test\.mjs|tests\/captcha_position_test\.py|tests\/fixtures\/(?:captcha-reader\.html|work-detail-synthetic\.html|discovery-synthetic\.mjs)|tools\/(?:captcha_position\.py|evaluate_captcha\.py|check-publication\.mjs|update\.mjs|recover-update\.mjs|install-runtime\.mjs)|docs\/(?:CAPTCHA|CONTRACT|TESTING|INSTALL|UPDATE|TROUBLESHOOTING|DASHBOARD)\.md|docs\/assets\/[^/]+\.svg|deploy\/novel-collector\.service)$/;
 const privateValues = (process.env.PRIVATE_HOSTS || "").split(",").map((s) => s.trim()).filter(Boolean);
 const rules = [
   ["private-key", /-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----/],

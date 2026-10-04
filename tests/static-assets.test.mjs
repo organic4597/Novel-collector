@@ -34,4 +34,5 @@ test("static assets use content validators and retain security headers on 304", 
   assert.equal(activity.status,200);
   assert.match(activity.headers.get("content-type"),/javascript/);
   assert.equal((await fetch(base+"/discovery-detail.js")).status,200);
+  assert.equal((await fetch(base+"/updates.js")).status,200);
 });

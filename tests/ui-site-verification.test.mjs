@@ -631,3 +631,81 @@ test("automatic retry hides the manual screen and disables input while attempts 
   assert.equal(f.w.document.getElementById("captcha-session-retry").disabled,true);
   assert.match(f.w.document.getElementById("captcha-session-status").textContent,/2\/5/);
 });
+
+test("a late cancelled frame cannot show 409 errors or restart polling during automatic work", async t => {
+  let active = false, resolveFrame, requests = 0;
+  const f = await fixture(t, { kind: "captcha", sessionHandler: path => {
+    if (path.endsWith("/retry")) active = true;
+    return { open: true, host: "newtoki1.org", width: 1280, height: 900,
+      automatic: active ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" } : null };
+  } });
+  f.w.fetch = async () => {
+    requests++;
+    return new Promise(resolve => { resolveFrame = resolve; });
+  };
+  await openSession(f);
+  assert.equal(requests, 1);
+  f.w.document.getElementById("captcha-session-retry").click();
+  await tick();
+  resolveFrame({ ok: false, status: 409 });
+  await tick();
+  assert.equal(f.w.document.getElementById("captcha-session-error").textContent, "");
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(requests, 1);
+  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
+});
+
+test("a frame conflict checks server state and stops manual polling when another tab owns automatic work", async t => {
+  let active = false, requests = 0;
+  const f = await fixture(t, { kind: "captcha", sessionHandler: () => ({
+    open: true, host: "newtoki1.org", width: 1280, height: 900,
+    automatic: active ? { active: true, attempt: 2, maxAttempts: 5, stage: "ANALYZING" } : null,
+  }) });
+  f.w.fetch = async () => { requests++; active = true; return { ok: false, status: 409 }; };
+  await openSession(f);
+  assert.equal(f.w.document.getElementById("captcha-session-error").textContent, "");
+  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(requests, 1);
+});
+
+test("genuine server frame failures remain visible", async t => {
+  const f = await fixture(t, { kind: "captcha" });
+  f.w.fetch = async () => ({ ok: false, status: 503 });
+  await openSession(f);
+  assert.match(f.w.document.getElementById("captcha-session-error").textContent, /503/);
+});
+
+test("manual input stays disabled with a loading notice until the first screen image is ready", async t => {
+  let resolveFrame;
+  const f = await fixture(t, { kind: "captcha" });
+  f.w.fetch = async () => new Promise(resolve => { resolveFrame = resolve; });
+  const frame = await openSession(f);
+  assert.match(f.w.document.getElementById("captcha-session-status").textContent, /불러오는 중/);
+  assert.equal(f.w.document.getElementById("captcha-session-apply").disabled, true);
+  pointer(f.w, frame, "pointerdown", 100, 100);
+  assert.equal(f.calls.some(call => call.path.endsWith("/input")), false);
+  resolveFrame({ ok: true, status: 200, blob: async () => new f.w.Blob(["jpeg"], { type: "image/jpeg" }) });
+  await tick();
+  frame.dispatchEvent(new f.w.Event("load"));
+  assert.match(f.w.document.getElementById("captcha-session-status").textContent, /준비 완료/);
+  assert.equal(f.w.document.getElementById("captcha-session-apply").disabled, false);
+});
+
+test("a temporary status failure keeps manual frames stopped and resumes status polling", async t => {
+  let active = false, statusCalls = 0;
+  const f = await fixture(t, { kind: "captcha", sessionHandler: path => {
+    if (path.endsWith("/retry")) active = true;
+    if (path.endsWith("/status") && active && ++statusCalls === 1) throw Error("Temporary status failure");
+    return { open: true, host: "newtoki1.org", width: 1280, height: 900,
+      automatic: active ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" } : null };
+  } });
+  await openSession(f);
+  const frames = f.frameRequests();
+  f.w.document.getElementById("captcha-session-retry").click();
+  await tick();
+  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.ok(statusCalls >= 2);
+  assert.equal(f.frameRequests(), frames);
+  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
+});

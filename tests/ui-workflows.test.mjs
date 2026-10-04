@@ -16,6 +16,7 @@ async function setup(t, configuration = {}) {
   t.after(() => dom.window.close());
   const w = dom.window,
     calls = [],
+    scrolls = [],
     stats = { refreshActive: 0, maxRefreshActive: 0 },
     observers = [];
   if (configuration.observer)
@@ -40,7 +41,7 @@ async function setup(t, configuration = {}) {
     this.open = false;
     this.dispatchEvent(new w.Event("close"));
   };
-  w.HTMLElement.prototype.scrollIntoView = function () {};
+  w.HTMLElement.prototype.scrollIntoView = function (options) { scrolls.push({ element: this, options }); };
   const statuses = [
     "running",
     "running",
@@ -125,6 +126,13 @@ async function setup(t, configuration = {}) {
         filters: { genres: ["판타지"], platforms: ["플랫폼"] },
         cachedAt: "2026-10-02T00:00:00Z",
       };
+      if (configuration.fortyItemPages) {
+        const page = data.page;
+        data.items = Array.from({ length: page === 3 ? 15 : 40 }, (_, index) => item(String((page - 1) * 40 + index + 1)));
+        data.maxPage = 3;
+        data.total = 95;
+        data.pageSize = 40;
+      }
     } else if (path.endsWith("/refresh")) {
       stats.refreshActive++;
       stats.maxRefreshActive = Math.max(
@@ -165,7 +173,7 @@ async function setup(t, configuration = {}) {
     }
   }
   await tick();
-  return { w, calls, stats, observers };
+  return { w, calls, stats, observers, scrolls };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
 const click = (w, id) => {
@@ -325,6 +333,36 @@ test("Invalid batch stays editable, no jobs inserted; unauthenticated discovery 
     anonymous.calls.filter((c) => c.path.startsWith("/api/discover")).length,
     0,
   );
+});
+
+test("forty-item pages scroll to the first work and preserve selection on next and previous", async t => {
+  const { w, calls, scrolls } = await setup(t, { fortyItemPages: true });
+  click(w, "nav-discover"); await tick();
+  const cards = () => w.document.querySelectorAll("#discover-list .discover-card");
+  assert.equal(cards().length, 40);
+  assert.equal(scrolls.length, 0, "opening discovery does not unexpectedly move the viewport");
+  w.document.querySelector('#discover-list input[type="checkbox"]').click();
+  w.document.getElementById("discover-query").value = "Synthetic search";
+  click(w, "discover-next"); await tick();
+  assert.equal(cards().length, 40);
+  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(scrolls.at(-1).options.block, "start");
+  assert.equal(w.document.getElementById("discover-page").textContent, "2 / 3");
+  w.document.querySelector('#discover-list input[type="checkbox"]').click();
+  click(w, "discover-next"); await tick();
+  assert.equal(cards().length, 15);
+  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(w.document.getElementById("discover-next").disabled, true);
+  click(w, "discover-prev"); await tick();
+  click(w, "discover-prev"); await tick();
+  assert.equal(cards().length, 40);
+  assert.equal(scrolls.length, 4);
+  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(w.document.querySelector('#discover-list input[type="checkbox"]').checked, true);
+  assert.match(w.document.getElementById("discover-selected").textContent, /2/);
+  assert.equal(w.document.getElementById("discover-query").value, "Synthetic search");
+  const requests = calls.filter(call => call.path.startsWith("/api/discover?"));
+  assert.deepEqual(requests.map(call => new URL(call.path, "http://localhost").searchParams.get("page")), ["1", "2", "3", "2", "1"]);
 });
 
 test("Visible-card auto checks serialize and abandon remaining work when leaving discovery", async (t) => {

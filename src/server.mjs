@@ -623,7 +623,7 @@ export function createApp({
       });
       response.end(method === "HEAD" || unchanged ? undefined : content);
     } catch (error) {
-      if(audited)recordActivity({scope:"api",level:"error",message:`${request.method} ${auditRoute}: ${error.message}`,details:{errorCode:error.code,status:error.status||500}});
+      if(audited)recordActivity({scope:"api",level:"error",message:`${request.method} ${auditRoute}: ${error.message}`,details:{errorCode:error.code,stage:error.stage,status:error.status||500}});
       if (response.headersSent) {
         response.destroy();
         return;

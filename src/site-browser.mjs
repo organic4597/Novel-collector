@@ -21,6 +21,38 @@ const KEYS = new Set([
 const fail = (message, status = 409) =>
   Object.assign(new Error(message), { status });
 
+function browserOpenFailure(error, stage) {
+  const causes = [];
+  for (let cause = error; cause && causes.length < 4; cause = cause.cause) causes.push(cause);
+  const text = causes.map(cause => String(cause.message || "").slice(0, 6000)).join("\n");
+  let code = "BROWSER_OPEN_FAILED", message = "사이트 인증 브라우저를 열지 못했습니다. 상세 로그의 실패 단계를 확인하세요.", status = 503;
+  if (causes.some(cause => cause.code === "ENOENT") || /Executable doesn't exist|executable.*not.*exist/i.test(text)) {
+    code = "BROWSER_NOT_INSTALLED"; message = "브라우저 실행 파일이 없습니다. 설치 폴더에서 install.ps1 또는 bash install.sh로 실행 환경을 다시 준비하세요.";
+  } else if (causes.some(cause => ["EACCES", "EPERM"].includes(cause.code)) || /permission denied|access is denied/i.test(text)) {
+    code = "BROWSER_PERMISSION_DENIED"; message = "브라우저 실행 또는 프로필 폴더 접근 권한이 없습니다. 설치 폴더와 실행 계정의 권한을 확인하세요.";
+  } else if (/ProcessSingleton|profile.*in use|user data directory.*in use/i.test(text)) {
+    code = "BROWSER_PROFILE_IN_USE"; message = "같은 브라우저 프로필을 다른 프로그램이 사용 중입니다. 같은 설치의 이전 실행을 정상 종료한 뒤 다시 여세요.";
+  } else if (/No usable sandbox|Running as root without --no-sandbox|Failed to (?:initialize|move to).*namespace|SUID sandbox helper.*not configured/i.test(text)) {
+    code = "BROWSER_SANDBOX_UNAVAILABLE"; message = "브라우저 보안 실행 환경을 시작하지 못했습니다. 서버 실행 계정과 브라우저 설치 상태를 확인하세요.";
+  } else if (/error while loading shared libraries|Host system is missing dependencies/i.test(text)) {
+    code = "BROWSER_SYSTEM_DEPENDENCIES"; message = "서버에 브라우저 실행용 시스템 라이브러리가 없습니다. 설치 스크립트로 브라우저 의존성을 준비하세요.";
+  } else if (/Target page, context or browser has been closed|browser.*closed|BROWSER_CLOSED/i.test(text)) {
+    code = "BROWSER_CLOSED"; message = "브라우저가 종료돼 인증 화면을 열지 못했습니다. 서버 브라우저 상태를 확인한 뒤 다시 여세요.";
+  } else if (/ERR_NAME_NOT_RESOLVED|ENOTFOUND|EAI_AGAIN/.test(text)) {
+    code = "BROWSER_DNS_FAILED"; message = "인증 사이트의 주소를 찾지 못했습니다. 서버의 DNS와 인터넷 연결을 확인하세요.";
+  } else if (/ERR_CERT_|ERR_SSL_/.test(text)) {
+    code = "BROWSER_TLS_FAILED"; message = "인증 사이트의 HTTPS 연결을 확인하지 못했습니다. 서버 시각과 인증서를 확인하세요.";
+  } else if (/net::ERR_|ECONNREFUSED|ECONNRESET/.test(text)) {
+    code = "BROWSER_NETWORK_FAILED"; message = "인증 사이트에 연결하지 못했습니다. 서버 인터넷 연결과 사이트 접속 상태를 확인하세요.";
+  } else if (causes.some(cause => cause.name === "TimeoutError") || /Timeout .*exceeded/i.test(text)) {
+    code = stage === "NAVIGATE" ? "BROWSER_NAVIGATION_TIMEOUT" : "BROWSER_START_TIMEOUT";
+    message = "인증 브라우저의 응답 대기 시간이 초과됐습니다. 서버 자원과 사이트 접속 상태를 확인한 뒤 다시 여세요.";
+  } else if (stage === "ACQUIRE_CONTEXT" && causes.some(cause => cause.status === 409)) {
+    code = "BROWSER_SLOT_BUSY"; message = "해당 브라우저 세션을 다른 작업이 사용 중입니다. 작업 종료 후 다시 여세요."; status = 409;
+  }
+  return Object.assign(fail(`${message} (${code})`, status), { code, stage });
+}
+
 export function validateViewerOrigin(value) {
   if (!["https://sbxh9.com", "https://toki32.com"].includes(value))
     throw fail("지원하는 HTTPS 뷰어 주소를 선택하세요.", 400);
@@ -58,6 +90,7 @@ export class SiteBrowser {
     viewerOrigins = null,
     contextPool = null,
     captchaSupport = null,
+    activity = null,
     onVerified = null,
     clock = () => Date.now(),
     idleMs = 120000,
@@ -82,6 +115,7 @@ export class SiteBrowser {
       viewerOrigins,
       contextPool,
       captchaSupport,
+      activity,
       onVerified,
       clock,
       idleMs,
@@ -165,7 +199,9 @@ export class SiteBrowser {
   }
 
   async expireIfNeeded() {
-    if (this.session && this.clock() >= this.expires(this.session))
+    if (this.session?.page?.isClosed?.())
+      await this.closeSession("expired");
+    else if (this.session && this.clock() >= this.expires(this.session))
       await this.closeSession("expired");
   }
 
@@ -285,6 +321,7 @@ export class SiteBrowser {
       };
       this.session = session;
       this.lastHost = host;
+      let stage = "ACQUIRE_CONTEXT";
       try {
         const options = {
           store: this.store,
@@ -298,61 +335,80 @@ export class SiteBrowser {
             ? () => this.launchContext(options)
             : undefined,
         });
-        let fresh = false;
-        const open = async () => {
-          const context = await collector.openContext();
+        for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            await collector.installNetworkGuard(context, {
-              allowImages: true,
-              allowedMainHost: session.viewerHost,
-            });
-            const page = await context.newPage();
-            const response = await page.goto(probeUrl, {
-              waitUntil: "domcontentloaded",
-              timeout: 45000,
-            });
-            fresh = true;
-            return { context, page, response };
+            let fresh = false;
+            const open = async () => {
+              stage = "OPEN_CONTEXT";
+              const context = await collector.openContext();
+              try {
+                stage = "INSTALL_NETWORK_GUARD";
+                await collector.installNetworkGuard(context, {
+                  allowImages: true,
+                  allowedMainHost: session.viewerHost,
+                });
+                stage = "OPEN_PAGE";
+                const page = await context.newPage();
+                stage = "NAVIGATE";
+                const response = await page.goto(probeUrl, {
+                  waitUntil: "domcontentloaded",
+                  timeout: 45000,
+                });
+                fresh = true;
+                return { context, page, response };
+              } catch (error) {
+                await context.close().catch(() => {});
+                throw error;
+              }
+            };
+            stage = "ACQUIRE_CONTEXT";
+            const opened = this.contextPool
+              ? (session.lease = await this.contextPool.acquire({ slot, origin: target.origin, open }))
+              : await open();
+            session.context = opened.context;
+            session.page = opened.page;
+            stage = "RELEASE_PAGE_MONITOR";
+            await this.captchaSupport?.release(session.page);
+            session.response = opened.response ?? null;
+            if (!fresh) {
+              stage = "RESTORE_NETWORK_GUARD";
+              await collector.installNetworkGuard(session.context, {
+                allowImages: true,
+                allowedMainHost: session.viewerHost,
+              });
+            }
+            session.page.setDefaultTimeout?.(5000);
+            session.page.setDefaultNavigationTimeout?.(45000);
+            // Preserve the current reader; navigating again replaces its proof.
+            if (session.page.url() !== probeUrl) {
+              stage = "NAVIGATE";
+              session.response = await session.page.goto(probeUrl, {
+                waitUntil: "domcontentloaded",
+                timeout: 45000,
+              });
+            }
+            stage = "CHECK_ORIGIN";
+            if (!this.allowedPage(session)) throw fail("사이트 인증 화면을 열 수 없습니다.");
+            this.scheduleExpiry(session);
+            return this.view();
           } catch (error) {
-            await context.close().catch(() => {});
-            throw error;
+            const failure = browserOpenFailure(error, stage);
+            if (attempt !== 0 || failure.code !== "BROWSER_CLOSED") throw error;
+            stage = "DISCARD_CLOSED_CONTEXT";
+            if (session.lease) await session.lease.release({ discard: true });
+            else await session.context?.close().catch(() => {});
+            session.lease = session.context = session.page = null;
+            session.response = null;
           }
-        };
-        const opened = this.contextPool
-          ? (session.lease = await this.contextPool.acquire({
-              slot,
-              origin: target.origin,
-              open,
-            }))
-          : await open();
-        session.context = opened.context;
-        session.page = opened.page;
-        await this.captchaSupport?.release(session.page);
-        session.response = opened.response ?? null;
-        if (!fresh)
-          await collector.installNetworkGuard(session.context, {
-            allowImages: true,
-            allowedMainHost: session.viewerHost,
-          });
-        session.page.setDefaultTimeout?.(5000);
-        session.page.setDefaultNavigationTimeout?.(45000);
-        // The human challenge and the collector use this live page. Reopening
-        // the same URL would replace any reader proof held by its own renderer.
-        if (session.page.url() !== probeUrl)
-          session.response = await session.page.goto(probeUrl, {
-            waitUntil: "domcontentloaded",
-            timeout: 45000,
-          });
-        if (!this.allowedPage(session))
-          throw fail("사이트 인증 화면을 열 수 없습니다.");
-        this.scheduleExpiry(session);
-        return this.view();
-      } catch {
-        await this.closeSession();
-        throw fail(
-          "사이트 인증 브라우저를 열지 못했습니다. 서버 브라우저 상태를 확인하세요.",
-          503,
-        );
+        }
+      } catch (error) {
+        const failure = browserOpenFailure(error, stage);
+        try { await this.closeSession(); } catch {
+          this.activity?.add({ scope: "auth", level: "error", message: "인증 브라우저 정리를 완료하지 못했습니다.", details: { stage: "CLOSE_SESSION", slot } });
+        }
+        this.activity?.add({ scope: "auth", level: "error", message: failure.message,
+          details: { stage: failure.stage, errorCode: failure.code, slot } });
+        throw failure;
       }
     });
   }

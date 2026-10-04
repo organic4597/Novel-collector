@@ -108,6 +108,7 @@
   grid-column: 1/-1;
 }
 .discover-card {
+  scroll-margin-top: 16px;
   overflow: hidden;
   border: 1px solid var(--line);
   background: var(--panel);

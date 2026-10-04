@@ -301,8 +301,11 @@
     frameUrl = null;
     controls();
   }
+  function manualFramesAllowed(epoch) {
+    return current(epoch) && isVisible() && session?.open && !busy && !session?.automatic?.active;
+  }
   function scheduleFrame(epoch) {
-    if (!current(epoch) || !isVisible() || !session?.open) return;
+    if (!manualFramesAllowed(epoch)) return;
     clearTimeout(frameTimer);
     frameTimer = setTimeout(
       () => requestFrame(epoch),
@@ -310,7 +313,7 @@
     );
   }
   function showFrame(blob, epoch) {
-    if (!current(epoch) || !isVisible()) return Promise.resolve();
+    if (!manualFramesAllowed(epoch)) return Promise.resolve();
     frameCompletion?.();
     const url = URL.createObjectURL(blob),
       oldUrl = frameUrl;
@@ -321,6 +324,8 @@
         if (current(epoch) && isVisible() && frameUrl === url) {
           frameAt =
             frame.naturalWidth > 0 && frame.naturalHeight > 0 ? Date.now() : 0;
+          if (frameAt && !busy && !session?.automatic?.active)
+            $("captcha-session-status").textContent = ($("captcha-session-status").textContent.includes("남은 인증 확인") ? "남은 인증 확인 · " : "") + "서버 화면 준비 완료 · 화면에서 직접 인증한 뒤 적용하세요.";
           controls();
         }
         resolve();
@@ -339,6 +344,8 @@
   }
   function startFrames(epoch) {
     $("captcha-session-transport").textContent = "기본 화면 · HTTP";
+    if (manualFramesAllowed(epoch) && !frameAt)
+      $("captcha-session-status").textContent = ($("captcha-session-status").textContent.includes("남은 인증 확인") ? "남은 인증 확인 · " : "") + "수동 인증 화면을 불러오는 중… 화면이 준비되면 입력할 수 있습니다.";
     scheduleFrame(epoch);
   }
   function frameRetryAfter(response) {
@@ -351,7 +358,7 @@
       : 1000;
   }
   async function requestFrame(epoch) {
-    if (!current(epoch) || !isVisible() || !session?.open || frameController)
+    if (!manualFramesAllowed(epoch) || frameController)
       return;
     const controller = new AbortController();
     frameController = controller;
@@ -363,6 +370,25 @@
         cache: "no-store",
         signal: controller.signal,
       });
+      if (controller.signal.aborted || !manualFramesAllowed(epoch)) return;
+      if (response.status === 409) {
+        const state = await api("status");
+        if (controller.signal.aborted || !manualFramesAllowed(epoch)) return;
+        if (state.automatic?.active) {
+          session = { ...state, generation: session.generation };
+          busy = true;
+          stopFrames();
+          $("captcha-session-error").textContent = "";
+          await pollAutomatic(epoch, state);
+          return;
+        }
+        if (!state.open) {
+          session.open = false;
+          stopFrames();
+          error(new Error("인증 화면이 닫혔습니다. 다시 열어 주세요."));
+          return;
+        }
+      }
       if (response.status === 429) {
         frameRetryDelay = frameRetryAfter(response);
         return;
@@ -372,22 +398,25 @@
         throw new Error(`서버 화면을 불러올 수 없습니다 (${response.status}).`);
       }
       const blob = await response.blob();
-      if (!current(epoch) || !isVisible()) return;
+      if (controller.signal.aborted || !manualFramesAllowed(epoch)) return;
       if (!blob.size || !blob.type.startsWith("image/"))
         throw new Error("서버 화면이 올바른 이미지가 아닙니다.");
       showFrame(blob, epoch);
     } catch (exception) {
-      if (current(epoch) && exception.name !== "AbortError") {
+      if (current(epoch) && !controller.signal.aborted && !session?.automatic?.active && exception.name !== "AbortError") {
         frameAt = 0;
         error(exception);
         controls();
       }
     } finally {
       clearTimeout(timeout);
-      if (frameController === controller) frameController = null;
-      // Network and screenshot time count before the next capture budget starts.
-      lastFrameResponse = Date.now();
-      scheduleFrame(epoch);
+      if (frameController === controller) {
+        frameController = null;
+        // A cancelled capture no longer owns the polling timer. In particular,
+        // its late completion must not restart manual frames during other work.
+        lastFrameResponse = Date.now();
+        scheduleFrame(epoch);
+      }
     }
   }
   function cancelPointer() {
@@ -509,10 +538,10 @@
       }
     }
   }
-  async function pollAutomatic(epoch) {
+  async function pollAutomatic(epoch, state = null) {
     if (!current(epoch) || !isVisible()) return;
     try {
-      const result = await api("status");
+      const result = state || await api("status");
       if (!current(epoch)) return;
       session = { ...result, generation: session.generation };
       const auto = result.automatic;
@@ -535,7 +564,18 @@
         startFrames(epoch);
       }
     } catch (exception) {
-      if (current(epoch)) { busy = false; error(exception); controls(); startFrames(epoch); }
+      if (current(epoch)) {
+        error(exception);
+        if (session?.automatic?.active) {
+          busy = true;
+          controls();
+          automaticTimer = setTimeout(() => pollAutomatic(epoch), 1000);
+        } else {
+          busy = false;
+          controls();
+          startFrames(epoch);
+        }
+      }
     }
   }
   $("captcha-session-retry").addEventListener("click", () => retryCaptcha());

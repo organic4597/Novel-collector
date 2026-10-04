@@ -3,10 +3,13 @@
   const UI = window.CollectorUI, $ = id => document.getElementById(id);
   const cache = new Map(), origins = new Set(["https://sbxh9.com", "https://toki32.com"]);
   const originalTitle = document.title;
+  const dialog = $("work-dialog");
+  let opener = null;
+  let savedScroll = { x:0, y:0 };
   let item = null, epoch = 0, loading = false, submitting = false, timer = null, finishWait = null;
   function cancelWait() { clearTimeout(timer); finishWait?.(); finishWait=null; }
   const valid = id => /^\d{1,15}$/.test(String(id));
-  const current = own => own === epoch && UI.authenticated() && UI.view() === "work" && !document.hidden;
+  const current = own => own === epoch && UI.authenticated() && dialog.open && !document.hidden;
   function show(work) {
     if (!work || !valid(work.id)) return;
     item = { ...item, ...work, id: String(work.id) };
@@ -70,30 +73,39 @@
       if (current(own)) { loading = false; show(item); $("work-error").textContent = UI.textError(error); $("work-status").textContent = "저장된 정보를 표시합니다. 소개를 다시 확인할 수 있습니다."; }
     } finally { if (own === epoch) { loading = false; show(item); } }
   }
-  function open(work, { push = true } = {}) {
+  function open(work) {
     if (!UI.authenticated() || !work || !valid(work.id)) return;
     const id = String(work.id), own = ++epoch;
     cancelWait(); loading = false; submitting = false; item = { ...work, id };
     const cached = cache.get(id);
     if (cached && Date.now() - cached.at < 30*60*1000) item = { ...item, ...cached.item };
-    if (push) {
-      const url = new URL(location.href); url.searchParams.set("work",id);
-      history.pushState({ work:id }, "", url);
+    if (!dialog.open) {
+      opener=document.activeElement;savedScroll={x:scrollX,y:scrollY};
+      document.documentElement.classList.add("work-popup-open");dialog.showModal();
+      document.dispatchEvent(new CustomEvent("collector:work-popup",{detail:true}));
     }
-    UI.navigate("work");
     $("work-error").textContent = "";
-    show(item); $("work-back").focus({preventScroll:true});
+    show(item); $("work-close").focus({preventScroll:true});
     if (cached && Date.now() - cached.at < 30*60*1000) $("work-status").textContent = "저장된 작품 소개";
     else void load(own);
   }
-  function back() {
-    if (history.state?.work === item?.id) history.back();
-    else {
-      const url = new URL(location.href); url.searchParams.delete("work"); history.replaceState({},"",url);
-      UI.navigate("discover");
-    }
+  function closed() {
+    epoch++;cancelWait();loading=false;submitting=false;document.title=originalTitle;
+    const url=new URL(location.href);
+    if(url.searchParams.has("work")){url.searchParams.delete("work");history.replaceState({},"",url);}
+    const target=opener?.isConnected && opener !== document.body ? opener :
+      document.querySelector(`#discover-list [data-id="${item?.id || ""}"] .discover-title-link`);
+    if(UI.authenticated())target?.focus({preventScroll:true});
+    opener=null;
+    document.documentElement.classList.remove("work-popup-open");
+    if(scrollX!==savedScroll.x || scrollY!==savedScroll.y)window.scrollTo(savedScroll.x,savedScroll.y);
+    document.dispatchEvent(new CustomEvent("collector:work-popup",{detail:false}));
   }
+  function back() { if(dialog.open)dialog.close(); }
   $("work-back").addEventListener("click",back);
+  $("work-close").addEventListener("click",back);
+  dialog.addEventListener("cancel",event=>{event.preventDefault();back();});
+  dialog.addEventListener("close",closed);
   $("work-refresh").addEventListener("click",()=>{ if (!loading) void load(++epoch); });
   $("work-cover").addEventListener("error",()=>{ $("work-cover").hidden=true; });
   $("work-select").addEventListener("click",()=>{
@@ -114,22 +126,21 @@
   });
   function fromURL() {
     const id=new URL(location.href).searchParams.get("work");
-    if(valid(id))open(cache.get(id)?.item || {id,title:"작품 정보"},{push:false});
-    else if(UI.view()==="work")UI.navigate("discover");
+    if(valid(id)){
+      if(UI.view()!=="discover")UI.navigate("discover");
+      open(cache.get(id)?.item || {id,title:"작품 정보"});
+    } else if(dialog.open)back();
   }
   window.addEventListener("popstate",fromURL);
   document.addEventListener("collector:auth",()=>{
-    if(UI.authenticated())fromURL();else{epoch++;cancelWait();item=null;cache.clear();document.title=originalTitle;$("work-synopsis").textContent="";}
+    if(UI.authenticated())fromURL();else{back();epoch++;cancelWait();item=null;cache.clear();document.title=originalTitle;$("work-synopsis").textContent="";}
   });
   document.addEventListener("collector:view",()=>{
-    if(UI.view()!=="work"){
-      epoch++;cancelWait();loading=false;document.title=originalTitle;
-      const url=new URL(location.href);url.searchParams.delete("work");history.replaceState({},"",url);
-    }
+    if(dialog.open && UI.view()!=="discover")back();
   });
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden){epoch++;cancelWait();loading=false;}
-    else if(UI.view()==="work" && item)void load(++epoch);
+    else if(dialog.open && item)void load(++epoch);
   });
   window.DiscoveryDetails={open};
   if(UI.authenticated())fromURL();

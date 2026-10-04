@@ -6,6 +6,8 @@ import { JSDOM } from "jsdom";
 async function fixture(t, { deferred = false } = {}) {
   const dom=new JSDOM(await readFile(new URL("../public/index.html",import.meta.url),"utf8"),{url:"http://localhost/",runScripts:"outside-only",pretendToBeVisual:true});
   t.after(()=>dom.window.close());const w=dom.window,calls=[];
+  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+  w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event("close"));};
   let view="discover",auth=true,generation=1,complete,selection,updated;
   const work={id:"1",title:"<img src=x> 테스트",author:"작가 이름",platform:"공급처",genres:["판타지"],tags:["성장","모험"],publication:"completed",episodeCount:17,synopsis:"첫 소개\n둘째 소개",thumbnail:"https://unsafe.example/cover.jpg"};
   w.eval(await readFile(new URL("../public/performance.js",import.meta.url),"utf8"));
@@ -31,10 +33,22 @@ test("work introduction displays author tags synopsis safely, caches repeats and
   assert.equal(d.querySelector("#work-title img"),null);
   assert.equal(d.getElementById("work-cover").hasAttribute("src"),false,"external covers are not embedded");
   assert.equal(f.calls.length,2);assert.equal(f.updated().author,"작가 이름");
+  assert.equal(d.getElementById("work-dialog").open,true);
+  assert.equal(f.w.location.search,"");
   f.w.DiscoveryDetails.open({id:"1"});await tick();assert.equal(f.calls.length,2);
   d.getElementById("work-add").click();await tick();
   assert.equal(f.calls.at(-1)[1][0].url,"https://newtoki1.org/novel/1");
   d.getElementById("work-select").click();await tick();assert.equal(f.selection().id,"1");
+  assert.equal(d.getElementById("work-dialog").open,false);
+});
+
+test("Escape closes the introduction popup, restores focus and leaves the list view unchanged",async t=>{
+  const f=await fixture(t);const d=f.w.document;
+  const opener=d.getElementById("discover-search");opener.focus();
+  f.w.DiscoveryDetails.open({id:"1"});await tick();
+  d.getElementById("work-dialog").dispatchEvent(new f.w.Event("cancel",{cancelable:true}));
+  assert.equal(d.getElementById("work-dialog").open,false);
+  assert.equal(d.activeElement,opener);assert.equal(f.w.CollectorUI.view(),"discover");
 });
 
 test("closing the introduction by changing view ignores late metadata, including after logout",async t=>{
@@ -42,4 +56,12 @@ test("closing the introduction by changing view ignores late metadata, including
   f.logout();f.complete();await tick();
   assert.equal(f.w.document.getElementById("work-synopsis").textContent,"");
   assert.equal(f.updated(),undefined);
+});
+
+test("closing a loading popup prevents a late introduction response from updating the list",async t=>{
+  const f=await fixture(t,{deferred:true});f.w.DiscoveryDetails.open({id:"1"});await tick();
+  f.w.document.getElementById("work-close").click();f.complete();await tick();
+  assert.equal(f.updated(),undefined);
+  assert.equal(f.w.document.getElementById("work-dialog").open,false);
+  assert.equal(f.w.document.documentElement.classList.contains("work-popup-open"),false);
 });

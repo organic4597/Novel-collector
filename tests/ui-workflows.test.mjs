@@ -220,17 +220,19 @@ test("queue offers reservation deletion for running, queued, paused and attentio
   assert.equal(w.document.getElementById("delete-job-2"),null);
 });
 
-test("clicking a discovery work opens its introduction and returning preserves filters and selection",async t=>{
+test("clicking a discovery work opens a popup without leaving the list or losing filters and selection",async t=>{
   const {w}=await setup(t);
   click(w,"nav-discover");await tick();
   const check=w.document.querySelector('#discover-list input[type="checkbox"]');check.click();
   w.document.getElementById("discover-query").value="유지할 검색어";
   w.document.querySelector(".discover-title-link").click();await tick();
-  assert.equal(w.CollectorUI.view(),"work");
+  assert.equal(w.CollectorUI.view(),"discover");
+  assert.equal(w.document.getElementById("work-dialog").open,true);
   assert.equal(w.document.getElementById("work-author").textContent,"소개 작가");
   assert.match(w.document.getElementById("work-synopsis").textContent,/소개 다음 줄/);
   click(w,"work-back");await tick();await tick();
   assert.equal(w.CollectorUI.view(),"discover");
+  assert.equal(w.document.getElementById("work-dialog").open,false);
   assert.equal(w.document.getElementById("discover-query").value,"유지할 검색어");
   assert.equal(w.document.querySelector('#discover-list input[type="checkbox"]').checked,true);
 });

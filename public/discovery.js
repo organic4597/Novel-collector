@@ -17,6 +17,7 @@
     observer,
     autoRunning = false,
     sourceAutoPaused = false;
+  let workPopup = false;
   let autoQueue = [],
     requestChain = Promise.resolve();
   let renderedCards = new Map(),
@@ -384,6 +385,7 @@
   function observeVisible() {
     if (
       !active ||
+      workPopup ||
       sourceAutoPaused ||
       !authenticated() ||
       typeof IntersectionObserver === "undefined"
@@ -415,6 +417,7 @@
   async function scheduleAuto() {
     if (
       autoRunning ||
+      workPopup ||
       sourceAutoPaused ||
       checking ||
       !active ||
@@ -427,6 +430,7 @@
     try {
       while (
         autoQueue.length &&
+        !workPopup &&
         current === version &&
         active &&
         !checking &&
@@ -542,6 +546,10 @@
       if (!items.length) load(1);
       else render();
     } else stopAuto();
+  });
+  document.addEventListener("collector:work-popup",event=>{
+    workPopup=event.detail===true;
+    if(workPopup)stopAuto();else if(active)render();
   });
   document.addEventListener("collector:auth", () => {
     active = false;

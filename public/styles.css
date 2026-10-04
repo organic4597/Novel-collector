@@ -1718,3 +1718,5 @@ select:focus {
 .work-chip { padding:6px 10px; background:#203544; border-radius:20px; font-size:13px; }
 .work-synopsis { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.9; margin:16px 0 28px; }
 @media(max-width:700px){.work-layout{grid-template-columns:1fr;gap:20px}.work-cover{width:160px;margin:auto}.work-meta{gap:14px}.work-profile .heading-actions{flex-wrap:wrap}}
+.work-introduction-modal { width:min(960px,calc(100vw - 32px)); max-width:960px; max-height:85vh; overflow:auto; }
+html.work-popup-open { overflow:hidden; }

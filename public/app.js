@@ -616,10 +616,10 @@ async function loadBooks() {
 }
 function switchView(view) {
   state.view = view;
-  for (const id of ["queue", "library", "history", "discover", "settings", "activity", "work"])
+  for (const id of ["queue", "library", "history", "discover", "settings", "activity"])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
-    const selected = button.dataset.view === view || (view === "work" && button.dataset.view === "discover");
+    const selected = button.dataset.view === view;
     button.classList.toggle("selected", selected);
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");

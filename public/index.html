@@ -344,8 +344,8 @@
             ><button id="discover-next" class="secondary">다음 →</button>
           </div>
         </section>
-        <section id="work-view" class="view" hidden aria-labelledby="work-title">
-          <button id="work-back" class="quiet" type="button">← 작품 찾기로 돌아가기</button>
+        <dialog id="work-dialog" class="modal work-introduction-modal" aria-labelledby="work-title">
+          <div class="modal-heading"><h2>작품 소개</h2><button id="work-close" class="icon-button" type="button" aria-label="작품 소개 닫기">×</button></div>
           <div class="work-layout">
             <aside class="work-cover"><img id="work-cover" alt="작품 표지" width="240" height="336" hidden><span class="cover-fallback" aria-hidden="true">▤</span></aside>
             <article class="work-profile">
@@ -357,7 +357,8 @@
               <div class="heading-actions"><select id="work-format" aria-label="작품 수집 형식"><option value="txt">TXT</option><option value="epub">EPUB</option></select><button id="work-add" type="button" class="primary">이 작품 수집 예약</button><button id="work-select" type="button" class="secondary">선택에 담기</button><button id="work-refresh" type="button" class="quiet">소개 다시 확인</button><a id="work-source" class="quiet" target="_blank" rel="noopener noreferrer">원본 소개 페이지</a></div>
             </article>
           </div>
-        </section>
+          <div class="modal-actions"><button id="work-back" class="secondary" type="button">닫기</button></div>
+        </dialog>
         <section id="library-view" class="view" hidden>
           <div class="page-heading">
             <div>

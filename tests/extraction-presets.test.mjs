@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ExtractionPresets, validatePreset } from "../src/extraction-presets.mjs";
+import { ExtractionPresets, validatePreset, groupPreset, PRESET_PAGE_FIELDS } from "../src/extraction-presets.mjs";
 import { FolderStore } from "../src/store.mjs";
 import { createApp } from "../src/server.mjs";
 const config=()=>({version:1,name:"테스트 소개",origin:"https://example.com",pagePattern:"/novel/{workId}",kind:"detail",
@@ -17,6 +17,23 @@ test("only selector configuration is accepted; raw previews, credentials and scr
     assert.throws(()=>validatePreset({...config(),...patch}),{status:400});
   assert.throws(()=>validatePreset({...config(),fields:{title:{selector:"h1",attribute:"value",multiple:false}}}),{status:400});
   assert.throws(()=>validatePreset({...config(),fields:{title:{selector:"h1",attribute:"text",multiple:false,sample:"body"}}}),{status:400});
+});
+
+test("one preset stores three page types, separating novel title and chapter title across restarts",async t=>{
+  const group=groupPreset(config());group.pages.detail.fields.rows={selector:".episode",attribute:"text",multiple:true};
+  group.pages.detail.fields.chapterTitle={selector:".episode-name",attribute:"text",multiple:false,relativeTo:"rows"};
+  group.pages.reader.fields.text={selector:".body",attribute:"text",multiple:false};
+  assert.deepEqual(Object.keys(group.pages),Object.keys(PRESET_PAGE_FIELDS));validatePreset(group);
+  const {store,presets}=await fixture(t);const saved=await presets.save(group),restored=await new ExtractionPresets({store}).load();
+  assert.equal(restored.get(saved.id).config.pages.detail.fields.title.selector,"h1");
+  assert.equal(restored.get(saved.id).config.pages.detail.fields.chapterTitle.selector,".episode-name");assert.equal(restored.list()[0].pages.length,3);
+  const invalid=structuredClone(group);delete invalid.pages.detail.fields.rows;assert.throws(()=>validatePreset(invalid),{status:400});
+});
+
+test("legacy catalogs migrate into the information page without conflating chapter title with novel title",()=>{
+  const old={...config(),kind:"catalog",fields:{rows:{selector:".row",attribute:"text",multiple:true},title:{selector:"a",attribute:"text",multiple:false,relativeTo:"rows"}}};
+  const group=groupPreset(old);assert.equal(group.pages.detail.fields.chapterTitle.relativeTo,"rows");assert.equal(group.pages.detail.fields.title,undefined);
+  assert.throws(()=>validatePreset({...group,pages:{...group.pages,catalog:{pagePattern:"/",fields:{}}}}),{status:400});
 });
 
 test("relative fields require their repeated parent and preserve shadow locator chains",()=>{

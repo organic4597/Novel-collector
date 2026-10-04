@@ -578,6 +578,8 @@ export function createApp({
         "/activity.js": "activity.js",
         "/element-picker.js": "element-picker.js",
         "/extraction-presets.js": "extraction-presets.js",
+        "/preset-guide.js": "preset-guide.js",
+        "/preset-connection.js": "preset-connection.js",
         "/queue-ui.js": "queue-ui.js",
         "/style.css": "style.css",
         "/styles.css": "styles.css",

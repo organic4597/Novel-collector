@@ -1720,3 +1720,9 @@ select:focus {
 @media(max-width:700px){.work-layout{grid-template-columns:1fr;gap:20px}.work-cover{width:160px;margin:auto}.work-meta{gap:14px}.work-profile .heading-actions{flex-wrap:wrap}}
 .work-introduction-modal { width:min(960px,calc(100vw - 32px)); max-width:960px; max-height:85vh; overflow:auto; }
 html.work-popup-open { overflow:hidden; }
+.preset-instructions { padding:20px; margin:20px 0; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); }
+.preset-instructions textarea { width:100%; min-height:130px; font:13px/1.5 ui-monospace,monospace; resize:vertical; margin:12px 0; }
+.preset-instructions label { display:block; margin:12px 0 6px; }.preset-instructions input[type=file] { max-width:100%; }
+.bookmarklet-link { display:inline-block; padding:10px 14px; border-radius:8px; text-decoration:none; cursor:grab; }
+.preset-card { display:flex; gap:16px; justify-content:space-between; align-items:center; padding:16px; border:1px solid var(--line); border-radius:var(--radius); margin:12px 0; }
+.preset-card p { overflow-wrap:anywhere; }@media(max-width:700px){.preset-card{align-items:flex-start;flex-direction:column}}

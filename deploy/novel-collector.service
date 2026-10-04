@@ -8,16 +8,19 @@ Type=simple
 User=novelcollector
 Group=novelcollector
 WorkingDirectory=/opt/novel-collector
-ExecStart=/usr/bin/node /opt/novel-collector/run.mjs --no-setup
+ExecStart=/bin/bash /opt/novel-collector/start.sh --no-setup
 Environment=NODE_ENV=production
 Environment=TZ=Asia/Seoul
 Environment=HOST=127.0.0.1
 Environment=PORT=8788
+Environment=UPDATE_WORKER_SURVIVES_SERVICE=1
+Environment=UPDATE_SERVICE_NAME=novel-collector.service
 Environment=PROFILE_DIR=/opt/novel-collector/profile/chromium
 Environment=XDG_CONFIG_HOME=/opt/novel-collector/profile/config
 Environment=XDG_CACHE_HOME=/opt/novel-collector/profile/cache
 Restart=on-failure
 RestartSec=5
+KillMode=process
 TimeoutStopSec=45
 UMask=0077
 Nice=10
@@ -28,7 +31,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/opt/novel-collector/data /opt/novel-collector/profile /opt/novel-collector/secrets
+ReadWritePaths=/opt/novel-collector
 
 [Install]
 WantedBy=multi-user.target

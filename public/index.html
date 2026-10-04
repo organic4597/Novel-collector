@@ -14,6 +14,11 @@
     <script src="/app.js" defer></script>
     <script src="/logs.js" defer></script>
     <script src="/activity.js" defer></script>
+    <script src="/element-picker.js" defer></script>
+    <script src="/preset-guide.js" defer></script>
+    <script src="/preset-connection.js" defer></script>
+    <script src="/extraction-presets.js" defer></script>
+    <script src="/updates.js" defer></script>
     <script src="/library.js" defer></script>
     <script src="/settings.js" defer></script>
     <script src="/discovery.js" defer></script>
@@ -75,6 +80,7 @@
             <span aria-hidden="true">⚙</span> 설정
           </button>
           <button id="nav-activity" class="nav-item" data-view="activity"><span aria-hidden="true">≡</span> 상세 로그</button>
+          <button id="nav-presets" class="nav-item" data-view="presets"><span aria-hidden="true">⌖</span> 추출 프리셋</button>
         </nav>
         <div class="sidebar-bottom">
           <span class="small-dot"></span> 폴더 기반 저장소
@@ -90,6 +96,7 @@
           </div>
           <span id="last-refresh" class="muted">—</span>
         </header>
+        <div id="update-notice" class="notice update-notice" role="status" hidden><span id="update-notice-text"></span><button id="update-banner-apply" class="primary" type="button">업데이트</button></div>
         <div
           id="global-error"
           class="notice error-notice"
@@ -235,6 +242,43 @@
             </div>
           </div>
           <div id="history-list" class="jobs-list"></div>
+        </section>
+        <section id="presets-view" class="view" hidden>
+          <div class="page-heading"><div><p class="eyebrow">ELEMENT PICKER PRESETS</p><h1>추출 프리셋</h1><p class="muted">확장 설치 없이 원본 페이지에서 요소를 고르고 선택자 JSON을 저장합니다.</p></div><button id="preset-refresh" class="secondary">저장 목록 새로고침</button></div>
+          <div class="preset-instructions"><h2>프리셋 → 페이지 유형 → 추출 항목</h2><label for="preset-name">프리셋 이름</label><input id="preset-name" maxlength="80" placeholder="sbxh9 수집 프리셋"><p class="field-help">프리셋 하나 안에 아래 세 페이지가 들어갑니다. ○는 미지정, ✓는 저장한 항목입니다. 정보 페이지의 위쪽 소설 정보와 아래쪽 회차 목록은 같은 유형입니다.</p><div id="preset-page-tree" class="preset-page-tree"></div></div>
+          <div class="preset-instructions"><h2>1. 페이지와 항목 선택</h2>
+            <label for="preset-kind">페이지 유형</label><select id="preset-kind" aria-label="북마크릿 페이지 유형"><option value="listing">소설 목록 · /novel</option><option value="detail">소설 정보·회차 목록 · /novel/{소설 ID}</option><option value="reader">회차 본문 · /novel/{소설 ID}/{회차 ID}</option></select>
+            <p id="preset-guide-description"></p>
+            <div class="preset-guide-selection"><figure id="preset-guide-focus"></figure><div>
+              <label for="preset-target-field">지정할 항목</label><select id="preset-target-field"></select><p id="preset-field-help" class="field-help"></p>
+              <label for="preset-target-attribute">읽을 값</label><select id="preset-target-attribute"><option value="text">텍스트</option><option value="href">링크 href</option><option value="src">이미지 src</option><option value="data-src">지연 로딩 이미지 data-src</option></select>
+              <label class="preset-checkbox"><input id="preset-target-multiple" type="checkbox"> 여러 요소 선택</label>
+              <p class="field-help">원본에서 항목 선택 → 영역 클릭 → ‘이 항목 저장’으로 고정합니다. 다시 항목을 고르면 고정 영역이 표시됩니다. 미리보기는 선택한 항목 값만 보여줍니다.</p>
+            </div></div>
+            <details><summary>이 유형의 모든 항목을 이미지로 보기</summary><div id="preset-field-gallery" class="preset-field-gallery"></div></details>
+          </div>
+          <div class="preset-instructions"><h2>2. 선택 도구 북마크 등록 · 최초 한 번</h2><p>아래 링크를 북마크바로 끌어 등록하세요. 같은 브라우저 프로필의 새 창에서도 등록한 북마크를 사용할 수 있습니다. 위 유형·항목은 새로 등록할 북마크의 초기 설정이며, 원본의 선택 도구 안에서도 변경할 수 있습니다.</p>
+            <div class="heading-actions"><a id="preset-bookmarklet" class="primary bookmarklet-link" draggable="true">수집 영역 선택</a><button id="preset-copy-bookmarklet" class="secondary">북마크릿 코드 복사</button></div>
+            <textarea id="preset-bookmarklet-code" readonly hidden aria-label="등록할 북마크릿 코드"></textarea>
+            <p class="field-help">마우스 오버·강조·미리보기는 원본 브라우저에서 처리합니다. 쿠키·입력값·본문 원문은 저장 JSON에 포함하지 않습니다. 일부 사이트의 보안 정책은 북마크릿 실행을 제한할 수 있습니다.</p>
+            <p class="field-help">브라우저 정책상 웹앱이 북마크를 자동 등록하거나 다른 사이트에서 자동 실행할 수는 없습니다. 등록은 한 번, 실행은 원본 창에서 북마크 클릭 한 번이면 됩니다. 이미 등록한 북마크는 위 설정 변경으로 자동 갱신되지 않습니다.</p>
+          </div>
+          <div class="preset-instructions"><h2>3. 링크로 원본 열기</h2><p>링크를 입력하면 사용자 브라우저의 새 창/탭에서 원본을 직접 엽니다. 원본의 기존 로그인 상태를 사용하며 화면 캡처나 서버 원격 조작을 거치지 않습니다.</p>
+            <form id="preset-connect-form"><label for="preset-source-url">원본 HTTPS 페이지 링크</label><div class="heading-actions"><input id="preset-source-url" type="url" required maxlength="2000" placeholder="https://example.com/novel/123" autocomplete="off"><button id="preset-connect" class="primary" type="submit">원본 새 탭 열기</button></div></form>
+            <p id="preset-connection-status" role="status" class="field-help"></p><p id="preset-connection-error" role="alert" class="error-text"></p>
+            <a id="preset-source-open-link" target="_blank" rel="noopener noreferrer" hidden>창이 열리지 않으면 원본 직접 열기</a>
+            <p class="field-help">열린 원본 탭에서 ‘수집 영역 선택’ 북마크를 눌러 시작하세요. 북마크바가 보이지 않으면 Ctrl+Shift+B (Mac: ⌘+Shift+B)로 표시하거나 브라우저의 북마크 메뉴에서 실행하세요.</p>
+          </div>
+          <div class="preset-instructions"><h2>4. 프리셋 서버 저장</h2><p>원본에서 필요한 항목을 모두 고정한 뒤 <strong>‘프리셋 서버 저장’</strong>을 누르면 이 대시보드로 설정을 전달해 저장합니다. 원문 미리보기는 보내지 않습니다. 로그인 상태에서 이 브라우저가 등록한 북마크의 저장 연결을 사용합니다.</p>
+            <details><summary>설정 JSON 직접 가져오기 · 고급</summary>
+            <label for="preset-file">JSON 파일 불러오기</label><input id="preset-file" type="file" accept=".json,application/json">
+            <label for="preset-json">프리셋 JSON (최대 32KiB)</label><textarea id="preset-json" maxlength="32768" rows="12" spellcheck="false" placeholder='{"version":1,"name":"작품 소개",...}'></textarea>
+            <button id="preset-copy-json" class="secondary">JSON 복사</button></details>
+            <div class="heading-actions"><button id="preset-save" class="primary">프리셋 서버 저장</button><button id="preset-cancel-edit" class="quiet" hidden>새 프리셋 작성</button></div>
+            <p id="preset-status" class="field-help" role="status"></p><p id="preset-error" class="error-text" role="alert"></p>
+          </div>
+          <p class="field-help">이 화면은 추출 영역의 설정·미리보기·프리셋 관리 단계입니다. 저장된 설정은 갱신 북마크릿에서 사용할 수 있습니다. 자동 수집 적용은 현재 수집 경로에 별도 연결하는 단계입니다.</p>
+          <h2>저장한 프리셋 <span id="preset-count" class="muted"></span></h2><div id="preset-list" class="preset-list"></div>
         </section>
         <section id="activity-view" class="view" hidden>
           <div class="page-heading"><div><p class="eyebrow">OPERATIONS LOG</p><h1>상세 로그</h1>
@@ -402,6 +446,11 @@
           <div id="books-list" class="books-grid library-grid"></div>
         </section>
         <section id="settings-view" class="view" hidden>
+          <section class="update-settings"><h2>프로그램 업데이트</h2><p class="field-help">하루 한 번 GitHub 정식 릴리스를 확인합니다. 업데이트 버튼을 누르면 준비·로컬 백업·교체·재시작을 진행합니다. DB·계정·프로필을 새 설치 자료로 덮어쓰지 않습니다.</p>
+            <p>현재 <strong id="update-current">—</strong> · 최신 <strong id="update-latest">—</strong></p><p>저장소 <span id="update-repository"></span> · 마지막 확인 <span id="update-checked">—</span></p>
+            <div class="heading-actions"><button id="update-check" class="secondary" type="button">지금 확인</button><button id="update-apply" class="primary" type="button" disabled>업데이트</button><a id="update-release-link" target="_blank" rel="noopener noreferrer">릴리스 페이지</a></div>
+            <p id="update-progress" role="status" class="field-help"></p><p id="update-error" role="alert" class="error-text"></p>
+          </section>
           <div class="page-heading settings-heading">
             <div>
               <p class="eyebrow">COLLECTOR SETTINGS</p>

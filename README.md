@@ -11,6 +11,8 @@
 
 # Novel Collector
 
+현재 릴리스: **1.0.0.1** — 북마크릿 추출 프리셋과 릴리스 업데이터 통합.
+
 Node.js·Playwright 기반 소설 수집기와 웹 대시보드입니다. 최대 두 작업을 실행하고 작품별 회차는 순서대로 처리합니다. 데이터는 로컬 파일 저장소에 보관합니다.
 
 ## 주요 기능
@@ -25,12 +27,15 @@ Node.js·Playwright 기반 소설 수집기와 웹 대시보드입니다. 최대
 - 새 챌린지로 최대 **5회 자동 시도**, 모두 실패하면 기존 수동 CAPTCHA 방식으로 전환
 - 자동 시도 중 수동 화면 차단, 대시보드 자동 재시도 버튼과 단계별 진행 표시
 - 상세 로그 페이지, 시도별 예상 시간 갱신, 검증 목차 재사용과 변경 카드만 렌더링
+- [추출 프리셋](docs/PRESETS.md): 한 프리셋의 세 페이지 유형·항목별 이미지 안내, 영역 저장·재강조, 선택 항목 미리보기와 서버 저장
+- 하루 한 번 GitHub 정식 릴리스 확인, 새 버전 알림과 사용자 클릭 업데이트
+- 코드/런타임 사전 준비·개인정보 로컬 백업·실패 복구, Windows/Linux 설치 스크립트
 
 CAPTCHA 자동 제출은 평가된 이미지 점수·후보 차이 임계값을 설정한 경우에만 활성화됩니다. 기본값은 분석 후 제출 보류입니다. 자세한 규약은 [CAPTCHA 문서](docs/CAPTCHA.md)를 확인하세요.
 
 ## 실행 환경
 
-Windows와 Linux에서 같은 **`run.mjs`** 실행기를 사용합니다. Node.js 22 이상과 Python 3.9~3.12(3.11 권장) 또는 `uv`를 준비하세요.
+Windows와 Linux에서 같은 **`run.mjs`** 실행기를 사용합니다. 런타임이 없는 환경은 소스 ZIP 해제 후 Windows `install.ps1`, Linux `bash install.sh`로 Node.js·Python·npm·OpenCV·Chromium을 준비합니다. 설치 후 `start.ps1` / `bash start.sh`로 실행합니다.
 
 ```sh
 node run.mjs
@@ -99,6 +104,7 @@ node tools/check-publication.mjs
 |---|---|
 | [설치](docs/INSTALL.md) | 준비물, 첫 실행, systemd, 환경값 |
 | [대시보드](docs/DASHBOARD.md) | 예약·보관함·자동 CAPTCHA·상세 로그 |
+| [추출 프리셋](docs/PRESETS.md) | 설치 없는 북마크릿 선택·미리보기·JSON 가져오기 |
 | [업데이트](docs/UPDATE.md) | 자료를 보존하는 소스 갱신·복구 |
 | [문제 해결](docs/TROUBLESHOOTING.md) | 목차 시간 초과, 인증, 브라우저, 화면 지연 |
 | [CAPTCHA](docs/CAPTCHA.md) | 상태·좌표·trail·재시도 규약 |

@@ -22,7 +22,7 @@ export class Updates {
     const available=!!this.cached.release&&compareVersions(this.cached.release.version,this.currentVersion)>0;
     return{currentVersion:this.currentVersion,latestVersion:this.cached.release?.version||null,repository:this.repository,releaseUrl:this.cached.release?.url||`https://github.com/${this.repository}/releases`,
       available,installable:!this.disabled&&available&&!!this.cached.release.download,checkedAt:this.cached.checkedAt||null,nextCheckAt:this.cached.checkedAt?this.cached.checkedAt+DAY:null,error:this.disabled||this.cached.error,
-      job:{state:job.state,message:job.message||"",version:job.version||null},busy:!!this.child||["preparing","ready","applying","verifying"].includes(job.state)};
+      job:{state:job.state,message:job.message||"",version:job.version||null,step:job.step||null,errorCode:job.errorCode||null,exitCode:job.exitCode??null},busy:!!this.child||["preparing","ready","applying","verifying"].includes(job.state)};
   }
   check({force=false}={}){
     if(this.disabled)return this.status();
@@ -49,7 +49,7 @@ export class Updates {
       const child=this.launch?this.launch(this.cached.release):fork(join(this.rootDir,"tools","update.mjs"),["--root",this.rootDir,"--repository",this.repository,"--version",version],{detached:true,windowsHide:true,stdio:["ignore","ignore","ignore","ipc"],env:process.env});
       this.child=child;child.unref?.();child.on?.("message",message=>{if(message?.type==="ready")void this.onReady().then(()=>child.send?.({type:"stopped"})).catch(()=>{child.send?.({type:"cancel"});});});
       child.on?.("error",()=>{this.child=null;void atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 실행기를 시작하지 못했습니다.",version});});
-      child.on?.("exit",code=>{this.child=null;if(code!==0)void atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 실행기가 종료됐습니다. 기존 소스/로컬 백업을 확인하세요.",version});});
+      child.on?.("exit",code=>{this.child=null;if(code!==0)void readJson(join(this.rootDir,".updates","job.json")).then(job=>{if(job?.state!=="failed")return atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 실행기가 종료됐습니다. 상세 로그를 확인하세요.",version,errorCode:"WORKER_EXIT",exitCode:code});}).catch(()=>{});});
       return{accepted:true,version};
     }catch{this.child=null;await atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 실행을 준비하지 못했습니다.",version});throw fail("업데이트 실행을 준비하지 못했습니다.",503);}
   }

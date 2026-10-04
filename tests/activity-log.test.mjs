@@ -19,7 +19,7 @@ test("log rotation, bounded memory, incremental cursors and reload retain safe r
   t.after(()=>rm(root,{recursive:true,force:true}));
   const path=join(root,"events.jsonl");
   const log=await new ActivityLog({path,capacity:5,maxBytes:700}).load();
-  for(let i=0;i<12;i++) log.add({scope:"job",message:`event ${i}`,level:i===11?"error":"info"});
+  for(let i=0;i<12;i++) log.add({scope:"api",message:`event ${i}`,level:i===11?"error":"info"});
   await log.close();
   const latest=log.query({limit:2});
   assert.equal(log.rows.length,5);

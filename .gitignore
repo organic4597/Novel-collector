@@ -39,6 +39,7 @@
 !/tools/update.mjs
 !/tools/recover-update.mjs
 !/tools/install-runtime.mjs
+!/tools/startup-diagnostics.mjs
 /docs/*
 !/docs/CAPTCHA.md
 !/docs/TESTING.md

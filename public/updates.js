@@ -19,7 +19,7 @@
     if(busy||!alive())return;busy=true;const own=epoch,generation=UI.generation();
     try{const result=await UI.api(path,options);if(own!==epoch||generation!==UI.generation()||!alive())return;
       if(result.accepted){restarting=true;state={...state,busy:true,job:{state:"preparing",message:"업데이트 준비 중"}};}
-      else{state=result;if(restarting&&["completed","failed","idle"].includes(state.job.state)){restarting=false;if(state.job.state==="completed")location.reload();}}
+      else{if(typeof result.currentVersion!=="string"||!result.job||typeof result.job.state!=="string")throw Error("업데이트 상태 형식을 확인하세요.");state=result;if(restarting&&["completed","failed","idle"].includes(state.job.state)){restarting=false;if(state.job.state==="completed")location.reload();}}
       render();
     }catch(e){if(own===epoch&&alive()){
       $("update-progress").textContent=restarting?"프로그램 재시작 중입니다. 연결을 다시 확인하고 있습니다.":"업데이트 상태를 확인하지 못했습니다.";

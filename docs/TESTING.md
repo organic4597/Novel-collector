@@ -96,6 +96,12 @@ GitHub 실제 공개 릴리스 확인은 현재 1.0.0.0과 같은 버전으로 �
 
 Linux의 기존 라이브러리 환경에서 install-runtime --skip-os-deps의 의존성 준비와 Python 이미지 테스트를 실행했습니다. Bash 설치/실행 스크립트는 문법 검사했으며 누락 런타임/Windows 분기는 모델 테스트입니다. **클린 Windows 실기·PowerShell 실행과 Linux 배포판별 OS 패키지 설치 전체를 실측한 결과는 아닙니다.** 이미 게시된 1.0.0.0을 자동 적용으로 변경하지 않았고 운영 설치의 소스를 교체하지 않았습니다.
 
+## 1.0.0.1 통합 릴리스
+
+북마크릿 프리셋과 릴리스 업데이터를 통합하고 앱 버전을 1.0.0.1로 맞춘 뒤 전체 결과는 **524개 중 492 통과, 기존 실패 32개**입니다. 새 업데이터를 통한 다음 버전 테스트 fixture는 1.0.0.2를 사용합니다. 버전 상승에 따라 같은 버전을 업데이트 대상으로 오인하지 않도록 했습니다.
+
+서버의 두 관리자 API·정적 스크립트·대시보드 메뉴를 함께 유지했습니다. 북마크릿의 원본 창/고정/서버 저장 브라우저 테스트와 업데이터의 준비/종료/교체/시작/개인정보 canary 보존 테스트가 통합본에서도 통과했습니다. Windows 실기와 모든 Linux 클린 OS 설치를 검증한 결과로 확대하지 않습니다.
+
 ```sh
 node --test tests/extraction-presets.test.mjs tests/element-picker.test.mjs tests/ui-extraction-presets.test.mjs tests/static-assets.test.mjs tests/ui-workflows.test.mjs
 npm test

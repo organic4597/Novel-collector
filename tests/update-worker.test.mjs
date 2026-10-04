@@ -8,7 +8,7 @@ import { update } from "../tools/update.mjs";
 import { fork } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:net";
-const version="1.0.0.1",repository="example/Novel-collector";
+const version="1.0.0.2",repository="example/Novel-collector";
 async function fixture(t){
   const root=await mkdtemp(join(tmpdir(),"update worker spaces "));t.after(()=>rm(root,{recursive:true,force:true}));
   await mkdir(join(root,"tools"));await writeFile(join(root,"run.mjs"),"OLD_SOURCE");await writeFile(join(root,"tools","recover-update.mjs"),await readFile(new URL("../tools/recover-update.mjs",import.meta.url)));

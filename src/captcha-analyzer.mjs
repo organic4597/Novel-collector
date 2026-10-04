@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { CaptchaError } from "./novel-captcha.mjs";
 
 const script = fileURLToPath(new URL("../tools/captcha_position.py", import.meta.url));
-const defaultPython = fileURLToPath(new URL("../.venv-captcha/bin/python", import.meta.url));
+const defaultPython = fileURLToPath(new URL(process.platform === "win32" ? "../.venv-captcha/Scripts/python.exe" : "../.venv-captcha/bin/python", import.meta.url));
 
 export function createCaptchaAnalyzer({ python = defaultPython, profile = null, timeoutMs = 5000 } = {}) {
   return (challenge, { signal } = {}) => new Promise((resolve, reject) => {

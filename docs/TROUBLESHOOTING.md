@@ -31,11 +31,13 @@
 서비스 사용자에게 실행 파일·프로필·cache 읽기/쓰기 권한이 있는지 확인합니다. `BROWSER_PATH`는 디렉터리가 아니라 실행 파일입니다. Playwright 설치 브라우저는 설치한 사용자의 cache에 저장됩니다.
 
 ```sh
-.venv-captcha/bin/python -c "import cv2, numpy; print(cv2.__version__, numpy.__version__)"
+node run.mjs --check
 npm run test:captcha
 ```
 
 Sandbox를 끄기보다 운영체제의 브라우저 의존성과 사용자 권한을 먼저 확인합니다.
+
+Windows에서도 실행 명령은 `node run.mjs`입니다. 공백이 있는 전체 경로는 따옴표로 감싸세요. Python 3.11 또는 uv를 준비하면 기본 가상환경을 만들 수 있습니다. `--no-setup` 서비스는 설치 작업을 수행하지 않으므로 부족한 의존성은 서비스 시작 전에 `--setup`으로 준비합니다.
 
 ## 문서·설정 공유
 

@@ -4,12 +4,14 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { Collector } from "../src/collector.mjs";
 import { CaptchaBrowserSupport } from "../src/captcha-browser.mjs";
 import { createCaptchaAnalyzer } from "../src/captcha-analyzer.mjs";
 
 const target = "https://sbxh9.com/novel/1/2";
+const python = fileURLToPath(new URL(process.platform === "win32" ? "../.venv-captcha/Scripts/python.exe" : "../.venv-captcha/bin/python", import.meta.url));
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==";
 const challenge = { challengeId: "local-challenge", background: png, width: 320, height: 160, pieceWidth: 60, pieceHeight: 60, y: 51 };
 
@@ -35,7 +37,7 @@ async function fixture(t, options = {}) {
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   t.after(() => new Promise((r) => { server.closeAllConnections(); server.close(r); }));
-  const bundledBrowser = new URL("../browser/chrome-linux64/chrome", import.meta.url).pathname;
+  const bundledBrowser = fileURLToPath(new URL(process.platform === "win32" ? "../browser/chrome-win64/chrome.exe" : "../browser/chrome-linux64/chrome", import.meta.url));
   const browser = await chromium.launch({
     executablePath: process.env.BROWSER_PATH || (existsSync(bundledBrowser) ? bundledBrowser : undefined),
     headless: true,
@@ -168,7 +170,7 @@ test("a delayed quota response from a concurrent original request shares the ong
 });
 
 test("OpenCV plus actual browser pointer events completes the isolated reader flow", async (t) => {
-  const challenge = JSON.parse(execFileSync(new URL("../.venv-captcha/bin/python", import.meta.url).pathname,
+  const challenge = JSON.parse(execFileSync(python,
     ["-c", 'import sys,json; sys.path.insert(0,"tests"); from captcha_position_test import fixture; print(json.dumps(fixture()))'],
     { cwd: new URL("../", import.meta.url), encoding: "utf8" }));
   const f = await fixture(t, { challenge, analyze: createCaptchaAnalyzer({ profile: { minScore: .85, minMargin: .12 } }) });

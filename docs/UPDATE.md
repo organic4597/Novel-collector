@@ -9,9 +9,10 @@
 ```sh
 git status --short
 git log -1 --oneline
+git switch develop
 git pull --ff-only
 npm ci
-uv pip install --python .venv-captcha/bin/python -r requirements-captcha.txt
+node run.mjs --setup
 ```
 
 4. 테스트하고 서비스를 재시작합니다.

@@ -92,7 +92,7 @@ uv venv --python /usr/bin/python3 .venv-captcha
 uv pip install --python .venv-captcha/bin/python -r requirements-captcha.txt
 ```
 
-Python 3.9 환경에서 OpenCV 4.12.0.88 / NumPy 2.0.2를 고정했습니다. 기본 Python 경로는 프로젝트의 `.venv-captcha/bin/python`이며 `CAPTCHA_PYTHON`으로 변경할 수 있습니다.
+Python 3.9 환경에서 OpenCV 4.12.0.88 / NumPy 2.0.2를 고정했습니다. 기본 Python 경로는 Linux의 `.venv-captcha/bin/python`, Windows의 `.venv-captcha/Scripts/python.exe`이며 `CAPTCHA_PYTHON`으로 변경할 수 있습니다. 공통 실행기 `node run.mjs`가 가상환경을 준비하고 해당 경로를 연결합니다.
 
 단일 이미지 입력 JSON은 `{ "challenge": { ... }, "profile": { "minScore": ..., "minMargin": ... } }`입니다. profile을 생략하면 분석만 합니다.
 

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createCaptchaAnalyzer } from "../src/captcha-analyzer.mjs";
 
-const python = new URL("../.venv-captcha/bin/python", import.meta.url).pathname;
+const python = fileURLToPath(new URL(process.platform === "win32" ? "../.venv-captcha/Scripts/python.exe" : "../.venv-captcha/bin/python", import.meta.url));
 const challenge = () => JSON.parse(execFileSync(python, ["-c",
   'import sys,json; sys.path.insert(0,"tests"); from captcha_position_test import fixture; print(json.dumps(fixture()))',
 ], { cwd: new URL("../", import.meta.url), encoding: "utf8" }));

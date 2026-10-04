@@ -7,10 +7,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "start": "node src/server.mjs",
+    "start": "node run.mjs",
+    "setup": "node run.mjs --setup",
+    "check": "node run.mjs --check",
     "test": "node --test --test-concurrency=4 tests/*.test.mjs",
     "test:captcha": "node --test tests/novel-captcha.test.mjs tests/captcha-trail.test.mjs tests/captcha-analyzer.test.mjs tests/captcha-browser.test.mjs",
-    "test:captcha:images": ".venv-captcha/bin/python -m unittest discover -s tests -p captcha_position_test.py -v"
+    "test:captcha:images": "node run.mjs --test-images"
   },
   "dependencies": {
     "jszip": "3.10.1",

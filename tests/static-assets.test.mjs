@@ -39,4 +39,5 @@ test("static assets use content validators and retain security headers on 304", 
   assert.equal((await fetch(base+"/preset-guide.js")).status,200);
   assert.equal((await fetch(base+"/preset-connection.js")).status,200);
   assert.equal((await fetch(base+"/updates.js")).status,200);
+  assert.equal((await fetch(base+"/dashboard-logger.js")).status,200);
 });

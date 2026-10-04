@@ -135,6 +135,12 @@ sudo systemctl status novel-collector.service
 
 ## 7. 검증
 
+## 시작 스크립트의 기존 인스턴스 교체
+
+`start.sh` / `start.ps1`은 `run.mjs --replace`를 사용합니다. 같은 설치 폴더의 비공개 관리 소켓/Windows named pipe와 토큰으로 인스턴스를 확인하고 정상 종료 후 다시 시작합니다. 다른 설치 폴더나 무관한 Node 프로세스는 종료하지 않습니다. 업데이트 진행 중에는 인스턴스 교체를 시작하지 않습니다.
+
+이 프로토콜이 없는 이전 버전이 실행 중이면 PID만 보고 강제 종료하지 않습니다. 기존 실행 창에서 Ctrl+C로 최초 한 번 종료한 뒤 새 스크립트를 실행하세요. 이후 동일 프로토콜을 사용하는 인스턴스는 시작 스크립트가 교체합니다.
+
 ```sh
 node run.mjs --check
 node run.mjs --test-images

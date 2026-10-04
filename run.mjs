@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { stopExisting } from "./src/instance-control.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const pathFor = platform => platform === "win32" ? path.win32 : path.posix;
@@ -28,12 +29,13 @@ export function runtimeEnvironment(rootDir, supplied = process.env, platform = p
   };
 }
 export function parseArguments(args) {
-  const allowed = new Set(["--help", "--setup", "--check", "--no-setup", "--test-images"]);
+  const allowed = new Set(["--help", "--setup", "--check", "--no-setup", "--test-images", "--replace"]);
   if (args.some(arg => !allowed.has(arg))) throw failure("ARGUMENT_INVALID", "지원하는 옵션: --setup, --check, --no-setup, --test-images, --help");
   const modes = ["--setup", "--check", "--test-images"].filter(arg => args.includes(arg));
   if (modes.length > 1 || (args.includes("--setup") && args.includes("--no-setup")))
     throw failure("ARGUMENT_INVALID", "실행 모드 옵션을 함께 사용할 수 없습니다.");
   return { mode: args.includes("--help") ? "help" : modes[0]?.slice(2) || "start",
+    ...(args.includes("--replace")?{replace:true}:{}),
     setup: !args.includes("--no-setup") && !args.includes("--check") && !args.includes("--test-images") };
 }
 export async function waitForUpdate(rootDir=ROOT,{sleep=ms=>new Promise(r=>setTimeout(r,ms)),alive=pid=>{try{process.kill(pid,0);return true;}catch{return false;}}}={}){
@@ -208,10 +210,14 @@ export async function prepareRuntime({ rootDir = ROOT, supplied = process.env, p
 async function main() {
   const args = parseArguments(process.argv.slice(2));
   if (args.mode === "help") {
-    console.log("Windows/Linux: node run.mjs\n--setup: 준비만 실행\n--check: 설치 없이 확인\n--no-setup: 설치 없이 서버 실행\n--test-images: Python 이미지 테스트");
+    console.log("Windows/Linux: node run.mjs\n--setup: 준비만 실행\n--check: 설치 없이 확인\n--no-setup: 설치 없이 서버 실행\n--replace: 같은 설치의 기존 인스턴스 정상 종료 후 시작\n--test-images: Python 이미지 테스트");
     return;
   }
   process.chdir(ROOT);
+  if(args.mode==="start"&&args.replace){
+    if(existsSync(path.join(ROOT,".updates","lock.json"))||existsSync(path.join(ROOT,".updates","pending-verification.json")))throw failure("UPDATE_BUSY","업데이트 완료 후 기존 인스턴스를 교체하세요.");
+    await stopExisting(ROOT);
+  }
   if(args.mode==="start")await waitForUpdate(ROOT);
   const { env, python } = await prepareRuntime({ setup: args.setup });
   if (args.mode === "test-images") {
@@ -228,8 +234,9 @@ async function main() {
   console.info(`[Launcher] Novel Collector 실행 중 · http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`);
 }
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
-  main().catch(error => {
+  main().catch(async error => {
     console.error(`[Launcher] ${error.code || "START_FAILED"}: ${error.code ? error.message : "실행을 완료하지 못했습니다. 실행 환경과 서비스 로그를 확인하세요."}`);
+    try{const {updateLog,updateEvent}=await import("./src/activity-log.mjs"),log=await updateLog(ROOT);updateEvent(log,"START_SERVER",error.message,{level:"error",errorCode:error.code||"START_FAILED",component:"launcher"});await log.close();}catch{}
     process.exitCode = 1;
   });
 }

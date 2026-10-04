@@ -102,6 +102,14 @@ Linux의 기존 라이브러리 환경에서 install-runtime --skip-os-deps의 �
 
 서버의 두 관리자 API·정적 스크립트·대시보드 메뉴를 함께 유지했습니다. 북마크릿의 원본 창/고정/서버 저장 브라우저 테스트와 업데이터의 준비/종료/교체/시작/개인정보 canary 보존 테스트가 통합본에서도 통과했습니다. Windows 실기와 모든 Linux 클린 OS 설치를 검증한 결과로 확대하지 않습니다.
 
+## 대시보드 진단 테스트 브랜치 (앱 1.0.0.0)
+
+대시보드 전용 상세 로그와 동일 설치 인스턴스 교체 기능 반영 후 전체 결과는 **532개 중 500 통과, 기존 실패 32개**입니다. 관련 집중 테스트 **34/34**가 통과했습니다. Windows에서 신고된 실제 재시작 실패 원인이 확정/해결됐다는 결과는 아닙니다.
+
+API 읽기/업데이트 호출·사용자 조작·브라우저 오류 기록, 수집 이벤트 제외, 자체 로그 조회의 재귀 기록 방지, 인증/개인정보 마스킹, worker 명령 stderr와 종료 코드·단계 보존, stdout을 숨긴 새 서버 시작 오류 기록을 확인했습니다. 정상 종료 프로토콜은 같은 설치의 비공개 식별자/토큰만 수용하고 다른 설치·잘못된 토큰·이전 PID-only 기록의 무관한 프로세스 종료를 거부합니다.
+
+앱 1.0.0.0 진단 코드에서 실제 GitHub 1.0.0.1 ZIP 다운로드와 오프라인 준비/교체를 수행해 버전 상승·상세 이벤트 생성·DB/계정/프로필 canary 보존을 확인했습니다. Windows named pipe는 모델/공통 코드 검증이며 Windows 실기 오류는 사용자 로그로 확인해야 합니다.
+
 ```sh
 node --test tests/extraction-presets.test.mjs tests/element-picker.test.mjs tests/ui-extraction-presets.test.mjs tests/static-assets.test.mjs tests/ui-workflows.test.mjs
 npm test

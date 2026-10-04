@@ -15,6 +15,8 @@ import { Updates } from "./updates.mjs";
 import { APP_VERSION } from "./version.mjs";
 import { createUpdatesRouter } from "./updates-api.mjs";
 import { atomicJson } from "./update-files.mjs";
+import { dashboardRoute,clientEvents } from "./dashboard-audit.mjs";
+import { InstanceControl } from "./instance-control.mjs";
 import { LibraryDownloads } from "./library-downloads.mjs";
 import { createFeatureRouter, publicBook } from "./features-api.mjs";
 import { BackoffController } from "./request-backoff.mjs";
@@ -233,6 +235,9 @@ export function createApp({
     return jobsWork;
   };
   const app = createServer(async (request, response) => {
+    const started=Date.now();let auditUrl;try{auditUrl=new URL(request.url,"http://localhost");}catch{auditUrl={pathname:"/invalid"};}const auditRoute=dashboardRoute(auditUrl.pathname);
+    const audited=auditUrl.pathname.startsWith("/api/")&&!(["/api/activity","/api/dashboard-log","/api/health"].includes(auditUrl.pathname)||auditUrl.pathname.startsWith("/api/agents/"));
+    if(audited)response.once("finish",()=>recordActivity({scope:"api",level:response.statusCode>=500?"error":response.statusCode>=400?"warn":"info",message:`${request.method} ${auditRoute} · ${response.statusCode}`,details:{method:request.method,status:response.statusCode,elapsedMs:Date.now()-started}}));
     try {
       const retryAfterSeconds = requestRetrySeconds(
         requestAddress(request, trustProxy),
@@ -253,10 +258,6 @@ export function createApp({
       const parts = url.pathname.split("/").filter(Boolean);
       const method = request.method;
       if(url.pathname==="/api/health"&&method==="GET")return send(response,200,{ok:true,version:updates?.currentVersion||APP_VERSION});
-      if (["/api/login", "/api/logout"].includes(url.pathname) && method === "POST") {
-        response.once("finish", () => recordActivity({scope:"api",message:`관리자 ${url.pathname.endsWith("login") ? "로그인" : "로그아웃"} · ${response.statusCode}`,
-          level:response.statusCode >= 400 ? "warn" : "info",details:{status:response.statusCode}}));
-      }
       if (url.pathname.startsWith("/api")) {
         if (method !== "GET" && request.headers.origin) {
           let origin;
@@ -299,17 +300,17 @@ export function createApp({
         }
         const session = authenticated(request);
         if (!session) throw HTTP_ERROR("로그인이 필요합니다.", 401);
+        if(url.pathname==="/api/dashboard-log"&&method==="POST"){
+          if(!activity)throw HTTP_ERROR("대시보드 로그를 사용할 수 없습니다.",503);for(const event of clientEvents(await body(request)))recordActivity(event);return send(response,202,{accepted:true});
+        }
         if(await updatesRouter({request,response,url,send,readBody:body}))return;
         if (method !== "GET" && method !== "HEAD") {
           jobsAt = 0;
-          const route = url.pathname.replace(/\/[a-f0-9-]{20,}(?=\/|$)/g, "/:id");
-          recordActivity({ scope: "api", message: `${method} ${route}`, details: { method } });
-          response.once("finish", () => { jobsAt = 0; recordActivity({ scope: "api",
-            level: response.statusCode >= 400 ? "warn" : "info", message: `${method} ${route} · ${response.statusCode}`,
-            details: { status: response.statusCode } }); });
+          response.once("finish", () => { jobsAt = 0; });
         }
         if (url.pathname === "/api/activity" && method === "GET") {
           if (!activity) throw HTTP_ERROR("상세 로그를 사용할 수 없습니다.", 503);
+          if(activity.externalPath)await activity.syncExternal?.(activity.externalPath);
           const number = (key, fallback) => {
             if (!url.searchParams.has(key)) return fallback;
             const value = Number(url.searchParams.get(key));
@@ -584,6 +585,7 @@ export function createApp({
         "/library.js": "library.js",
         "/logs.js": "logs.js",
         "/activity.js": "activity.js",
+        "/dashboard-logger.js": "dashboard-logger.js",
         "/element-picker.js": "element-picker.js",
         "/extraction-presets.js": "extraction-presets.js",
         "/preset-guide.js": "preset-guide.js",
@@ -621,6 +623,7 @@ export function createApp({
       });
       response.end(method === "HEAD" || unchanged ? undefined : content);
     } catch (error) {
+      if(audited)recordActivity({scope:"api",level:"error",message:`${request.method} ${auditRoute}: ${error.message}`,details:{errorCode:error.code,status:error.status||500}});
       if (response.headersSent) {
         response.destroy();
         return;
@@ -674,7 +677,7 @@ export async function startServer({
   const updates = await new Updates({rootDir}).load();
   const { ActivityLog } = await import("./activity-log.mjs");
   const activity = await new ActivityLog({ path: join(rootDir, "data", "activity", "events.jsonl") }).load();
-  store.onOperation = (event) => activity.add(event);
+  activity.externalPath=join(rootDir,".updates","dashboard-events.jsonl");
   activity.add({ scope: "service", message: "서비스 시작" });
   const credentials = await openCredentials({
     directory: join(rootDir, "secrets"),
@@ -715,8 +718,7 @@ export async function startServer({
       profile: minScore > 0 && minScore <= 1 && minMargin > 0 && minMargin <= 1
         ? { minScore, minMargin } : null,
     }),
-    log: (event) => { console.info("[NovelCaptcha] " + JSON.stringify(event));
-      activity.add({ scope: "captcha", level: event.stage === "FAILED" ? "warn" : "info", message: `CAPTCHA ${event.stage}`, details: event }); },
+    log: (event) => { console.info("[NovelCaptcha] " + JSON.stringify(event)); },
   });
   const { Discovery } = await import("./discovery.mjs");
   const discovery = new Discovery({
@@ -825,6 +827,7 @@ export async function startServer({
     verificationTimer=setInterval(()=>{void awaitingVerification().then(waiting=>{if(!waiting){clearInterval(verificationTimer);verificationTimer=null;void startWork().catch(()=>{});}});},500);verificationTimer.unref();
   }else await startWork();
   let closing = false;
+  let instanceControl=null;
   const close = async () => {
     if (closing) return;
     closing = true;
@@ -844,12 +847,14 @@ export async function startServer({
     activity.add({ scope: "service", message: "서비스 종료" });
     await activity.close();
     const {rm}=await import("node:fs/promises");await rm(join(rootDir,".updates","server.json"),{force:true}).catch(()=>{});
+    await instanceControl?.close();
     app.closeAllConnections();
     await new Promise((r) => app.close(r));
   };
   process.once("SIGTERM", () => close().then(() => process.exit(0)));
   process.once("SIGINT", () => close().then(() => process.exit(0)));
   updates.onReady=async()=>{await close();setTimeout(()=>process.exit(75),100);};
+  instanceControl=await new InstanceControl({root:rootDir,log:record=>activity.add(record),onStop:async()=>{await close();process.exit(0);}}).listen();
   return {
     app,
     store,

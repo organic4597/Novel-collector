@@ -15,7 +15,7 @@
       const row = UI.node("article", `activity-row ${r.level}`);
       const heading = UI.node("div", "activity-meta");
       heading.append(UI.node("time", "", UI.date(r.time, true)), UI.node("strong", "", r.level.toUpperCase()),
-        UI.node("span", "", r.scope), UI.node("span", "muted", r.jobId ? r.jobId.slice(0, 8) : "서비스"));
+        UI.node("span", "", r.scope), UI.node("span", "muted", r.details?.step || "대시보드"));
       row.append(heading, UI.node("p", "", r.message));
       if (Object.keys(r.details || {}).length) row.append(UI.node("pre", "activity-details", JSON.stringify(r.details, null, 2)));
       fragment.append(row);

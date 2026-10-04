@@ -30,17 +30,21 @@ CAPTCHA 자동 제출은 평가된 이미지 점수·후보 차이 임계값을 
 
 ## 실행 환경
 
-Node.js 22 이상, Chromium, Python 3.9 이상이 필요합니다. Linux 서버를 기준으로 개발했습니다.
+Windows와 Linux에서 같은 **`run.mjs`** 실행기를 사용합니다. Node.js 22 이상과 Python 3.9~3.12(3.11 권장) 또는 `uv`를 준비하세요.
 
 ```sh
-npm ci
-npx playwright install chromium
-uv venv --python python3 .venv-captcha
-uv pip install --python .venv-captcha/bin/python -r requirements-captcha.txt
-npm start
+node run.mjs
 ```
 
 기본 대시보드는 `http://127.0.0.1:8788`입니다. `HOST`, `PORT`, `BROWSER_PATH`, `PROFILE_DIR`로 실행 환경을 지정할 수 있습니다. `deploy/novel-collector.service`는 설치 경로와 전용 사용자를 준비한 뒤 조정할 수 있는 일반 템플릿입니다.
+
+첫 실행은 빠진 npm 런타임 패키지·독립 Python/OpenCV 환경·Chromium을 준비합니다. 이후에는 확인 후 바로 실행하며 기존 DB·계정·브라우저 프로필을 재사용합니다. 경로에 공백이 있어도 실행할 수 있습니다. `npm start`도 같은 실행기를 호출합니다.
+
+```sh
+node run.mjs --setup      # 준비만 수행
+node run.mjs --check      # 설치 없이 실행 환경 확인
+node run.mjs --no-setup   # 준비된 환경으로 서버 실행 (서비스용)
+```
 
 서비스 설치·관리자 첫 접속·브라우저 의존성·CAPTCHA 환경 설정까지는 [단계별 설치 가이드](docs/INSTALL.md)를 사용하세요.
 
@@ -66,6 +70,7 @@ flowchart LR
 
 | 경로 | 역할 |
 |---|---|
+| `run.mjs` | Windows/Linux 공통 준비·점검·실행 진입점 |
 | `src/` | HTTP 서버, 스케줄러, 수집기, 저장소, 사이트 인증 |
 | `public/` | 대시보드 화면 |
 | `tests/` | 단위·통합 테스트와 합성 fixture |

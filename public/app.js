@@ -616,7 +616,7 @@ async function loadBooks() {
 }
 function switchView(view) {
   state.view = view;
-  for (const id of ["queue", "library", "history", "discover", "settings", "activity"])
+  for (const id of ["queue", "library", "history", "discover", "settings", "activity", "presets"])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
     const selected = button.dataset.view === view;

@@ -9,6 +9,8 @@ import { FolderStore, safeId, cleanMessage } from "./store.mjs";
 import { Scheduler } from "./queue.mjs";
 import { MemoryCredentials, openCredentials } from "./auth.mjs";
 import { SettingsStore } from "./settings.mjs";
+import { ExtractionPresets } from "./extraction-presets.mjs";
+import { createExtractionPresetsRouter } from "./extraction-presets-api.mjs";
 import { LibraryDownloads } from "./library-downloads.mjs";
 import { createFeatureRouter, publicBook } from "./features-api.mjs";
 import { BackoffController } from "./request-backoff.mjs";
@@ -113,6 +115,7 @@ export function createApp({
   captchaSession = null,
   viewerOrigins = null,
   activity = null,
+  extractionPresets = null,
 }) {
   if (!credentials && (typeof adminPassword !== "string" || !adminPassword))
     throw Error("관리자 인증 설정이 필요합니다.");
@@ -144,6 +147,7 @@ export function createApp({
   });
   const siteBrowserRouter = createSiteBrowserRouter({ siteBrowser });
   const captchaRouter = createCaptchaSessionRouter({ captchaSession });
+  const presetsRouter = createExtractionPresetsRouter({ presets: extractionPresets });
   const siteAccountsRouter = createSiteAccountsRouter({
     accounts,
     autoAuth,
@@ -318,6 +322,7 @@ export function createApp({
           })
         )
           return;
+        if (await presetsRouter({ request, response, url, send, readBody: body })) return;
         if (
           await captchaRouter({ request, response, url, send, readBody: body })
         )
@@ -571,6 +576,10 @@ export function createApp({
         "/library.js": "library.js",
         "/logs.js": "logs.js",
         "/activity.js": "activity.js",
+        "/element-picker.js": "element-picker.js",
+        "/extraction-presets.js": "extraction-presets.js",
+        "/preset-guide.js": "preset-guide.js",
+        "/preset-connection.js": "preset-connection.js",
         "/queue-ui.js": "queue-ui.js",
         "/style.css": "style.css",
         "/styles.css": "styles.css",
@@ -652,6 +661,7 @@ export async function startServer({
   port = Number(process.env.PORT ?? 8788),
 } = {}) {
   const store = await new FolderStore(join(rootDir, "data")).init();
+  const extractionPresets = await new ExtractionPresets({ store }).load();
   const { ActivityLog } = await import("./activity-log.mjs");
   const activity = await new ActivityLog({ path: join(rootDir, "data", "activity", "events.jsonl") }).load();
   store.onOperation = (event) => activity.add(event);
@@ -767,6 +777,7 @@ export async function startServer({
   autoAuth = sourceAuth;
   recovery = sourceRecovery;
   const app = createApp({
+    extractionPresets,
     activity,
     store,
     scheduler,

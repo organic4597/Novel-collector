@@ -106,6 +106,9 @@ async function setup(t, configuration = {}) {
         })),
         skipped: [{ url: "duplicate", reason: "이미 대기 중" }],
       };
+    } else if (/^\/api\/discover\/\d+\/overview$/.test(path)) {
+      const id=path.split("/")[3];
+      data=options.method==="POST" ? {status:"completed",item:{...item(id),author:"소개 작가",tags:["성장"],synopsis:"소개 첫 줄\n소개 다음 줄",episodeCount:17}} : {status:"idle",item:item(id)};
     } else if (options.method === "DELETE") {
       jobs = jobs.filter((j) => "/api/jobs/" + j.id !== path);
       data = { deleted: true };
@@ -151,6 +154,7 @@ async function setup(t, configuration = {}) {
     "library.js",
     "settings.js",
     "discovery.js",
+    "discovery-detail.js",
   ]) {
     try {
       w.eval(
@@ -214,6 +218,21 @@ test("queue offers reservation deletion for running, queued, paused and attentio
   assert.ok(calls.some(c=>c.path==="/api/jobs/job-2"&&c.options.method==="DELETE"));
   assert.equal(w.CollectorUI.job("job-2"),undefined);
   assert.equal(w.document.getElementById("delete-job-2"),null);
+});
+
+test("clicking a discovery work opens its introduction and returning preserves filters and selection",async t=>{
+  const {w}=await setup(t);
+  click(w,"nav-discover");await tick();
+  const check=w.document.querySelector('#discover-list input[type="checkbox"]');check.click();
+  w.document.getElementById("discover-query").value="유지할 검색어";
+  w.document.querySelector(".discover-title-link").click();await tick();
+  assert.equal(w.CollectorUI.view(),"work");
+  assert.equal(w.document.getElementById("work-author").textContent,"소개 작가");
+  assert.match(w.document.getElementById("work-synopsis").textContent,/소개 다음 줄/);
+  click(w,"work-back");await tick();await tick();
+  assert.equal(w.CollectorUI.view(),"discover");
+  assert.equal(w.document.getElementById("discover-query").value,"유지할 검색어");
+  assert.equal(w.document.querySelector('#discover-list input[type="checkbox"]').checked,true);
 });
 
 test("Multiline links submit one batch; shared settings and duplicate notice retained", async (t) => {

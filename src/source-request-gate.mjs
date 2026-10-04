@@ -57,7 +57,7 @@ export class SourceRequestGate {
         : "10분 뒤";
       throw Object.assign(
         new Error(
-          `연속 다운로드 실패로 원본 사이트 요청을 쉬고 있습니다. ${time}에 다시 시도합니다.`,
+          `서버 요청 제한으로 원본 사이트 요청을 쉬고 있습니다. ${time}에 다시 시도합니다.`,
         ),
         { status: 503, code: "REQUEST_BACKOFF", until: until || null },
       );

@@ -616,10 +616,10 @@ async function loadBooks() {
 }
 function switchView(view) {
   state.view = view;
-  for (const id of ["queue", "library", "history", "discover", "settings", "activity"])
+  for (const id of ["queue", "library", "history", "discover", "settings", "activity", "work"])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
-    const selected = button.dataset.view === view;
+    const selected = button.dataset.view === view || (view === "work" && button.dataset.view === "discover");
     button.classList.toggle("selected", selected);
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
@@ -630,6 +630,7 @@ function switchView(view) {
   document.dispatchEvent(new CustomEvent("collector:view", { detail: view }));
 }
 window.CollectorUI = {
+  navigate: switchView,
   refresh: poll,
   api,
   node,

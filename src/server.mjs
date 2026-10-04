@@ -395,6 +395,17 @@ export function createApp({
             throw HTTP_ERROR("잘못된 작품 ID입니다.", 400);
           if (!discovery)
             throw HTTP_ERROR("작품 목록을 사용할 수 없습니다.", 503);
+          if (parts[3] === "overview" && ["GET", "POST"].includes(method)) {
+            if (!discovery.overviewState || !discovery.requestOverview)
+              throw HTTP_ERROR("작품 소개를 사용할 수 없습니다.", 503);
+            if (method === "POST") {
+              const input = await body(request);
+              if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length)
+                throw HTTP_ERROR("작품 소개 요청에는 추가 입력이 필요하지 않습니다.", 400);
+            }
+            const result = method === "GET" ? await discovery.overviewState(parts[2]) : await discovery.requestOverview(parts[2]);
+            return send(response, method === "POST" && result.status === "pending" ? 202 : 200, result);
+          }
           if (parts[3] === "refresh" && method === "POST") {
             await body(request);
             if (discovery.requestDetail) {
@@ -548,6 +559,7 @@ export function createApp({
         "/index.html": "index.html",
         "/app.js": "app.js",
         "/discovery.js": "discovery.js",
+        "/discovery-detail.js": "discovery-detail.js",
         "/settings.js": "settings.js",
         "/settings.css": "settings.css",
         "/performance.js": "performance.js",

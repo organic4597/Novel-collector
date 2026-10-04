@@ -147,6 +147,7 @@ export class Discovery {
     this.pending = new Map();
     this.imageSerial = Promise.resolve();
     this.detailStates = new Map();
+    this.overviewStates = new Map();
     this.contextPromise = null;
     this.dnsCache = new Map();
     this.workLocks = new Map();
@@ -339,6 +340,67 @@ export class Discovery {
     this.pending.set(key, promise);
     return promise;
   }
+
+  async overviewState(value) {
+    const id = validId(value);
+    const state = this.overviewStates.get(id);
+    if (state && this.now() - state.updatedAt < PAGE_TTL) {
+      const { updatedAt, ...result } = state;
+      return result;
+    }
+    this.overviewStates.delete(id);
+    const work = await json(join(this.rootDir, "works", `${id}.json`));
+    if (!work) throw Object.assign(new Error("목록에서 작품을 먼저 선택하세요."), { status: 404 });
+    const fresh = work.overviewCachedAt && this.now() - Date.parse(work.overviewCachedAt) < PAGE_TTL;
+    return { status: fresh ? "completed" : "idle", item: publicWork(work) };
+  }
+
+  async requestOverview(value) {
+    this.checkOpen();
+    const id = validId(value);
+    const state = await this.overviewState(id);
+    if (["pending", "completed"].includes(state.status)) return state;
+    this.sourceGate.assertAvailable(new URL(state.item?.url || `https://newtoki1.org/novel/${id}`).hostname);
+    if (this.overviewStates.get(id)?.status === "pending") return { status: "pending" };
+    if ([...this.overviewStates.values()].filter(s => s.status === "pending").length >= 50)
+      throw Object.assign(new Error("작품 소개 조회가 대기 중입니다. 잠시 후 다시 시도하세요."), { status: 429 });
+    if (this.overviewStates.size >= 500) {
+      const old = [...this.overviewStates].find(([, s]) => s.status !== "pending");
+      if (old) this.overviewStates.delete(old[0]);
+    }
+    this.overviewStates.set(id, { status: "pending", item: state.item, updatedAt: this.now() });
+    this.overview(id).then(
+      item => this.overviewStates.set(id, { status: "completed", item, updatedAt: this.now() }),
+      error => this.overviewStates.set(id, { status: "failed", item: state.item,
+        error: error.httpStatus === 404 ? "사이트에 작품 소개 페이지가 없습니다. 업로드 상태와 주소를 확인하세요." :
+          "작품 소개를 확인하지 못했습니다. 사이트 접근 상태를 확인하고 다시 시도하세요.", updatedAt: this.now() }),
+    );
+    return { status: "pending", item: state.item };
+  }
+
+  overview(value) {
+    const id = validId(value);
+    return this.dedupe(`overview:${id}`, () => this.exclusiveDetail(async () => {
+      await this.init();
+      const work = await json(join(this.rootDir, "works", `${id}.json`));
+      if (!work) throw Object.assign(new Error("목록에서 작품을 먼저 선택하세요."), { status: 404 });
+      if (work.overviewCachedAt && this.now() - Date.parse(work.overviewCachedAt) < PAGE_TTL) return publicWork(work);
+      const page = await (await this.openContext(new URL(work.url).hostname)).newPage();
+      try {
+        const source = normalizeWorkSource(work.url).url;
+        await this.navigate(page, source);
+        // Read the introductory page only. No chapter body, full catalog walk,
+        // load-more button, login or CAPTCHA solver is part of this operation.
+        const metadata = await page.evaluate(readWorkMetadata);
+        const detail = await this.updateWork(id, latest => ({ ...latest,
+          ...mergeSourceMetadata(latest, metadata),
+          episodeCount: Number.isSafeInteger(metadata.expectedChapterCount) ? metadata.expectedChapterCount : latest?.episodeCount ?? null,
+          overviewCachedAt: new Date(this.now()).toISOString(),
+        }));
+        return publicWork(detail);
+      } finally { await page.close(); }
+    }));
+  }
   async openContext(host) {
     return this.sourceGate.openContext(host);
   }
@@ -397,6 +459,7 @@ export class Discovery {
                 await this.updateWork(item.id, (previous) => ({
                   ...previous,
                   ...item,
+                  ...mergeSourceMetadata(previous, item),
                   episodeCount:
                     previous?.episodeCount ?? item.episodeCount ?? null,
                   detailCachedAt: previous?.detailCachedAt || null,
@@ -499,6 +562,7 @@ export class Discovery {
                 ...mergeSourceMetadata(latest, metadata),
                 episodeCount: count,
                 detailCachedAt: new Date(this.now()).toISOString(),
+                overviewCachedAt: new Date(this.now()).toISOString(),
               }));
               return publicWork(detail);
             }

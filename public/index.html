@@ -17,6 +17,7 @@
     <script src="/library.js" defer></script>
     <script src="/settings.js" defer></script>
     <script src="/discovery.js" defer></script>
+    <script src="/discovery-detail.js" defer></script>
     <script src="/captcha-window.js" defer></script>
     <script src="/site-verification.js" defer></script>
     <script src="/site-account.js" defer></script>
@@ -341,6 +342,20 @@
             <button id="discover-prev" class="secondary">← 이전</button
             ><span id="discover-page">1 / 1</span
             ><button id="discover-next" class="secondary">다음 →</button>
+          </div>
+        </section>
+        <section id="work-view" class="view" hidden aria-labelledby="work-title">
+          <button id="work-back" class="quiet" type="button">← 작품 찾기로 돌아가기</button>
+          <div class="work-layout">
+            <aside class="work-cover"><img id="work-cover" alt="작품 표지" width="240" height="336" hidden><span class="cover-fallback" aria-hidden="true">▤</span></aside>
+            <article class="work-profile">
+              <p class="eyebrow">WORK INTRODUCTION</p><h1 id="work-title">작품 정보</h1>
+              <p id="work-status" class="field-help" role="status"></p><p id="work-error" class="error-text" role="alert"></p>
+              <dl class="work-meta"><div><dt>작가</dt><dd id="work-author">작가 정보 없음</dd></div><div><dt>공급처</dt><dd id="work-platform">공급처 정보 없음</dd></div><div><dt>연재 상태</dt><dd id="work-publication">미확인</dd></div><div><dt>회차</dt><dd id="work-episodes">미확인</dd></div></dl>
+              <h2>장르</h2><div id="work-genres" class="work-labels"></div><h2>태그</h2><div id="work-tags" class="work-labels"></div>
+              <h2>작품 소개</h2><p id="work-synopsis" class="work-synopsis">작품 소개를 확인하고 있습니다…</p>
+              <div class="heading-actions"><select id="work-format" aria-label="작품 수집 형식"><option value="txt">TXT</option><option value="epub">EPUB</option></select><button id="work-add" type="button" class="primary">이 작품 수집 예약</button><button id="work-select" type="button" class="secondary">선택에 담기</button><button id="work-refresh" type="button" class="quiet">소개 다시 확인</button><a id="work-source" class="quiet" target="_blank" rel="noopener noreferrer">원본 소개 페이지</a></div>
+            </article>
           </div>
         </section>
         <section id="library-view" class="view" hidden>

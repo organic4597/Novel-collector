@@ -211,10 +211,19 @@
     selectLabel.append(check);
     cover.append(selectLabel);
     const content = UI.node("div", "discover-content");
-    content.append(UI.node("h2", "", item.title || "제목 없음"));
+    const heading = UI.node("h2"), link = UI.node("a", "discover-title-link", item.title || "제목 없음");
+    link.href = `/?work=${encodeURIComponent(id)}`;
+    link.addEventListener("click", event => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      window.DiscoveryDetails?.open(display(item));
+    });
+    heading.append(link);
+    content.append(heading, UI.node("p", "discover-author", item.author || "작가 정보 확인 전"));
     const tags = UI.node("div", "discover-tags");
     for (const value of [
       ...(Array.isArray(item.genres) ? item.genres : []),
+      ...(Array.isArray(item.tags) ? item.tags.slice(0, 4).map(tag => `#${tag}`) : []),
       item.platform,
     ].filter(Boolean))
       tags.append(UI.node("span", "", value));
@@ -263,6 +272,9 @@
     });
     content.append(button);
     el.append(cover, content);
+    el.addEventListener("click", event => {
+      if (!event.target.closest("a, button, input, label, select")) window.DiscoveryDetails?.open(display(item));
+    });
     return el;
   }
   async function load(target = 1) {
@@ -616,4 +628,12 @@
       $("batch-submit").disabled = false;
     }
   });
+  window.DiscoveryCatalog = {
+    update(item) { metadata(item); render(); },
+    select(item) {
+      const id=String(item.id);
+      if(selected.size>=100 && !selected.has(id)){notice("","한 번에 최대 100개 작품을 선택할 수 있습니다.");return;}
+      metadata(item);selected.set(id,item);selectionState();render();
+    },
+  };
 })();

@@ -84,6 +84,18 @@ Linux 서비스는 같은 실행기의 `--no-setup`을 사용합니다. 설치·
 
 원본의 프리셋 서버 저장 버튼은 대시보드 반환 탭을 열고 실제 CRUD API에 버전 2 설정을 저장했습니다. 반환 연결 검사, 미등록 반환 URL의 인증된 쓰기 차단, 주소 fragment 제거와 저장 항목 트리의 ✓ 표시도 확인했습니다. 실제 수집 파서가 프리셋을 적용하는 검증은 포함하지 않으며 아직 연결되지 않았습니다.
 
+## 릴리스 업데이트와 클린 설치
+
+업데이트 기능 반영 후 전체 결과는 **502개 중 470 통과, 기존 소스/mock 계약 실패 32개**입니다. 업데이트/설치/실행기/정적 파일 집중 테스트 **32/32**, Python 이미지 테스트 **9/9**가 통과했습니다.
+
+검증한 경계: 네 자리 숫자 버전 비교, 공개 정식 릴리스만 수용, 하루 한 번 조회·동시 요청 합류·ETag·재시작 캐시, 네트워크 실패 때 기존 프로그램과 DB 보존, 관리자 인증·동일 출처 쓰기·중복 클릭 하나의 worker 실행입니다.
+
+임시 설치의 DB·계정·프로필·.env canary가 정상 교체와 준비 실패/일부 교체 실패 후에도 유지되는지, ZIP의 개인 경로·경로 탈출·링크 거부, 로컬 소스 변경 차단, 독립 복구 helper와 Windows rename 재시도도 확인했습니다. Node 프로세스로 실제 staging preflight·IPC 정상 종료·새 프로세스 시작·health/version 확인까지 수행하는 합성 온라인 업데이트 테스트가 통과했습니다.
+
+GitHub 실제 공개 릴리스 확인은 현재 1.0.0.0과 같은 버전으로 올바르게 알림을 숨겼습니다. 별도 Chromium smoke의 데스크톱/모바일에서 업데이트 알림·설정 카드·사용자 클릭 dispatch를 확인했고 JavaScript 오류와 가로 넘침이 없었습니다.
+
+Linux의 기존 라이브러리 환경에서 install-runtime --skip-os-deps의 의존성 준비와 Python 이미지 테스트를 실행했습니다. Bash 설치/실행 스크립트는 문법 검사했으며 누락 런타임/Windows 분기는 모델 테스트입니다. **클린 Windows 실기·PowerShell 실행과 Linux 배포판별 OS 패키지 설치 전체를 실측한 결과는 아닙니다.** 이미 게시된 1.0.0.0을 자동 적용으로 변경하지 않았고 운영 설치의 소스를 교체하지 않았습니다.
+
 ```sh
 node --test tests/extraction-presets.test.mjs tests/element-picker.test.mjs tests/ui-extraction-presets.test.mjs tests/static-assets.test.mjs tests/ui-workflows.test.mjs
 npm test

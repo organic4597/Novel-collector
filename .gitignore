@@ -7,6 +7,10 @@
 !/package-lock.json
 !/requirements-captcha.txt
 !/run.mjs
+!/install.sh
+!/install.ps1
+!/start.sh
+!/start.ps1
 !/src/
 !/public/
 !/tests/
@@ -32,6 +36,9 @@
 !/tools/captcha_position.py
 !/tools/evaluate_captcha.py
 !/tools/check-publication.mjs
+!/tools/update.mjs
+!/tools/recover-update.mjs
+!/tools/install-runtime.mjs
 /docs/*
 !/docs/CAPTCHA.md
 !/docs/TESTING.md

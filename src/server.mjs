@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, mkdir, writeFile, chmod } from "node:fs/promises";
+import { readFile, mkdir, writeFile, chmod,access } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
 import { dirname, join, resolve, extname } from "node:path";
@@ -11,6 +11,10 @@ import { MemoryCredentials, openCredentials } from "./auth.mjs";
 import { SettingsStore } from "./settings.mjs";
 import { ExtractionPresets } from "./extraction-presets.mjs";
 import { createExtractionPresetsRouter } from "./extraction-presets-api.mjs";
+import { Updates } from "./updates.mjs";
+import { APP_VERSION } from "./version.mjs";
+import { createUpdatesRouter } from "./updates-api.mjs";
+import { atomicJson } from "./update-files.mjs";
 import { LibraryDownloads } from "./library-downloads.mjs";
 import { createFeatureRouter, publicBook } from "./features-api.mjs";
 import { BackoffController } from "./request-backoff.mjs";
@@ -116,6 +120,7 @@ export function createApp({
   viewerOrigins = null,
   activity = null,
   extractionPresets = null,
+  updates = null,
 }) {
   if (!credentials && (typeof adminPassword !== "string" || !adminPassword))
     throw Error("관리자 인증 설정이 필요합니다.");
@@ -148,6 +153,7 @@ export function createApp({
   const siteBrowserRouter = createSiteBrowserRouter({ siteBrowser });
   const captchaRouter = createCaptchaSessionRouter({ captchaSession });
   const presetsRouter = createExtractionPresetsRouter({ presets: extractionPresets });
+  const updatesRouter = createUpdatesRouter({ updates });
   const siteAccountsRouter = createSiteAccountsRouter({
     accounts,
     autoAuth,
@@ -246,6 +252,7 @@ export function createApp({
       const url = new URL(request.url, "http://localhost");
       const parts = url.pathname.split("/").filter(Boolean);
       const method = request.method;
+      if(url.pathname==="/api/health"&&method==="GET")return send(response,200,{ok:true,version:updates?.currentVersion||APP_VERSION});
       if (["/api/login", "/api/logout"].includes(url.pathname) && method === "POST") {
         response.once("finish", () => recordActivity({scope:"api",message:`관리자 ${url.pathname.endsWith("login") ? "로그인" : "로그아웃"} · ${response.statusCode}`,
           level:response.statusCode >= 400 ? "warn" : "info",details:{status:response.statusCode}}));
@@ -292,6 +299,7 @@ export function createApp({
         }
         const session = authenticated(request);
         if (!session) throw HTTP_ERROR("로그인이 필요합니다.", 401);
+        if(await updatesRouter({request,response,url,send,readBody:body}))return;
         if (method !== "GET" && method !== "HEAD") {
           jobsAt = 0;
           const route = url.pathname.replace(/\/[a-f0-9-]{20,}(?=\/|$)/g, "/:id");
@@ -580,6 +588,7 @@ export function createApp({
         "/extraction-presets.js": "extraction-presets.js",
         "/preset-guide.js": "preset-guide.js",
         "/preset-connection.js": "preset-connection.js",
+        "/updates.js": "updates.js",
         "/queue-ui.js": "queue-ui.js",
         "/style.css": "style.css",
         "/styles.css": "styles.css",
@@ -662,6 +671,7 @@ export async function startServer({
 } = {}) {
   const store = await new FolderStore(join(rootDir, "data")).init();
   const extractionPresets = await new ExtractionPresets({ store }).load();
+  const updates = await new Updates({rootDir}).load();
   const { ActivityLog } = await import("./activity-log.mjs");
   const activity = await new ActivityLog({ path: join(rootDir, "data", "activity", "events.jsonl") }).load();
   store.onOperation = (event) => activity.add(event);
@@ -778,6 +788,7 @@ export async function startServer({
   recovery = sourceRecovery;
   const app = createApp({
     extractionPresets,
+    updates,
     activity,
     store,
     scheduler,
@@ -803,17 +814,22 @@ export async function startServer({
     app.once("error", reject);
     app.listen(port, host, resolve);
   });
-  await profiles.registerJobs(
-    (await store.listJobs()).filter((job) =>
-      ["queued", "running", "paused", "needs_attention"].includes(job.status),
-    ),
-  );
-  await scheduler.start();
-  for (const site of attention.snapshot().sites) recovery.request(site);
+  await atomicJson(join(rootDir,".updates","server.json"),{pid:process.pid}).catch(()=>{});
+  let verificationTimer=null;
+  const startWork=async()=>{
+    await profiles.registerJobs((await store.listJobs()).filter(job=>["queued","running","paused","needs_attention"].includes(job.status)));
+    await scheduler.start();updates.start();for(const site of attention.snapshot().sites)recovery.request(site);
+  };
+  const awaitingVerification=()=>access(join(rootDir,".updates","pending-verification.json")).then(()=>true,()=>false);
+  if(await awaitingVerification()){
+    verificationTimer=setInterval(()=>{void awaitingVerification().then(waiting=>{if(!waiting){clearInterval(verificationTimer);verificationTimer=null;void startWork().catch(()=>{});}});},500);verificationTimer.unref();
+  }else await startWork();
   let closing = false;
   const close = async () => {
     if (closing) return;
     closing = true;
+    clearInterval(verificationTimer);
+    updates.close();
     profiles.close();
     recovery.close();
     await captchaSession.close();
@@ -827,11 +843,13 @@ export async function startServer({
     await sessionStore.flush();
     activity.add({ scope: "service", message: "서비스 종료" });
     await activity.close();
+    const {rm}=await import("node:fs/promises");await rm(join(rootDir,".updates","server.json"),{force:true}).catch(()=>{});
     app.closeAllConnections();
     await new Promise((r) => app.close(r));
   };
   process.once("SIGTERM", () => close().then(() => process.exit(0)));
   process.once("SIGINT", () => close().then(() => process.exit(0)));
+  updates.onReady=async()=>{await close();setTimeout(()=>process.exit(75),100);};
   return {
     app,
     store,
@@ -849,6 +867,7 @@ export async function startServer({
     recovery,
     captchaSession,
     close,
+    updates,
   };
 }
 if (

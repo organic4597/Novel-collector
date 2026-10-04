@@ -18,6 +18,7 @@
     <script src="/preset-guide.js" defer></script>
     <script src="/preset-connection.js" defer></script>
     <script src="/extraction-presets.js" defer></script>
+    <script src="/updates.js" defer></script>
     <script src="/library.js" defer></script>
     <script src="/settings.js" defer></script>
     <script src="/discovery.js" defer></script>
@@ -95,6 +96,7 @@
           </div>
           <span id="last-refresh" class="muted">—</span>
         </header>
+        <div id="update-notice" class="notice update-notice" role="status" hidden><span id="update-notice-text"></span><button id="update-banner-apply" class="primary" type="button">업데이트</button></div>
         <div
           id="global-error"
           class="notice error-notice"
@@ -444,6 +446,11 @@
           <div id="books-list" class="books-grid library-grid"></div>
         </section>
         <section id="settings-view" class="view" hidden>
+          <section class="update-settings"><h2>프로그램 업데이트</h2><p class="field-help">하루 한 번 GitHub 정식 릴리스를 확인합니다. 업데이트 버튼을 누르면 준비·로컬 백업·교체·재시작을 진행합니다. DB·계정·프로필을 새 설치 자료로 덮어쓰지 않습니다.</p>
+            <p>현재 <strong id="update-current">—</strong> · 최신 <strong id="update-latest">—</strong></p><p>저장소 <span id="update-repository"></span> · 마지막 확인 <span id="update-checked">—</span></p>
+            <div class="heading-actions"><button id="update-check" class="secondary" type="button">지금 확인</button><button id="update-apply" class="primary" type="button" disabled>업데이트</button><a id="update-release-link" target="_blank" rel="noopener noreferrer">릴리스 페이지</a></div>
+            <p id="update-progress" role="status" class="field-help"></p><p id="update-error" role="alert" class="error-text"></p>
+          </section>
           <div class="page-heading settings-heading">
             <div>
               <p class="eyebrow">COLLECTOR SETTINGS</p>

@@ -1,34 +1,51 @@
-# 업데이트와 복구
+# 릴리스 확인과 사용자 선택 업데이트
 
-## 소스 업데이트
+[설치](INSTALL.md) · [대시보드](DASHBOARD.md) · [README](../README.md)
 
-1. 대시보드에서 전체 일시정지하여 현재 작업을 정리합니다.
-2. `data/`, `profile/`, `secrets/`를 접근 권한이 제한된 별도 위치에 백업합니다. 이 백업은 Git에 올리지 않습니다.
-3. 현재 버전과 로컬 수정 여부를 확인합니다.
+## 일일 확인
+
+프로그램이 실행 중일 때 `organic4597/Novel-collector`의 GitHub 최신 공개 정식 릴리스를 하루 한 번 확인합니다. 확인 시각과 ETag를 `.updates/release-cache.json`에 저장하므로 재시작해도 같은 날 중복 조회하지 않습니다. 네트워크 오류는 기존 프로그램을 중단하지 않으며 다음 확인에서 다시 시도합니다. UI는 로컬 캐시를 읽고 GitHub를 직접 반복 조회하지 않습니다.
+
+`1.0.0.9`보다 `1.0.0.10`이 높다는 식으로 최대 네 자리 버전을 숫자로 비교합니다. draft/prerelease는 대상이 아니며 `UPDATE_REPOSITORY`로 다른 지정 GitHub 저장소를 선택할 수 있습니다. 현재 버전은 `src/version.mjs` 또는 정상 설치 완료 기록입니다.
+
+## 대시보드
+
+새 버전이 있으면 전체 화면 상단에 알림이 표시됩니다. **설정 → 프로그램 업데이트**에서 현재/최신 버전·지정 저장소·마지막 확인 시각을 볼 수 있습니다. **지금 확인**은 과도한 조회를 막기 위해 5분 이내 반복 요청에 캐시를 사용합니다.
+
+**업데이트**를 누르면 스크립트가 시작됩니다. 별도 자동 적용은 하지 않습니다. 관리자 인증과 같은 출처 쓰기 검사를 거치며 중복 클릭은 worker 하나만 실행합니다.
+
+## 실행 순서와 데이터 보존
+
+1. 최신 릴리스의 첨부 ZIP과 GitHub 제공 SHA256 digest를 확인합니다. ZIP이 없거나 digest가 없는 릴리스는 자동 설치하지 않습니다.
+2. `.updates/<작업 ID>/source`에 관리 소스만 압축 해제하고 새 npm·Python/OpenCV·Chromium 환경과 서버 모듈을 점검합니다. 준비 중 기존 수집기는 계속 실행합니다.
+3. 준비 성공 후 기존 서버·수집·브라우저를 정상 종료하고 파일 작업을 마무리합니다.
+4. `.updates/backups/<작업 ID>`에 기존 코드/런타임과 `data`, `secrets`, `profile`의 로컬 보존본을 남깁니다. 브라우저 바이너리 캐시는 개인정보 보존본에서 제외하며 별도 런타임 교체 기록으로 보존합니다.
+5. 관리 소스와 런타임만 교체하고 재시작합니다. 새 버전의 health/version 확인이 끝나기 전에는 수집 재개를 기다립니다. 완료 후 대시보드를 다시 로드합니다.
+
+릴리스 ZIP의 `data`, `secrets`, `profile`, `.env`, `.git`, `.runtime` 같은 개인정보/로컬 영역 파일은 압축 해제 단계에서 거부합니다. 원본 DB·계정·쿠키·프로필을 새 설치 파일로 덮어쓰지 않습니다. 외부 `CAPTCHA_PYTHON`, `BROWSER_PATH`, 프로필과 포트 등 기존 환경 설정은 유지합니다. 개인 파일과 새 소스가 충돌하거나 로컬 수정/스테이징 변경이 있으면 업데이트를 중단합니다.
+
+준비 실패는 이전 설치를 변경하지 않습니다. 교체/시작 확인 실패는 이전 소스·런타임을 복구하며 새 버전 시작 중 변경된 사용자 파일은 로컬 보존본으로 복구합니다. 백업은 삭제하지 않으며 업데이트 중 충분한 로컬 저장 공간이 필요합니다. 개인정보 보존본은 공개 업로드 대상이 아닙니다.
+
+## 서비스·Windows
+
+Node worker는 양쪽 OS에서 같은 코드로 실행하고 Windows 파일 잠금 rename은 재시도합니다. Windows 설치/실행은 PowerShell, Linux는 Bash 래퍼를 사용합니다. Linux systemd는 [설치 문서](INSTALL.md)의 쓰기 경로·KillMode·서비스 이름 설정이 필요합니다.
+
+수동 오프라인 업데이트는 프로그램을 먼저 종료한 상태에서만 사용합니다.
 
 ```sh
-git status --short
-git log -1 --oneline
-git switch develop
-git pull --ff-only
-npm ci
-node run.mjs --setup
+node tools/update.mjs --root . --repository organic4597/Novel-collector --version 1.0.0.1 --offline
 ```
 
-4. 테스트하고 서비스를 재시작합니다.
+예시 버전은 실제 공개 최신 릴리스와 일치해야 합니다. 실행 중 업데이트는 대시보드 경로를 사용하세요. Windows/Linux 셸에서 root 경로에 공백이 있으면 따옴표로 감쌉니다.
+
+worker가 비정상 종료하면 다음 시작에서 잠금·교체 기록을 확인하고 독립 복구 스크립트를 실행합니다. 수동 복구는 프로그램 종료 후 수행합니다.
 
 ```sh
-npm run test:captcha
-npm run test:captcha:images
-sudo systemctl restart novel-collector.service
+node .updates/recover.mjs .
 ```
 
-5. 대시보드에서 수동 일시정지 상태를 확인하고 전체 시작으로 재개합니다. 인증이 필요하면 기존 사이트 설정과 CAPTCHA 창을 사용합니다.
+## 새 릴리스 게시 규약
 
-서비스 재시작은 저장한 회차를 삭제하지 않습니다. 완전성이 검증된 목차는 재개 시 재사용하며, CAPTCHA 재시도가 목차 스캔을 다시 수행하지 않습니다.
+게시자는 `src/version.mjs`의 APP_VERSION을 릴리스 태그와 맞추고 전체 관리 소스의 ZIP을 첨부합니다. GitHub가 제공하는 asset SHA256 digest를 사용하므로 기본 Source code ZIP 링크만 있는 릴리스는 자동 적용 대상이 아닙니다. 업데이트 도구와 공통 실행기를 포함한 전체 소스 ZIP이어야 합니다. 이미 공개한 태그/파일을 같은 이름으로 바꾸지 않습니다.
 
-## 문제 발생 시
-
-소스 버전과 데이터를 구분해 복구합니다. 태그 또는 이전 커밋으로 소스를 확인하려면 작업 중 변경 사항을 먼저 보관한 뒤 별도 경로에서 해당 버전을 검증합니다. `git reset --hard`나 저장 데이터 삭제를 업데이트 절차로 사용하지 않습니다.
-
-로그 페이지와 `journalctl -u novel-collector.service`에서 오류를 확인합니다. CAPTCHA 이미지 임계값을 변경했다면 override의 값을 먼저 확인합니다. [문제 해결](TROUBLESHOOTING.md)도 참조하세요.
+현재 구현은 `feature/release-updater`에서 검증하는 후속 기능입니다. 기존 `1.0.0.0` 다운로드에 자동으로 추가되지 않습니다. 이 기능이 포함된 새 버전을 배포한 뒤 해당 설치부터 일일 알림과 대시보드 업데이트가 동작합니다.

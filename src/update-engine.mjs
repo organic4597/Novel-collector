@@ -64,6 +64,12 @@ export async function restorePrivate(root,id){
   }
 }
 function validOperation(path){if(runtimePaths.has(path))return path;return sourcePath(path);}
+export async function validateStagedRuntime(stage,{files={},runtimes=[]}={}){
+  for(const path of [...Object.keys(files),...runtimes]){
+    validOperation(path);const source=await safePath(stage,path);
+    if(!await exists(source))throw Object.assign(Error(`준비된 교체 원본이 없습니다: ${path}`),{code:runtimePaths.has(path)?"STAGED_RUNTIME_MISSING":"STAGED_SOURCE_MISSING",relativePath:path});
+  }
+}
 export async function rollback(root,journal,{move=renameRetry}={}){
   if(!/^[0-9]+-[a-f0-9-]+$/.test(journal.id))throw Error("복구 식별자가 올바르지 않습니다.");
   for(const item of [...journal.operations].reverse()){
@@ -79,6 +85,7 @@ export async function rollback(root,journal,{move=renameRetry}={}){
   await rm(join(root,".updates","transaction.json"),{force:true});
 }
 export async function activate(root,{id,stage,files,runtimes=[],version},{move=renameRetry,onStep=()=>{}}={}){
+  await validateStagedRuntime(stage,{files,runtimes});
   const previous=await sourceManifest(root);await assertUnmodified(root,previous);
   const removes=previous.observed?[]:Object.keys(previous.files).filter(p=>!Object.hasOwn(files,p));
   const operations=[];
@@ -92,8 +99,10 @@ export async function activate(root,{id,stage,files,runtimes=[],version},{move=r
   try{
     for(const item of operations){
       const target=await safePath(root,item.path),backup=await safePath(root,`.updates/backups/${id}/source/${item.path}`);
-      if(item.existed){await mkdir(dirname(backup),{recursive:true,mode:0o700});await move(target,backup);}
-      if(item.install){await mkdir(dirname(target),{recursive:true});await move(join(stage,item.path),target);}
+      try{
+        if(item.existed){await mkdir(dirname(backup),{recursive:true,mode:0o700});await move(target,backup);}
+        if(item.install){await mkdir(dirname(target),{recursive:true});await move(join(stage,item.path),target);}
+      }catch(e){throw Object.assign(Error(`교체 실패: ${item.path} (${e.code||"MOVE_FAILED"})`),{code:e.code||"MOVE_FAILED",relativePath:item.path,cause:e});}
       await onStep(item.path);
     }
     await atomicJson(join(root,".updates","installed-version.json"),{version});await atomicJson(join(root,".updates","managed-source.json"),{files});return journal;

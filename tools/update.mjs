@@ -5,8 +5,9 @@ import { pathToFileURL } from "node:url";
 import { latestRelease,releaseZip } from "../src/update-network.mjs";
 import { APP_VERSION,compareVersions,repositoryName } from "../src/version.mjs";
 import { atomicJson,readJson,exists,safePath } from "../src/update-files.mjs";
-import { extractSource,sourceManifest,assertUnmodified,activate,rollback,privateBackup,restorePrivate,transactionId } from "../src/update-engine.mjs";
+import { extractSource,sourceManifest,assertUnmodified,activate,rollback,privateBackup,restorePrivate,transactionId,validateStagedRuntime } from "../src/update-engine.mjs";
 import { updateLog,updateEvent,redactDiagnostic } from "../src/activity-log.mjs";
+import { npmCliPath } from "../run.mjs";
 
 export function stageEnvironment(root,stage,env=process.env){
   const result={...env},runtimes=["node_modules"];
@@ -61,9 +62,11 @@ export async function update({root,repository,version,offline=false,hooks={}}={}
     const {release}=await (hooks.latest||latestRelease)(repository);if(!release||release.version!==version)throw Error("릴리스가 변경됐습니다.");
     step="DOWNLOAD";await report("preparing","릴리스 ZIP 다운로드와 SHA256 확인");const archive=await(hooks.download||releaseZip)(release);
     step="EXTRACT";await report("preparing","업데이트 소스 압축 해제");const files=await extractSource(archive,stage),runtime=stageEnvironment(root,stage);
+    step="SETUP_NPM";await report("preparing","준비 폴더에 독립 npm 패키지 설치");await command([npmCliPath({env:runtime.env}),"ci","--omit=dev","--no-audit","--no-fund"],stage,runtime.env,{log,step});
     step="SETUP_RUNTIME";await report("preparing","npm·Python/OpenCV·Chromium 준비");await command([join(stage,"run.mjs"),"--setup"],stage,runtime.env,{log,step});
     step="CHECK_RUNTIME";await report("preparing","새 실행 환경 점검");await command([join(stage,"run.mjs"),"--check"],stage,runtime.env,{log,step});
     step="CHECK_SERVER";await report("preparing","서버 모듈 점검");await command(["--input-type=module","-e","import(process.argv[1])",pathToFileURL(join(stage,"src","server.mjs")).href],stage,runtime.env,{log,step});
+    step="CHECK_STAGED_RUNTIME";await report("preparing","소스와 모든 런타임 교체 원본 존재 확인");await validateStagedRuntime(stage,{files,runtimes:runtime.runtimes});
     await cp(join(root,"tools","recover-update.mjs"),join(base,"recover.mjs"));
     await cp(new URL("./startup-diagnostics.mjs",import.meta.url),join(base,"startup-diagnostics.mjs"));
     await atomicJson(join(base,"managed-source.json"),await sourceManifest(root));

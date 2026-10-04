@@ -2,6 +2,7 @@
 (() => {
   const UI = window.CollectorUI, $ = id => document.getElementById(id);
   let timer, epoch = 0, loading = false, paused = false, rows = [], latest = 0, hasMore = false;
+  const expanded=new Set();
   const active = () => UI.authenticated() && UI.view() === "activity" && !document.hidden;
   function params() {
     const p = new URLSearchParams({ limit: "100", level: $("activity-level").value, scope: $("activity-scope").value });
@@ -12,11 +13,12 @@
     const fragment = document.createDocumentFragment();
     const visible = rows.filter(r => !filter || `${r.message} ${r.scope} ${r.jobId || ""} ${JSON.stringify(r.details)}`.toLowerCase().includes(filter));
     for (const r of visible) {
-      const row = UI.node("article", `activity-row ${r.level}`);
-      const heading = UI.node("div", "activity-meta");
+      const key=r.groupId||String(r.id),row = UI.node("details", `activity-row ${r.level}`);row.open=expanded.has(key);row.addEventListener("toggle",()=>{if(row.open)expanded.add(key);else expanded.delete(key);});
+      const heading = UI.node("summary", "activity-summary");
       heading.append(UI.node("time", "", UI.date(r.time, true)), UI.node("strong", "", r.level.toUpperCase()),
-        UI.node("span", "", r.scope), UI.node("span", "muted", r.details?.step || "대시보드"));
+        UI.node("span", "activity-scope", r.details?.step||r.scope),UI.node("span","activity-summary-message",r.message),UI.node("span","activity-repeat",`×${r.count||1}`));
       row.append(heading, UI.node("p", "", r.message));
+      row.append(UI.node("p","muted",`발생 ${r.count||1}회 · 최초 ${UI.date(r.firstTime||r.time,true)} · 최근 ${UI.date(r.time,true)}`));
       if (Object.keys(r.details || {}).length) row.append(UI.node("pre", "activity-details", JSON.stringify(r.details, null, 2)));
       fragment.append(row);
     }
@@ -40,7 +42,7 @@
       const items = result.items || [];
       if (reset) rows = [];
       const indexed = new Map(rows.map(r => [r.id, r]));
-      for (const r of items) indexed.set(r.id, r);
+      for (const r of items){if(r.groupId)for(const [id,old] of indexed)if(old.groupId===r.groupId)indexed.delete(id);indexed.set(r.id, r);}
       rows = [...indexed.values()].sort((a,b) => b.id - a.id).slice(0, 500);
       if (!older) latest = items.length ? Math.max(latest, ...items.map(r => r.id)) : Math.max(latest, result.latestId || 0);
       if (reset || older) hasMore = Boolean(result.hasMore);
@@ -68,6 +70,6 @@
   document.addEventListener("visibilitychange", () => { clearTimeout(timer); if (active()) refresh(); });
   document.addEventListener("collector:auth", () => {
     epoch++; clearTimeout(timer);
-    if (!UI.authenticated()) { rows = []; latest = 0; $("activity-list").replaceChildren(); }
+    if (!UI.authenticated()) { rows = []; latest = 0;expanded.clear(); $("activity-list").replaceChildren(); }
   });
 })();

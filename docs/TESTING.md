@@ -110,6 +110,14 @@ API 읽기/업데이트 호출·사용자 조작·브라우저 오류 기록, �
 
 앱 1.0.0.0 진단 코드에서 실제 GitHub 1.0.0.1 ZIP 다운로드와 오프라인 준비/교체를 수행해 버전 상승·상세 이벤트 생성·DB/계정/프로필 canary 보존을 확인했습니다. Windows named pipe는 모델/공통 코드 검증이며 Windows 실기 오류는 사용자 로그로 확인해야 합니다.
 
+## ACTIVATE 누락 런타임 수정과 반복 로그 그룹
+
+준비 폴더가 기존 설치 아래에 있을 때 require.resolve가 부모의 matching node_modules를 찾는 조건을 회귀 테스트로 재현했습니다. 의존성 검사를 준비 폴더의 실제 파일로 한정하고, worker가 별도 npm ci를 수행하도록 수정했습니다. 누락된 교체 원본은 기존 파일 이동 전에 차단합니다.
+
+수정 후 전체 결과는 **537개 중 505 통과, 기존 실패 32개**입니다. 동일 조건에서 실제 GitHub 1.0.0.1 ZIP 다운로드/환경 준비/적용과 private canary 보존이 확인됐습니다. 기존 설치 node_modules가 없는 단순 fixture만으로 성공을 판단하지 않습니다.
+
+반복 polling 250회가 한 그룹/250회로 표시되면서 오류가 보존되는지, 재시작 후 횟수 복원, 다른 실패 코드/단계 분리, 한 줄 details/summary와 그룹 cursor 갱신을 확인했습니다. Windows 사용자의 수정본 재테스트 결과는 아직 확인하지 않았습니다.
+
 ```sh
 node --test tests/extraction-presets.test.mjs tests/element-picker.test.mjs tests/ui-extraction-presets.test.mjs tests/static-assets.test.mjs tests/ui-workflows.test.mjs
 npm test

@@ -87,12 +87,12 @@ export function npmCliPath({ nodePath = process.execPath, env = process.env, pla
   if (!found) throw failure("NPM_UNAVAILABLE", "npm을 포함한 Node.js 22 이상을 설치하세요.");
   return found;
 }
-async function dependenciesReady(rootDir) {
-  const require = createRequire(path.join(rootDir, "package.json"));
+export async function dependenciesReady(rootDir) {
   const manifest = JSON.parse(await readFile(path.join(rootDir, "package.json"), "utf8"));
   try {
     for (const [name, version] of Object.entries(manifest.dependencies || {})) {
-      const installed = JSON.parse(await readFile(require.resolve(`${name}/package.json`), "utf8"));
+      // Never resolve through ancestors: staging lives underneath the old install.
+      const installed = JSON.parse(await readFile(path.join(rootDir,"node_modules",name,"package.json"), "utf8"));
       if (installed.version !== version) return false;
     }
     return true;

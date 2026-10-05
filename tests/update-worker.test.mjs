@@ -8,7 +8,7 @@ import { update } from "../tools/update.mjs";
 import { fork } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:net";
-const version="1.0.0.3",repository="example/Novel-collector";
+const version="1.0.0.4",repository="example/Novel-collector";
 const manifest=JSON.stringify({name:"novel-collector",version:"1.0.0"});
 const lockfile=JSON.stringify({name:"novel-collector",version:"1.0.0",lockfileVersion:3,requires:true,packages:{"":{name:"novel-collector",version:"1.0.0"}}});
 async function fixture(t){

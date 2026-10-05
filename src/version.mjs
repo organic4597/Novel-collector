@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.0.2";
+export const APP_VERSION = "1.0.0.3";
 export const UPDATE_REPOSITORY = "organic4597/Novel-collector";
 
 export function versionParts(value) {

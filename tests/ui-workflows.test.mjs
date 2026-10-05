@@ -17,6 +17,7 @@ async function setup(t, configuration = {}) {
   const w = dom.window,
     calls = [],
     scrolls = [],
+    streams = [],
     stats = { refreshActive: 0, maxRefreshActive: 0 },
     observers = [];
   if (configuration.observer)
@@ -42,6 +43,7 @@ async function setup(t, configuration = {}) {
     this.dispatchEvent(new w.Event("close"));
   };
   w.HTMLElement.prototype.scrollIntoView = function (options) { scrolls.push({ element: this, options }); };
+  w.TextDecoder = TextDecoder;
   const statuses = [
     "running",
     "running",
@@ -152,6 +154,17 @@ async function setup(t, configuration = {}) {
         item: { ...item(path.split("/")[3]), episodeCount: 200 },
       };
     } else throw Error("Unexpected " + path);
+    if (configuration.progressive && path.startsWith("/api/discover?")) {
+      let closed = false;
+      const body = new ReadableStream({ start(controller) {
+        const emit = (type, value) => { if (!closed) controller.enqueue(new TextEncoder().encode(JSON.stringify({ type, data: value }) + "\n")); };
+        streams.push({ data, progress: (items, loadedCount = items.length) => emit("progress", { ...data, items, loadedCount }),
+          finish: () => { emit("result", data); closed = true; controller.close(); },
+          fail: () => { emit("error", { status: 503, error: "목록 조회 실패" }); closed = true; controller.close(); } });
+        options.signal.addEventListener("abort", () => { if (!closed) { closed = true; controller.error(new w.DOMException("Cancelled", "AbortError")); } }, { once: true });
+      }, cancel() { closed = true; } });
+      return { ok: true, status: 200, headers: { get: () => "application/x-ndjson" }, body };
+    }
     return { ok: true, status: 200, json: async () => data };
   };
   for (const file of [
@@ -173,7 +186,7 @@ async function setup(t, configuration = {}) {
     }
   }
   await tick();
-  return { w, calls, stats, observers, scrolls };
+  return { w, calls, stats, observers, scrolls, streams };
 }
 const tick = () => new Promise((resolve) => setTimeout(resolve, 30));
 const click = (w, id) => {
@@ -345,24 +358,83 @@ test("forty-item pages scroll to the first work and preserve selection on next a
   w.document.getElementById("discover-query").value = "Synthetic search";
   click(w, "discover-next"); await tick();
   assert.equal(cards().length, 40);
-  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(scrolls.at(-1).element.classList.contains("is-loading"), true);
+  assert.equal(w.document.activeElement, cards()[0].querySelector(".discover-title-link"));
   assert.equal(scrolls.at(-1).options.block, "start");
   assert.equal(w.document.getElementById("discover-page").textContent, "2 / 3");
   w.document.querySelector('#discover-list input[type="checkbox"]').click();
   click(w, "discover-next"); await tick();
   assert.equal(cards().length, 15);
-  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(scrolls.at(-1).element.classList.contains("is-loading"), true);
   assert.equal(w.document.getElementById("discover-next").disabled, true);
   click(w, "discover-prev"); await tick();
   click(w, "discover-prev"); await tick();
   assert.equal(cards().length, 40);
   assert.equal(scrolls.length, 4);
-  assert.equal(scrolls.at(-1).element, cards()[0]);
+  assert.equal(scrolls.at(-1).element.classList.contains("is-loading"), true);
   assert.equal(w.document.querySelector('#discover-list input[type="checkbox"]').checked, true);
   assert.match(w.document.getElementById("discover-selected").textContent, /2/);
   assert.equal(w.document.getElementById("discover-query").value, "Synthetic search");
   const requests = calls.filter(call => call.path.startsWith("/api/discover?"));
   assert.deepEqual(requests.map(call => new URL(call.path, "http://localhost").searchParams.get("page")), ["1", "2", "3", "2", "1"]);
+});
+
+test("discovery reserves forty loading cards immediately and fills the prepared prefix in order", async t => {
+  const f = await setup(t, { fortyItemPages: true, progressive: true });
+  const list = f.w.document.getElementById("discover-list");
+  click(f.w, "nav-discover"); await tick();
+  assert.equal(list.querySelectorAll(".discover-card.is-loading").length, 40);
+  assert.equal(list.getAttribute("aria-busy"), "true");
+  assert.equal(list.querySelectorAll('input[type="checkbox"]').length, 0);
+  const stream = f.streams[0];
+  stream.progress(stream.data.items.slice(0, 8)); await tick();
+  assert.deepEqual([...list.querySelectorAll("[data-id]")].map(node => node.dataset.id), ["1", "2", "3", "4", "5", "6", "7", "8"]);
+  assert.equal(list.querySelectorAll(".is-loading").length, 32);
+  const firstCard = list.querySelector("[data-id]");
+  firstCard.querySelector('input[type="checkbox"]').click();
+  stream.progress(stream.data.items); stream.finish(); await tick();
+  assert.equal(list.querySelectorAll(".discover-card").length, 40);
+  assert.equal(list.querySelectorAll(".is-loading").length, 0);
+  assert.equal(list.getAttribute("aria-busy"), "false");
+  assert.equal(list.querySelector("[data-id]"), firstCard);
+  assert.equal(firstCard.querySelector('input[type="checkbox"]').checked, true);
+});
+
+test("page changes scroll the loading grid immediately and failed streams remove loading cards", async t => {
+  const f = await setup(t, { fortyItemPages: true, progressive: true });
+  click(f.w, "nav-discover"); await tick(); f.streams[0].finish(); await tick();
+  click(f.w, "discover-next"); await tick();
+  const list = f.w.document.getElementById("discover-list");
+  assert.equal(f.scrolls.at(-1).element, list.querySelector(".discover-card"));
+  assert.equal(list.querySelectorAll(".is-loading").length, 40);
+  f.streams[1].fail(); await tick();
+  assert.match(f.w.document.getElementById("discover-error").textContent, /목록 조회 실패/);
+  assert.equal(list.querySelectorAll(".is-loading").length, 0);
+  assert.equal(list.querySelector("[data-id]").dataset.id, "1");
+  assert.equal(f.w.document.getElementById("discover-search").disabled, false);
+});
+
+test("leaving discovery cancels the stream and returning reloads the interrupted page", async t => {
+  const f = await setup(t, { fortyItemPages: true, progressive: true });
+  click(f.w, "nav-discover"); await tick();
+  f.streams[0].progress(f.streams[0].data.items.slice(0, 8)); await tick();
+  click(f.w, "nav-queue"); await tick();
+  assert.equal(f.calls.find(call => call.path.startsWith("/api/discover?")).options.signal.aborted, true);
+  click(f.w, "nav-discover"); await tick();
+  assert.equal(f.streams.length, 2);
+  f.streams[1].finish(); await tick();
+  assert.equal(f.w.document.querySelectorAll("#discover-list .discover-card").length, 40);
+});
+
+test("an interrupted partial page keeps real cards and prevents skipping the missing remainder", async t => {
+  const f = await setup(t, { fortyItemPages: true, progressive: true });
+  click(f.w, "nav-discover"); await tick();
+  f.streams[0].progress(f.streams[0].data.items.slice(0, 8)); await tick();
+  f.streams[0].fail(); await tick();
+  assert.equal(f.w.document.querySelectorAll("#discover-list [data-id]").length, 8);
+  assert.equal(f.w.document.querySelectorAll("#discover-list .is-loading").length, 0);
+  assert.equal(f.w.document.getElementById("discover-next").disabled, true);
+  assert.match(f.w.document.getElementById("discover-error").textContent, /목록 조회 실패/);
 });
 
 test("Visible-card auto checks serialize and abandon remaining work when leaving discovery", async (t) => {

@@ -22,6 +22,8 @@
     requestChain = Promise.resolve();
   let renderedCards = new Map(),
     renderedIds = [];
+  let pendingLoad = null, interruptedPage = null,
+    loadingCards = [], loadingCount = 40, loadedCount = 0, renderedLoadingCount = 0, pageIncomplete = false;
   const genreNames = [
     "판타지",
     "무협",
@@ -128,17 +130,13 @@
     }
     const ids = visible.map((item) => String(item.id)),
       nextCards = new Map();
+    const placeholders = loading ? loadingCards.slice(0, Math.max(0, loadingCount - loadedCount)) : [];
     const sameOrder =
       ids.length === renderedIds.length &&
       ids.every((id, index) => id === renderedIds[index]);
     for (const item of visible) {
       const id = String(item.id),
-        signature = JSON.stringify([
-          item,
-          pending.has(id),
-          checking,
-          selected.has(id),
-        ]),
+        signature = cardSignature(item),
         previous = renderedCards.get(id);
       const entry =
         previous?.signature === signature
@@ -148,8 +146,9 @@
       if (sameOrder && previous && entry !== previous)
         previous.node.replaceWith(entry.node);
     }
-    if (!sameOrder || !$("discover-list").children.length) {
+    if (!sameOrder || placeholders.length !== renderedLoadingCount || !$("discover-list").children.length) {
       const nodes = visible.map((item) => nextCards.get(String(item.id)).node);
+      nodes.push(...placeholders);
       $("discover-list").replaceChildren(
         ...(nodes.length
           ? nodes
@@ -163,9 +162,11 @@
     }
     renderedCards = nextCards;
     renderedIds = ids;
+    renderedLoadingCount = placeholders.length;
+    $("discover-list").setAttribute("aria-busy", String(loading));
     $("discover-page").textContent = `${page} / ${maxPage}`;
     $("discover-prev").disabled = loading || page <= 1;
-    $("discover-next").disabled = loading || page >= maxPage;
+    $("discover-next").disabled = loading || pageIncomplete || page >= maxPage;
     $("discover-search").disabled = loading;
     selectionState();
     observeVisible();
@@ -185,6 +186,10 @@
     img.height = 224;
     img.addEventListener("error", () => img.remove(), { once: true });
     cover.append(img);
+  }
+  function cardSignature(item) {
+    const id = String(item.id);
+    return JSON.stringify([item, pending.has(id), checking, selected.has(id)]);
   }
   function card(item) {
     const id = String(item.id),
@@ -207,6 +212,8 @@
         }
         selected.set(id, item);
       } else selected.delete(id);
+      const entry = renderedCards.get(id);
+      if (entry?.node === el) entry.signature = cardSignature(display(item));
       selectionState();
     });
     selectLabel.append(check);
@@ -281,15 +288,34 @@
   async function load(target = 1) {
     if (loading || !authenticated() || document.hidden) return;
     const changingPage = target !== page;
+    const previous = { items, page, maxPage, pageIncomplete };
+    const request = { target, controller: new AbortController(), generation: UI.generation(), received: false, focused: false };
+    pendingLoad = request;
+    interruptedPage = null;
     loading = true;
     stopAuto();
     active = true;
     sourceAutoPaused = false;
-    const current = version;
+    const current = () => pendingLoad === request && active && authenticated() && request.generation === UI.generation();
+    items = [];
+    loadedCount = 0;
+    loadingCount = 40;
+    loadingCards = Array.from({ length: 40 }, () => {
+      const card = UI.node("article", "discover-card is-loading");
+      card.setAttribute("aria-hidden", "true");
+      card.append(UI.node("div", "discover-cover"));
+      const content = UI.node("div", "discover-content");
+      for (let line = 0; line < 4; line++) content.append(UI.node("div", "discover-loading-line"));
+      card.append(content);
+      return card;
+    });
     $("discover-search").disabled = true;
     $("discover-prev").disabled = true;
     $("discover-next").disabled = true;
     notice("작품 목록을 불러오는 중…");
+    render();
+    if (changingPage && UI.view() === "discover")
+      $("discover-list").firstElementChild?.scrollIntoView({ block: "start", behavior: "instant" });
     const query = new URLSearchParams({
       page: String(target),
       query: $("discover-query").value.trim(),
@@ -298,38 +324,44 @@
       publication: $("discover-publication").value,
       sort: $("discover-sort").value,
     });
-    try {
-      const data = await UI.api("/api/discover?" + query, {}, 60000);
-      if (current !== version || !authenticated()) return;
+    const apply = (data, complete = false) => {
+      if (!current()) return;
       items = Array.isArray(data.items) ? data.items : [];
       page = data.page || target;
       maxPage = Math.max(1, data.maxPage || 1);
+      loadedCount = data.loadedCount ?? items.length;
+      loadingCount = Number.isSafeInteger(data.total)
+        ? Math.min(40, Math.max(0, data.total - (page - 1) * 40)) : 40;
+      request.received ||= items.length > 0;
       for (const item of items)
-        if (item.episodeCount !== null && item.episodeCount !== undefined)
-          metadata(item);
-      notice(
-        `${UI.count(items.length)}개 작품 · ${data.cacheHit ? "저장된 목록" : "최신 목록"}${data.cachedAt ? " · " + UI.date(data.cachedAt) : ""}`,
-      );
+        if (item.episodeCount !== null && item.episodeCount !== undefined) metadata(item);
+      if (complete) {
+        loading = false;
+        pageIncomplete = false;
+        notice(`${UI.count(items.length)}개 작품 · ${data.cacheHit ? "저장된 목록" : "최신 목록"}${data.cachedAt ? " · " + UI.date(data.cachedAt) : ""}`);
+      } else notice(`${UI.count(loadedCount)} / ${UI.count(loadingCount)}개 작품 확인 · 준비된 작품부터 표시 중…`);
       render();
-      if (changingPage && !document.hidden && UI.view() === "discover") {
-        const firstWork = $("discover-list").querySelector(".discover-card");
-        firstWork?.scrollIntoView({ block: "start", behavior: "instant" });
-        firstWork?.querySelector(".discover-title-link")?.focus({ preventScroll: true });
+      if (changingPage && !request.focused && !workPopup && !document.hidden && UI.view() === "discover") {
+        const first = $("discover-list").querySelector(".discover-title-link");
+        if (first) { first.focus({ preventScroll: true }); request.focused = true; }
       }
+    };
+    try {
+      const data = await UI.api("/api/discover?" + query,
+        { headers: { Accept: "application/x-ndjson" }, signal: request.controller.signal }, 60000, data => apply(data));
+      apply(data, true);
     } catch (error) {
-      if (current === version) notice("", UI.textError(error));
+      if (current() && !request.controller.signal.aborted) {
+        if (!request.received) { items = previous.items; page = previous.page; maxPage = previous.maxPage; pageIncomplete = previous.pageIncomplete; }
+        else pageIncomplete = true;
+        notice(request.received ? `${UI.count(items.length)}개 작품 표시 · 나머지 조회 실패` : "", UI.textError(error));
+      }
     } finally {
-      loading = false;
-      render();
-      if (
-        current !== version &&
-        active &&
-        !items.length &&
-        authenticated() &&
-        !document.hidden &&
-        !sourceAutoPaused
-      )
-        load(1);
+      if (pendingLoad === request) {
+        pendingLoad = null;
+        loading = false;
+        render();
+      }
     }
   }
   function refresh(item) {
@@ -390,6 +422,7 @@
   }
   function observeVisible() {
     if (
+      loading ||
       !active ||
       workPopup ||
       sourceAutoPaused ||
@@ -422,6 +455,7 @@
   }
   async function scheduleAuto() {
     if (
+      loading ||
       autoRunning ||
       workPopup ||
       sourceAutoPaused ||
@@ -549,15 +583,29 @@
     active = event.detail === "discover";
     if (active) {
       sourceAutoPaused = false;
-      if (!items.length) load(1);
+      if (interruptedPage !== null) load(interruptedPage);
+      else if (!items.length) load(1);
       else render();
-    } else stopAuto();
+    } else {
+      if (pendingLoad) {
+        interruptedPage = pendingLoad.target;
+        pendingLoad.controller.abort();
+        pendingLoad = null;
+        loading = false;
+      }
+      stopAuto();
+    }
   });
   document.addEventListener("collector:work-popup",event=>{
     workPopup=event.detail===true;
     if(workPopup)stopAuto();else if(active)render();
   });
   document.addEventListener("collector:auth", () => {
+    pendingLoad?.controller.abort();
+    pendingLoad = null;
+    interruptedPage = null;
+    loading = false;
+    pageIncomplete = false;
     active = false;
     stopAuto();
     selected.clear();
@@ -567,6 +615,8 @@
     pending.clear();
     renderedCards.clear();
     renderedIds = [];
+    renderedLoadingCount = 0;
+    $("discover-list").setAttribute("aria-busy", "false");
     $("discover-list").replaceChildren();
   });
   document.addEventListener("visibilitychange", () => {

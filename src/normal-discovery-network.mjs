@@ -26,6 +26,7 @@ export function watchNormalDiscoveryResponses(owner, page, source) {
   const origin = new URL(owner.transportUrl(source)).origin;
   const inFlight = new Set();
   const pending = new Set();
+  const requestStarts = new WeakMap();
   let started = 0,
     completed = 0,
     problem;
@@ -41,6 +42,7 @@ export function watchNormalDiscoveryResponses(owner, page, source) {
   const onRequest = (request) => {
     if (!listRequest(request)) return;
     started++;
+    requestStarts.set(request, started);
     inFlight.add(request);
   };
   const onResponse = (response) => {
@@ -53,7 +55,7 @@ export function watchNormalDiscoveryResponses(owner, page, source) {
       completed++;
       completedURLs = [
         ...completedURLs,
-        { revision: completed, url: request.url() },
+        { revision: completed, start: requestStarts.get(request), url: request.url() },
       ].slice(-50);
     })()
       .catch((error) => {
@@ -85,12 +87,17 @@ export function watchNormalDiscoveryResponses(owner, page, source) {
     get inFlight() {
       return inFlight.size;
     },
-    completedFor(current, since) {
+    completedFor(current, since, { page, startedAfter = -1 } = {}) {
       const expected = new URL(current);
       return completedURLs.some((item) => {
-        if (item.revision <= since) return false;
+        if (item.revision <= since || !(item.start > startedAfter)) return false;
         const actual = new URL(item.url);
+        if (page !== undefined && Number(actual.searchParams.get("page") || 1) !== page) return false;
         return ["q", "g", "p", "t", "sort", "page"].every((key) => {
+          // Client-side pager controls can update the DOM without rewriting
+          // the document URL. Use its observed page, and only compare filters
+          // the public document URL actually specifies.
+          if (page !== undefined && (key === "page" || !expected.searchParams.has(key))) return true;
           const value = (url) =>
             url.searchParams.get(key) || (key === "page" ? "1" : "");
           return value(actual) === value(expected);

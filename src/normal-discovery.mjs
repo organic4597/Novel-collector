@@ -167,6 +167,7 @@ export async function openNormalDiscovery(
   query,
   readDocument,
   readReader,
+  { knownMaxPage = null, knownTotal = null } = {},
 ) {
   const search = !!(query.query || query.author);
   if (!search && query.publication === "ongoing")
@@ -266,6 +267,7 @@ export async function openNormalDiscovery(
       const responseProved = responses.completedFor(
         page.url(),
         beforeCompleted,
+        { page: after.page, startedAfter: beforeStarted },
       );
       const cachedProved =
         !filterChanged &&
@@ -312,9 +314,14 @@ export async function openNormalDiscovery(
     let data = await page.evaluate(readDocument);
     let maximum = data.maxPage;
     if (data.paginationUnresolved) {
-      await change({ kind: "end" });
-      maximum = (await page.evaluate(readNormalListState)).page;
-      await change({ kind: "first" });
+      if (Number.isSafeInteger(knownMaxPage) && knownMaxPage >= maximum &&
+          knownMaxPage <= 1000 && data.total === knownTotal) {
+        maximum = knownMaxPage;
+      } else {
+        await change({ kind: "end" });
+        maximum = (await page.evaluate(readNormalListState)).page;
+        await change({ kind: "first" });
+      }
     }
     if (query.page > maximum)
       throw failure("목록의 마지막 페이지를 초과했습니다.");

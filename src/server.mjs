@@ -367,6 +367,7 @@ export function createApp({
               (scheduler.currentJobId ? [scheduler.currentJobId] : []),
             maxConcurrency: scheduler.maxConcurrency ?? 2,
             queuePaused: scheduler.queuePaused ?? false,
+            browserSessionRefresh: scheduler.collector?.contextPool?.refreshStatus?.() ?? null,
             captchaAutomatic: [
               ...(await dashboardJobs()).filter(job => job.status === "running" && job.captcha).map(job => ({jobId:job.id,...job.captcha})),
               ...(captchaSession?.autoStatus?.()?.active ? [captchaSession.autoStatus()] : []),
@@ -398,6 +399,29 @@ export function createApp({
         if (url.pathname === "/api/discover" && method === "GET") {
           if (!discovery)
             throw HTTP_ERROR("작품 목록을 사용할 수 없습니다.", 503);
+          if (request.headers.accept?.includes("application/x-ndjson")) {
+            response.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8",
+              "Cache-Control": "no-store", "X-Accel-Buffering": "no", "X-Content-Type-Options": "nosniff" });
+            response.flushHeaders();
+            const emit = (type, data) => {
+              if (!response.destroyed && !response.writableEnded)
+                response.write(JSON.stringify({ type, data }) + "\n");
+            };
+            try {
+              const result = await discovery.list(Object.fromEntries(url.searchParams), {
+                onProgress: data => emit("progress", data),
+              });
+              emit("result", result);
+            } catch (error) {
+              const status = error.status ?? (error.code === "NEEDS_ATTENTION" ? 409 : 500);
+              recordActivity({ scope: "api", level: "error", message: `GET ${auditRoute}: ${error.message}`,
+                details: { status, errorCode: error.code } });
+              emit("error", { status, error: status === 500 ? "작품 목록을 불러오지 못했습니다." : error.message });
+            } finally {
+              if (!response.destroyed && !response.writableEnded) response.end();
+            }
+            return;
+          }
           return send(
             response,
             200,
@@ -817,6 +841,10 @@ export async function startServer({
     app.listen(port, host, resolve);
   });
   await atomicJson(join(rootDir,".updates","server.json"),{pid:process.pid}).catch(()=>{});
+  retainedBrowser.contextPool.startRefresh({
+    afterRefresh: () => discovery.refreshConnection(),
+    onEvent: event => activity.add(event),
+  });
   let verificationTimer=null;
   const startWork=async()=>{
     await profiles.registerJobs((await store.listJobs()).filter(job=>["queued","running","paused","needs_attention"].includes(job.status)));

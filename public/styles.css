@@ -115,6 +115,12 @@
   border-radius: var(--radius);
   min-width: 0;
 }
+.discover-card.is-loading { cursor: default; }
+.discover-card.is-loading .discover-cover { background: var(--panel); }
+.discover-card.is-loading .discover-content { min-height: 148px; }
+.discover-loading-line { height: 14px; margin: 12px 0; border-radius: 3px; background: var(--line); }
+.discover-loading-line:first-child { height: 22px; width: 85%; }
+.discover-loading-line:last-child { width: 55%; }
 .discover-cover {
   height: auto;
   position: relative;

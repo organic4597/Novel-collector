@@ -8,7 +8,7 @@ import { compareVersions,repositoryName } from "../src/version.mjs";
 import { Updates,DAY } from "../src/updates.mjs";
 import { githubBytes,parseRelease,releaseZip } from "../src/update-network.mjs";
 import { createApp } from "../src/server.mjs";
-const repository="example/Novel-collector",tag="1.0.0.3";
+const repository="example/Novel-collector",tag="1.0.0.4";
 const release=()=>({tag_name:tag,draft:false,prerelease:false,assets:[{name:"source.zip",state:"uploaded",size:1,digest:"sha256:"+"a".repeat(64),browser_download_url:`https://github.com/${repository}/releases/download/${tag}/source.zip`}]});
 async function root(t){const dir=await mkdtemp(join(tmpdir(),"updates-test-"));t.after(()=>rm(dir,{recursive:true,force:true}));return dir;}
 test("four-component versions compare numerically and repository input cannot redirect to arbitrary hosts",()=>{

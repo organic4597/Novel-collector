@@ -17,6 +17,16 @@
 !/tools/
 !/docs/
 !/deploy/
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/delivery.yml
+
+# Local patch rules and automation state are not publication inputs.
+/AGENTS.md
+/PATCH-WORKFLOW.md
+/.ci-local/
 
 /src/*
 !/src/*.mjs
@@ -41,6 +51,8 @@
 !/tools/install-runtime.mjs
 !/tools/startup-diagnostics.mjs
 !/tools/reset-admin.mjs
+!/tools/ci-release.mjs
+!/tools/deploy-verified-release.mjs
 /docs/*
 !/docs/CAPTCHA.md
 !/docs/TESTING.md

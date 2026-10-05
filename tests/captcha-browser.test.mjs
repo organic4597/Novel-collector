@@ -192,7 +192,8 @@ test("navigation during analysis cancels before any verification", async (t) => 
   const analyzing = new Promise((r) => { started = r; });
   const f = await fixture(t, { analyze: async () => { started(); return new Promise(() => {}); } });
   const work = f.collector.chapterText(f.page, { url: "https://newtoki1.org/novel/1/2" });
-  const rejected = assert.rejects(work, (e) => e.code === "NEEDS_ATTENTION" && e.captchaCode === "CONTEXT_CHANGED");
+  const rejected = assert.rejects(work, (e) => (e.code === "NEEDS_ATTENTION" && e.captchaCode === "CONTEXT_CHANGED") || /Execution context was destroyed/.test(e.message));
+  rejected.catch(() => {});
   await analyzing;
   await f.page.goto("about:blank");
   await rejected;

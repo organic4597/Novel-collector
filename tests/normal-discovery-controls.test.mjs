@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { openNormalDiscovery, readNormalListState } from "../src/normal-discovery.mjs";
+import { openNormalDiscovery, readNormalListState,normalSearchUrl } from "../src/normal-discovery.mjs";
+import {normalizeDiscoveryQuery,Discovery} from "../src/discovery.mjs";
+test("author search maps to the active source's public author search rather than a title query",()=>{
+  const query=normalizeDiscoveryQuery({author:" 합성 작가 "}),canonical=normalSearchUrl(query);
+  const source=new URL(new Discovery({rootDir:"unused"}).transportUrl(canonical));
+  assert.equal(source.origin,"https://sbxh9.com");assert.equal(source.pathname,"/search");
+  assert.equal(source.searchParams.get("q"),"합성 작가");assert.equal(source.searchParams.get("field"),"author");
+});
 
 async function run(t, knownTotal) {
   const dom = new JSDOM('<div class="toolbar"><span class="count">119개</span></div><ul class="novel-list"><li><a href="/novel/1">합성 작품</a></li></ul><div class="sort-tabs"><button class="active">최신순</button></div><div class="pager-window--desktop"><button class="pager-num is-active">1</button><button class="pager-num">2</button><button aria-label="끝">끝</button><button aria-label="처음">처음</button></div>', { url: "https://sbxh9.com/novel" });

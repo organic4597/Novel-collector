@@ -214,7 +214,27 @@ export class Scheduler {
     return startQueue(this);
   }
   async reorder(jobId,beforeId){
-    return this.withControl(()=>this.store.reorderJobs(jobId,beforeId,this.activeJobIds));
+    return this.withControl(async()=>{
+      const jobs=await this.store.reorderJobs(jobId,beforeId,this.activeJobIds);
+      for(const entry of this.active.values())entry.reorderPending=true;
+      return jobs;
+    });
+  }
+  async shouldYield(jobId){
+    if(!this.active.get(jobId)?.reorderPending||this.queuePaused||this.backoff?.snapshot().active)return false;
+    const activeWorks=new Map([...this.active.entries()].map(([id,entry])=>[entry.workId,id]));
+    const preferred=new Set(),works=new Set(),capacity=this.maxConcurrency-this.manualSlots.size;
+    const browserReady=!!this.lease||this.browserAgents().length>0;let browserSelected=false;
+    for(const job of await this.store.listJobs()){
+      if(preferred.size>=capacity)break;
+      if(job.deleting||!["queued","running"].includes(job.status)||(job.status==="running"&&!this.active.has(job.id))||
+        this.attention?.isHeld(new URL(job.url).hostname)||(job.startAt&&Date.parse(job.startAt)>Date.now()))continue;
+      const work=canonicalBookId(new URL(job.url));
+      if(works.has(work)||(job.status==="queued"&&activeWorks.has(work)))continue;
+      if(job.executor==="browser"){if(!browserReady||browserSelected)continue;browserSelected=true;}
+      preferred.add(job.id);works.add(work);
+    }
+    return capacity>0&&!preferred.has(jobId);
   }
   async stop() {
     return this.withControl(async () => {
@@ -343,6 +363,7 @@ export class Scheduler {
               this.appendJobEvent(job.id, { level, message }),
             requestFailure: (error) => this.requestFailed(job.id, error),
             requestSuccess: () => this.backoff?.success(),
+            shouldYield: () => this.withControl(() => this.shouldYield(job.id)),
           },
           signal,
         )) ?? {};
@@ -358,6 +379,7 @@ export class Scheduler {
           "completed_with_errors",
           "failed",
           "needs_attention",
+          "queued",
         ].includes(patch.status)
           ? patch.status
           : failed > 0
@@ -371,12 +393,15 @@ export class Scheduler {
                 ...result,
                 status,
                 phase:
-                  status === "needs_attention"
+                  status === "queued"
+                    ? "수집 순서 변경 대기"
+                    : status === "needs_attention"
                     ? "사이트 인증 필요"
                     : status === "failed"
                       ? "수집 실패"
                       : "완료",
                 currentChapter: null,
+                ...(status==="queued"?{currentChapterId:null}:{}),
                 lastActivity: new Date().toISOString(),
               }
             : null,
@@ -627,9 +652,21 @@ export class Scheduler {
     return this.lease;
   }
   async agentOperation(id, operation, body, token) {
-    return this.store.locked("agent:" + safeId(id), () =>
+    const result=await this.store.locked("agent:" + safeId(id), () =>
       this.performAgentOperation(id, operation, body, token),
     );
+    if(!["chapter","catalog"].includes(operation))return result;
+    return this.withControl(async()=>{
+      const lease=this.lease;
+      if(lease?.jobId!==id||lease.token!==token||!await this.shouldYield(id))return result;
+      const nextChapter=lease.catalog?.find(chapter=>!lease.saved.has(chapter.id));
+      if(!nextChapter)return result;
+      const current=await this.store.getJob(id);if(current.status!=="running")return result;
+      const job=await this.store.patchJob(id,{status:"queued",phase:"수집 순서 변경 대기",resumeCatalog:true,
+        backoffResumeChapterId:nextChapter.id,currentChapter:null,currentChapterId:null});
+      this.lease=null;this.active.delete(id);this.requestTick();
+      return{...result,status:"queued",job};
+    });
   }
   async performAgentOperation(id, operation, body, token) {
     const lease = this.verifyLease(id, body.clientId, token);
@@ -694,10 +731,11 @@ export class Scheduler {
         title: String(body.title ?? "").slice(0, 500),
         url: job.url,
       });
-      const existingChapterIds = job.overwrite
+      const resumeIndex=job.backoffResumeChapterId?chapters.findIndex(chapter=>chapter.id===job.backoffResumeChapterId):-1;
+      const existingChapterIds = job.overwrite&&resumeIndex<0
         ? []
         : (await this.store.listChapters(body.bookId))
-            .filter((c) => chapters.some((item) => item.id === c.id))
+            .filter((c) => chapters.some((item,index) => item.id === c.id&&(!job.overwrite||index<resumeIndex)))
             .map((c) => c.id);
       await this.store.patchJob(id, {
         bookId: body.bookId,

@@ -23,15 +23,22 @@ function drag(w,source,target){
     const event=new w.Event(type,{bubbles:true,cancelable:true});Object.defineProperty(event,"dataTransfer",{value:{setData(){}}});Object.defineProperty(event,"clientY",{value:0});node.dispatchEvent(event);
   }
 }
+test("running reservations can be dragged and remain marked running until their chapter boundary",async t=>{
+  const f=await fixture(t),running=f.card("running");assert.equal(running.draggable,true);
+  drag(f.w,running,f.card("b"));await tick();
+  assert.deepEqual(f.calls,[{jobId:"running",beforeId:"b"}]);assert.deepEqual(f.order(),["a","running","b","c"]);
+  assert.match(running.querySelector(".status-pill").textContent,/수집 중/);
+  assert.match(f.w.document.getElementById("toast").textContent,/현재 회차 저장 후/);
+});
 test("dragging a paused reservation changes the waiting order and preserves the running card",async t=>{
-  const f=await fixture(t),running=f.card("running");assert.equal(running.draggable,false);
+  const f=await fixture(t),running=f.card("running");assert.equal(running.draggable,true);
   drag(f.w,f.card("c"),f.card("a"));await tick();
   assert.deepEqual(f.calls,[{jobId:"c",beforeId:"a"}]);assert.deepEqual(f.order(),["running","c","a","b"]);assert.equal(f.card("running"),running);
-  assert.equal(f.card("c").querySelector(".job-order").textContent,"1");
+  assert.equal(f.card("c").querySelector(".job-order").textContent,"2");
 });
 test("keyboard movement buttons use the same API and disable queue boundaries",async t=>{
   const f=await fixture(t),d=f.w.document;
-  assert.equal(d.getElementById("queue-move-up-a").disabled,true);assert.equal(d.getElementById("queue-move-down-c").disabled,true);
+  assert.equal(d.getElementById("queue-move-up-running").disabled,true);assert.equal(d.getElementById("queue-move-down-c").disabled,true);
   d.getElementById("queue-move-up-b").click();await tick();
   assert.deepEqual(f.calls,[{jobId:"b",beforeId:"a"}]);assert.deepEqual(f.order(),["running","b","a","c"]);
   d.getElementById("queue-move-down-b").click();await tick();assert.deepEqual(f.order(),["running","a","b","c"]);

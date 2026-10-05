@@ -44,10 +44,12 @@ test("relative concurrent moves retain every reservation and new jobs append to 
   const added=await store.createJob({url:"https://newtoki1.org/novel/4"});
   assert.deepEqual((await store.listJobs()).map(job=>job.id),[b.id,c.id,a.id,added.id]);
 });
-test("running, terminal, deleting and missing reservations cannot be moved or used as a target",async t=>{
+test("running reservations can move while terminal, deleting and missing reservations are rejected",async t=>{
   const {store,scheduler,jobs:[a,b,c]}=await fixture(t);
   await store.patchJob(a.id,{status:"running"});await store.patchJob(b.id,{status:"completed"});
-  await assert.rejects(scheduler.reorder(a.id,c.id),{status:409});await assert.rejects(scheduler.reorder(c.id,b.id),{status:409});
+  await scheduler.reorder(a.id,null);assert.equal((await store.getJob(a.id)).status,"running");
+  assert.deepEqual((await store.listJobs()).map(job=>job.id),[c.id,b.id,a.id]);
+  await assert.rejects(scheduler.reorder(c.id,b.id),{status:409});
   await store.patchJob(b.id,{status:"queued",deleting:true});await assert.rejects(scheduler.reorder(c.id,b.id),{status:409});
   await assert.rejects(scheduler.reorder("missing",null),{status:404});await assert.rejects(scheduler.reorder("../escape",null),{status:400});
 });

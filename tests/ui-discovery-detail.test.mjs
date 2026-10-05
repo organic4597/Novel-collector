@@ -17,7 +17,7 @@ async function fixture(t, { deferred = false } = {}) {
     navigate:value=>{view=value;w.document.dispatchEvent(new w.CustomEvent("collector:view",{detail:value}));},
     api:async(path,options={})=>{calls.push([path,options.method||"GET"]);if(options.method==="POST")return{status:"completed",item:work};
       if(deferred)return new Promise(r=>{complete=()=>r({status:"completed",item:work});});
-      return{status:"idle",item:{id:"1",title:"一覧"}};},
+       return{status:"idle",item:{id:"1",title:"목록"}};},
     batch:async jobs=>{calls.push(["batch",jobs]);return{jobs:[{}]};}};
   w.DiscoveryCatalog={update:value=>{updated=value;},select:value=>{selection=value;}};
   w.eval((await readFile(new URL("../public/discovery-detail.js",import.meta.url),"utf8")) + "\n//# sourceURL=" + new URL("../public/discovery-detail.js",import.meta.url).href);

@@ -23,6 +23,10 @@ import {
 const html =
   '<ul><li data-genre="판타지,액션" date-title="작품"><a href="/novel/123"><img class="theme-thumb-img" src="https://apitk.peertrk.com/webtoon_uploads/a.jpg"><span class="title">작품</span></a><span class="list-platform">문피아</span><span class="list-date">10.02</span></li><li data-genre="판타지" date-title="작품"><a href="/novel/123"><span class="title">작품</span></a></li></ul><div class="pg"><a href="/novel?page=142">끝</a></div>';
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+test("the source's rating badge reads its score text independently of the decorative star SVG",()=>{
+  const dom=new JSDOM('<ul class="novel-list"><a class="novel-card" href="/novel/1"><span class="nv-title">합성 평점 작품</span><span class="card-rating-badge novel-rating-badge" title="평균 별점 3.4 / 5"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9"></path></svg>3.4</span></a></ul>',{url:"https://sbxh9.com/novel"});
+  assert.equal(readDiscoveryDocument(dom.window.document).items[0].rating,3.4);dom.window.close();
+});
 test("normal listings read each source rating and distinguish missing, invalid and zero scores", () => {
   const ratings = ["4.6", "3.9", "0", "", "미평가", "5.2"];
   const cards = ratings.map((rating, index) => `<a class="novel-card" href="/novel/${index + 1}"><span class="nv-title">합성 작품 ${index + 1}</span>${rating ? `<span class="novel-rating-badge">${rating}</span>` : ""}</a>`).join("");

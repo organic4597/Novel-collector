@@ -255,25 +255,24 @@ export class FolderStore {
       );
     const saved = await this.json(this.path("queue-order.json"));
     const positions = new Map((Array.isArray(saved?.jobIds) ? saved.jobIds : []).map((id,index)=>[id,index]));
-    const waiting = sorted.filter(job=>["queued","paused"].includes(job.status)&&!job.deleting)
+    const waiting = sorted.filter(job=>["running","queued","paused"].includes(job.status)&&!job.deleting)
       .sort((a,b)=>(positions.get(a.id)??positions.size)-(positions.get(b.id)??positions.size));
     let index=0;
-    return sorted.map(job=>["queued","paused"].includes(job.status)&&!job.deleting?waiting[index++]:job);
+    return sorted.map(job=>["running","queued","paused"].includes(job.status)&&!job.deleting?waiting[index++]:job);
   }
   async reorderJobs(jobId,beforeId,activeJobIds=[]){
     safeId(jobId);if(beforeId!==null)safeId(beforeId);
     return this.locked("queue-order",async()=>{
       const jobs=await this.listJobs(),active=new Set(activeJobIds);
-      const waiting=jobs.filter(job=>["queued","paused"].includes(job.status)&&!job.deleting&&!active.has(job.id));
+      const waiting=jobs.filter(job=>["running","queued","paused"].includes(job.status)&&!job.deleting&&(!active.has(job.id)||job.status==="running"));
       for(const id of [jobId,beforeId].filter(id=>id!==null)){
         if(!jobs.some(job=>job.id===id))throw Object.assign(Error("예약을 찾을 수 없습니다."),{status:404});
-        if(!waiting.some(job=>job.id===id))throw Object.assign(Error("대기·일시정지 예약만 순서를 변경할 수 있습니다."),{status:409});
+        if(!waiting.some(job=>job.id===id))throw Object.assign(Error("수집 중·대기·일시정지 예약만 순서를 변경할 수 있습니다."),{status:409});
       }
       if(jobId===beforeId)return jobs;
       const ids=waiting.map(job=>job.id).filter(id=>id!==jobId),index=beforeId===null?ids.length:ids.indexOf(beforeId);
       ids.splice(index,0,jobId);
-      const running=jobs.filter(job=>job.status==="running"||active.has(job.id)).map(job=>job.id);
-      await this.atomic(this.path("queue-order.json"),{jobIds:[...running,...ids]});
+      await this.atomic(this.path("queue-order.json"),{jobIds:ids});
       return this.listJobs();
     });
   }

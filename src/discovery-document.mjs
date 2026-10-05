@@ -101,6 +101,8 @@ export function readDiscoveryDocument(doc = document) {
         spans.find((node) => /^\s*[\d,]+\s*화\s*$/.test(node.textContent))
           ?.textContent || row.querySelector(".ep")?.textContent;
       const count = Number(countText?.replace(/[^\d]/g, ""));
+      const ratingText = row.querySelector(".novel-rating-badge")?.textContent.trim() || "";
+      const rating = /^\d(?:\.\d+)?$/.test(ratingText) ? Number(ratingText) : null;
       let thumbnailUrl = null;
       try {
         const image = row.querySelector(".nv-thumb img, .thumb img");
@@ -145,6 +147,7 @@ export function readDiscoveryDocument(doc = document) {
             ?.textContent.trim() || "",
         publication: /완결|완료/.test(publicationRaw) ? "completed" : "unknown",
         publicationRaw,
+        rating: Number.isFinite(rating) && rating >= 0 && rating <= 5 ? rating : null,
         episodeCount:
           Number.isSafeInteger(count) && count > 0 && count <= 100000
             ? count

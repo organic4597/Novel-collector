@@ -191,11 +191,14 @@
     e.item = item; if (selected.has(e.id)) selected.set(e.id, item);
     text(e.link, item.title || "제목 없음"); text(e.author, item.author || "작가 정보 확인 전");
     e.check.checked = selected.has(e.id); e.check.setAttribute("aria-label", (item.title || "작품") + " 선택");
-    const values = [...(Array.isArray(item.genres) ? item.genres : []), ...(Array.isArray(item.tags) ? item.tags.slice(0, 4).map(tag => "#" + tag) : []), item.platform].filter(Boolean);
+    const genres = new Set((Array.isArray(item.genres) ? item.genres : []).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean));
+    const uniqueTags = [...new Set((Array.isArray(item.tags) ? item.tags : []).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean))];
+    const values = [...genres, ...uniqueTags.filter(tag => !genres.has(tag)).slice(0, 4).map(tag => "#" + tag), item.platform].filter(Boolean);
     const tags = values.join("\u001f"); if (tags !== e.tagKey) { e.tagKey = tags; e.tags.replaceChildren(...values.map(value => UI.node("span", "", value))); }
     const knownCount = Number.isSafeInteger(item.episodeCount) && item.episodeCount >= 0;
     text(e.count, pending.has(e.id) ? "회차 확인 중…" : knownCount ? "총 " + UI.count(item.episodeCount) + "화" : "회차 확인 전");
-    text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + (item.updatedLabel ? " · " + item.updatedLabel : ""));
+    const rating = Number.isFinite(item.rating) && item.rating >= 0 && item.rating <= 5 ? "평점 " + item.rating.toFixed(1) + " / 5" : "평점 미확인";
+    text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + " · " + rating + (item.updatedLabel ? " · " + item.updatedLabel : ""));
     text(e.button, knownCount ? "회차 다시 확인" : "회차 확인"); e.button.disabled = checking || pending.has(e.id);
     const source = typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
     if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;

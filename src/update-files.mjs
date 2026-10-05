@@ -1,4 +1,4 @@
-import { mkdir,readFile,writeFile,rename,lstat,access } from "node:fs/promises";
+import { mkdir,readFile,writeFile,rename,lstat,access,readdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname,join,resolve,relative,isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -19,3 +19,19 @@ export async function renameRetry(from,to,{platform=process.platform,move=rename
 }
 export async function exists(path){try{await lstat(path);return true;}catch(e){if(e.code==="ENOENT")return false;throw e;}}
 export async function assertWritable(root){await access(root,constants.W_OK);await safePath(root,".updates");}
+export async function assertUpdatePermissions(root){
+  try{
+    await assertWritable(root);await access(root,constants.W_OK|constants.X_OK);
+    for(const path of [".updates",".updates/backups","src","public","tools","tests","tests/fixtures","docs","docs/assets","deploy","profile","node_modules",".venv-captcha","profile/playwright-browsers"]){
+      const target=await safePath(root,path);if(await exists(target))await access(target,constants.W_OK|constants.X_OK);
+    }
+  }catch(cause){throw Object.assign(Error("소스·런타임 폴더의 쓰기 권한이 없습니다. 서비스 그룹 권한을 확인하세요."),{code:"INSTALL_NOT_WRITABLE",cause});}
+  async function readable(path){
+    const target=join(root,path);let info;try{info=await lstat(target);}catch(error){if(error.code==="ENOENT")return;throw error;}
+    if(info.isSymbolicLink())return;
+    await access(target,constants.R_OK|(info.isDirectory()?constants.X_OK:0));
+    if(info.isDirectory())for(const entry of await readdir(target)){const child=path+"/"+entry;if(child!=="profile/playwright-browsers")await readable(child);}
+  }
+  try{for(const path of ["data","secrets","profile"]){await safePath(root,path);await readable(path);}}
+  catch(cause){throw Object.assign(Error("사용자 저장소의 백업 읽기 권한이 없습니다. 서비스 그룹 권한을 확인하세요."),{code:"PRIVATE_NOT_READABLE",cause});}
+}

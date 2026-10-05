@@ -663,6 +663,10 @@ main {
 .job-card.running {
   border-color: #4d7862;
 }
+.job-card[draggable="true"] { cursor:grab; }
+.job-card.queue-dragging { cursor:grabbing; border-color:var(--accent); }
+.job-card.queue-drop-target { outline:2px solid var(--accent); outline-offset:2px; }
+.job-actions .queue-move { min-height:44px; }
 .job-top {
   display: flex;
   gap: 15px;

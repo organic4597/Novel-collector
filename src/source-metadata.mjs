@@ -64,6 +64,10 @@ export function sanitizeSourceMetadata(metadata) {
     thumbnailUrl,
   };
   const count = metadata.expectedChapterCount ?? metadata.expectedChapters;
+  if (Object.hasOwn(metadata, "rating"))
+    result.rating = Number.isFinite(metadata.rating) && metadata.rating >= 0 && metadata.rating <= 5
+      ? metadata.rating
+      : null;
   if (Number.isSafeInteger(count) && count >= 0 && count <= 100000)
     Object.assign(result, {
       expectedChapterCount: count,

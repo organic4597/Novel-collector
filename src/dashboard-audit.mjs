@@ -1,5 +1,5 @@
-const roots=new Set(["session","login","logout","status","settings","jobs","books","discover","updates","extraction-presets","site-accounts","site-browser","captcha-session","downloads","activity","dashboard-log","preferences","password"]);
-const actions=new Set(["status","check","apply","open","close","input","frame","retry","retry_failed","pause","resume","cancel","queue","start","stop","events","chapters","metadata","overview","cover","export","exports","download","download-all","batch","test","snapshot","progress"]);
+const roots=new Set(["session","login","logout","status","settings","jobs","books","discover","updates","extraction-presets","site-accounts","site-browser","captcha-session","downloads","activity","dashboard-log","preferences","password","queue"]);
+const actions=new Set(["status","check","apply","open","close","input","frame","retry","retry_failed","pause","resume","cancel","queue","start","stop","events","chapters","metadata","overview","cover","export","exports","download","download-all","batch","test","snapshot","progress","reorder"]);
 export function dashboardRoute(path){
   const parts=path.split("/").filter(Boolean);if(parts[0]!=="api"||!roots.has(parts[1]))return"/api/unknown";
   return"/api/"+parts.slice(1).map((p,i)=>i===0||actions.has(p)?p:":id").join("/");

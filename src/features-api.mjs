@@ -63,6 +63,11 @@ export function createFeatureRouter({
       send(response, 200, result);
       return true;
     }
+    if(url.pathname==="/api/queue/reorder"&&method==="POST"){
+      const input=await readBody(request);
+      if(!input||typeof input!=="object"||Array.isArray(input)||!Object.hasOwn(input,"beforeId"))throw fail("이동할 예약과 대상 위치를 지정하세요.",400);
+      send(response,200,{jobs:await scheduler.reorder(input.jobId,input.beforeId)});return true;
+    }
     if (url.pathname === "/api/settings") {
       if (!settings) throw fail("설정 서비스를 사용할 수 없습니다.", 503);
       if (method === "GET") {

@@ -88,6 +88,32 @@ async function fixture(t) {
     },
   };
 }
+test("library deduplicates genre, tag and platform labels without changing metadata or rebuilding unchanged labels", async (t) => {
+  const f = await fixture(t), d = f.w.document;
+  const book = {
+    ...f.rows()[0],
+    genres: ["판타지", "판타지"],
+    tags: ["판타지", "회귀", " 회귀 ", "플랫폼"],
+    platform: "플랫폼",
+  };
+  f.setRows([book]);
+  await f.w.CollectorLibrary.refresh();
+  const card = d.querySelector('[data-id="1"]'), tags = card.querySelector(".discover-tags");
+  const values = () => Array.from(tags.children, node => node.textContent);
+  assert.deepEqual(values(), ["판타지", "회귀", "플랫폼"]);
+  assert.deepEqual(book.genres, ["판타지", "판타지"]);
+  assert.deepEqual(book.tags, ["판타지", "회귀", " 회귀 ", "플랫폼"]);
+  const first = tags.firstChild, last = tags.lastChild;
+  f.setRows([{ ...book, genres: ["판타지"], tags: ["회귀", "플랫폼", "판타지"] }]);
+  await f.w.CollectorLibrary.refresh();
+  assert.equal(d.querySelector('[data-id="1"]'), card);
+  assert.equal(tags.firstChild, first);
+  assert.equal(tags.lastChild, last);
+  assert.deepEqual(values(), ["판타지", "회귀", "플랫폼"]);
+  f.setRows([{ ...book, genres: [], tags: [], platform: "" }]);
+  await f.w.CollectorLibrary.refresh();
+  assert.equal(tags.children.length, 0);
+});
 test("library selection and one-book changes preserve cards, covers and current failure controls", async (t) => {
   const f = await fixture(t),
     d = f.w.document;

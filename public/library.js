@@ -324,10 +324,17 @@
       entry.label,
     ]);
     const tags = [
-      ...(Array.isArray(book.genres) ? book.genres : []),
-      ...(Array.isArray(book.tags) ? book.tags : []),
-      book.platform,
-    ].filter(Boolean);
+      ...new Set(
+        [
+          ...(Array.isArray(book.genres) ? book.genres : []),
+          ...(Array.isArray(book.tags) ? book.tags : []),
+          book.platform,
+        ]
+          .filter(value => typeof value === "string")
+          .map(value => value.trim())
+          .filter(Boolean),
+      ),
+    ];
     const tagSignature = JSON.stringify(tags);
     if (tagSignature !== entry.tagSignature) {
       entry.tagSignature = tagSignature;

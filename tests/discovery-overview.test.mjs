@@ -15,7 +15,7 @@ async function fixture(t) {
   const page={url:()=>dom.window.document.URL,goto:async url=>{calls.visits.push(url);await gate;return{status:()=>200};},
     evaluate:async fn=>{calls.reads.push(fn.name);assert.notEqual(fn.name,"readCatalogDocument");return fn(dom.window.document);},close:async()=>{}};
   const discovery=new Discovery({rootDir:root,launchContext:async()=>({route:async()=>{},newPage:async()=>page,close:async()=>{}})});
-  await discovery.registerWork("1",{url:"https://newtoki1.org/novel/1",title:"목록 제목",genres:["판타지"]});
+  await discovery.registerWork("1",{url:"https://newtoki1.org/novel/1",title:"목록 제목",genres:["판타지"],rating:4.8});
   t.after(async()=>{release();await discovery.close();dom.window.close();await rm(root,{recursive:true,force:true});});
   return{discovery,calls,release};
 }
@@ -31,6 +31,7 @@ test("overview reads one introduction page, deduplicates concurrent requests and
   assert.equal(item.author,"작가 이름");assert.deepEqual(item.tags,["성장","모험"]);
   assert.equal(item.synopsis,"첫 소개\n다음 소개");assert.equal(item.episodeCount,17);
   assert.equal(item.publication,"completed");assert.deepEqual(item.genres,["판타지"]);
+  assert.equal(item.rating,4.8);
   assert.equal((await f.discovery.overviewState("1")).status,"completed");
   await f.discovery.requestOverview("1");assert.equal(f.calls.visits.length,1);
 });
@@ -57,11 +58,15 @@ test("a refreshed listing with empty metadata cannot erase the saved author tags
   const root=await mkdtemp(join(tmpdir(),"listing-metadata-"));let current="https://sbxh9.com/novel";
   const page={goto:async url=>{current=url;return{status:()=>200};},url:()=>current,close:async()=>{},
     evaluate:async fn=>fn.name==="readReaderDocument"?{challenge:false,verificationRequired:false}:
-      {items:[{id:"1",url:"https://newtoki1.org/novel/1",title:"작품",author:"",tags:[],genres:[],thumbnailUrl:null,episodeCount:null}],page:1,maxPage:1,filters:{}}};
+       {items:[{id:"1",url:"https://newtoki1.org/novel/1",title:"작품",author:"",tags:[],genres:[],rating:3.7,thumbnailUrl:null,episodeCount:null}],page:1,maxPage:1,filters:{}}};
   const discovery=new Discovery({rootDir:root,launchContext:async()=>({route:async()=>{},newPage:async()=>page,close:async()=>{}})});
   t.after(async()=>{await discovery.close();await rm(root,{recursive:true,force:true});});
-  await discovery.registerWork("1",{url:"https://newtoki1.org/novel/1",title:"작품",author:"보존할 작가",tags:["성장"],genres:["판타지"],synopsis:"보존할 소개"});
+   await discovery.registerWork("1",{url:"https://newtoki1.org/novel/1",title:"작품",author:"보존할 작가",tags:["성장"],genres:["판타지"],synopsis:"보존할 소개",rating:4.2});
   const result=await discovery.list();
   assert.equal(result.items[0].author,"보존할 작가");assert.deepEqual(result.items[0].tags,["성장"]);
   assert.deepEqual(result.items[0].genres,["판타지"]);assert.equal(result.items[0].synopsis,"보존할 소개");
+  assert.equal(result.items[0].rating,3.7);
+  const reopened=new Discovery({rootDir:root,launchContext:()=>{throw Error("Unexpected source request");}});
+  t.after(()=>reopened.close());
+  assert.equal((await reopened.list()).items[0].rating,3.7);
 });

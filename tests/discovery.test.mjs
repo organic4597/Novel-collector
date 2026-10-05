@@ -23,6 +23,14 @@ import {
 const html =
   '<ul><li data-genre="판타지,액션" date-title="작품"><a href="/novel/123"><img class="theme-thumb-img" src="https://apitk.peertrk.com/webtoon_uploads/a.jpg"><span class="title">작품</span></a><span class="list-platform">문피아</span><span class="list-date">10.02</span></li><li data-genre="판타지" date-title="작품"><a href="/novel/123"><span class="title">작품</span></a></li></ul><div class="pg"><a href="/novel?page=142">끝</a></div>';
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+test("normal listings read each source rating and distinguish missing, invalid and zero scores", () => {
+  const ratings = ["4.6", "3.9", "0", "", "미평가", "5.2"];
+  const cards = ratings.map((rating, index) => `<a class="novel-card" href="/novel/${index + 1}"><span class="nv-title">합성 작품 ${index + 1}</span>${rating ? `<span class="novel-rating-badge">${rating}</span>` : ""}</a>`).join("");
+  const dom = new JSDOM(`<ul class="novel-list">${cards}</ul>`, { url: "https://sbxh9.com/novel" });
+  const items = readDiscoveryDocument(dom.window.document).items;
+  assert.deepEqual(items.map(item => item.rating), [4.6, 3.9, 0, null, null, null]);
+  dom.window.close();
+});
 test("listing parser preserves metadata, de-duplicates works and reads pagination", () => {
   const dom = new JSDOM(html, { url: "https://newtoki1.org/novel?page=2" });
   const data = readDiscoveryDocument(dom.window.document);

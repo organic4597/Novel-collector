@@ -26,6 +26,16 @@ bash start.sh
 
 기존 OS 라이브러리가 준비된 개발 환경에서만 `bash install.sh --skip-os-deps`를 사용할 수 있습니다. 최초 설치에는 기본 명령을 사용하세요.
 
+서비스 계정으로 실행할 설치는 계정을 먼저 준비한 뒤 아래처럼 지정합니다. 기존 `novel-collector.service`의 설치 경로가 일치하면 root 설치 시 해당 실행 계정을 자동으로 사용하며, `sudo` 설치에서는 호출한 일반 사용자를 사용합니다. 이 두 경우에 해당하지 않으면 `--service-user`로 계정을 지정해야 합니다.
+
+```sh
+sudo bash install.sh --service-user novelcollector
+```
+
+설치 마지막에 앱 소스·런타임의 소유자는 유지하고 서비스 그룹 권한을 추가합니다. 폴더는 setgid로 새 파일의 그룹을 이어받도록 설정합니다. 소스·런타임의 기존 기타 사용자 권한은 유지합니다. 인증·설정 파일은 앱이 직접 600 권한을 관리하므로 `data`, `secrets`, `profile`, `.updates`는 서비스 계정 소유로 준비하고 다른 사용자 접근 권한은 제거합니다. root는 기존 관리자 권한으로 접근할 수 있어 비공개 파일도 root와 서비스 계정 모두 관리할 수 있습니다. `.git`과 심볼릭 링크 대상은 변경하지 않습니다. 실제 실행 계정으로 백업 읽기와 소스·런타임 교체 권한을 검사해야 설치 완료로 표시합니다.
+
+권한만 확인하려면 실행 계정으로 `node tools/install-runtime.mjs --check-permissions`를 실행합니다. Windows에서는 설치와 실행에 같은 계정을 사용하고 동일한 검사로 접근 권한을 확인합니다.
+
 관리자 계정·보관 DB·브라우저 프로필은 각 설치에서 생성하며 설치 스크립트는 이를 삭제하지 않습니다. `.runtime`, `.venv-captcha`, `profile/playwright-browsers`는 로컬 런타임입니다.
 
 ## 2. 수동 실행의 준비물
@@ -144,7 +154,7 @@ KillMode=process
 ReadWritePaths=/opt/novel-collector
 ```
 
-전용 사용자와 읽기/실행 권한, `data/`, `profile/`, `secrets/`의 쓰기 권한을 준비합니다. 서비스 등록 전에 해당 환경에서 `node run.mjs --setup`과 `--check`를 완료하세요. 읽기 전용 서비스 제한 안에서는 npm·Python 설치를 수행하지 않습니다.
+전용 사용자와 그룹을 먼저 준비하고 `sudo bash install.sh --service-user novelcollector`로 환경과 공유 그룹 권한을 준비합니다. 기존 서비스를 재설치할 때는 먼저 서비스를 정상 종료합니다. 서비스 등록 전에 실제 실행 계정에서 `node run.mjs --check`를 완료하세요. 읽기 전용 서비스 제한 안에서는 npm·Python 설치를 수행하지 않습니다.
 
 ```sh
 sudo install -m 644 deploy/novel-collector.service /etc/systemd/system/novel-collector.service
@@ -155,7 +165,7 @@ sudo systemctl status novel-collector.service
 
 이미 서비스가 있으면 ExecStart를 위 실행기로 연결하는 drop-in 설정을 추가할 수 있습니다. 기존 포트·프로필·계정 경로·HTTPS 설정은 그대로 사용합니다.
 
-대시보드 업데이트를 사용하려면 설치 폴더를 서비스 전용 사용자 소유로 두고 위 설정을 함께 적용합니다. 정상 종료 후 업데이트 worker가 남아 작업을 끝내도록 KillMode=process를 사용합니다. 소스 폴더가 읽기 전용인 기존 서비스는 자동 업데이트를 실행하지 않고 권한/설정 오류를 안내합니다.
+대시보드 업데이트를 사용하려면 root와 서비스 그룹이 설치 폴더·소스 하위 폴더·런타임을 교체할 수 있어야 하며 사용자 저장소 전체를 백업할 읽기 권한도 필요합니다. 위 서비스 설정도 함께 적용합니다. 정상 종료 후 업데이트 worker가 남아 작업을 끝내도록 KillMode=process를 사용합니다. 업데이터는 다운로드와 서비스 종료 전에 접근 권한을 검사하고 실패 원인을 기록합니다.
 
 ## 7. 검증
 

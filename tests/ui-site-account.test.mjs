@@ -31,7 +31,7 @@ async function fixture(
     if (path.startsWith("/api/site-account?")) {
       if (options.method === "DELETE") return { deleted: true };
       return {
-        host: "newtoki1.org",
+        host: "sbxh9.com",
         configured,
         enabled: false,
         username: configured ? "existing-user" : "",
@@ -43,14 +43,14 @@ async function fixture(
         return new Promise((resolve) => {
           resolveSave = () =>
             resolve({
-              host: "newtoki1.org",
+              host: "sbxh9.com",
               configured: true,
               enabled: true,
               username: "user",
             });
         });
       return {
-        host: "newtoki1.org",
+        host: "sbxh9.com",
         configured: true,
         ...JSON.parse(options.body),
         password: undefined,
@@ -59,14 +59,14 @@ async function fixture(
     }
     if (path === "/api/site-account/test")
       return {
-        host: "newtoki1.org",
+        host: "sbxh9.com",
         state: "running",
         phase: "정상 로그인 확인 중",
         id: "test-1",
       };
     if (path.startsWith("/api/site-account/test?"))
       return {
-        host: "newtoki1.org",
+        host: "sbxh9.com",
         state: testState,
         phase: testState === "success" ? "로그인 완료" : "요청 대기 중",
         id: "test-1",
@@ -125,6 +125,13 @@ function submit(w) {
 }
 test("New account requires password and exact PIN and explicit enabled choice; secrets immediately cleared", async (t) => {
   const { w, calls } = await fixture(t);
+  const query = calls.find((call) =>
+    call.path.startsWith("/api/site-account?"),
+  );
+  assert.equal(
+    new URL(query.path, "http://localhost").searchParams.get("host"),
+    "sbxh9.com",
+  );
   w.document.getElementById("site-account-username").value = "user";
   submit(w);
   await tick();
@@ -142,7 +149,7 @@ test("New account requires password and exact PIN and explicit enabled choice; s
   await tick();
   const request = calls.find((call) => call.options.method === "PUT");
   assert.deepEqual(JSON.parse(request.options.body), {
-    host: "newtoki1.org",
+    host: "sbxh9.com",
     username: "user",
     password: "private-password",
     pin: "0123",

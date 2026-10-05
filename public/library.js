@@ -13,6 +13,11 @@
     failureContext = null;
   const selected = new Set();
   const metadataRequests = new Set();
+  const cardEntries = new Map();
+  let emptyCard = null,
+    fetchedAt = 0,
+    loaded = false,
+    mutationEpoch = 0;
   let renderSignature = "";
   const pagination = node("div", "library-pagination");
   const previous = node("button", "quiet", "이전"),
@@ -40,14 +45,8 @@
   const pageSize = () => UI.preferences().libraryPageSize;
   function pagedBooks() {
     const filtered = visibleBooks();
-    state.page = Math.min(
-      state.page,
-      Math.max(1, Math.ceil(filtered.length / pageSize())),
-    );
-    return filtered.slice(
-      (state.page - 1) * pageSize(),
-      state.page * pageSize(),
-    );
+    state.page = Math.min(state.page, Math.max(1, Math.ceil(filtered.length / pageSize())));
+    return filtered.slice((state.page - 1) * pageSize(), state.page * pageSize());
   }
   previous.addEventListener("click", () => {
     state.page = Math.max(1, state.page - 1);
@@ -77,8 +76,7 @@
       const data = await api(`/api/books/${encodeURIComponent(id)}`);
       if (state.selectedBook !== id || !$("reader-dialog").open) return;
       const chapters = Array.isArray(data?.chapters) ? data.chapters : [];
-      $("reader-book-title").textContent =
-        data.book?.title || book.title || "작품";
+      $("reader-book-title").textContent = data.book?.title || book.title || "작품";
       $("chapter-count").textContent = `${count(chapters.length)}회차 저장됨`;
       const fragment = document.createDocumentFragment();
       for (const chapter of chapters) {
@@ -102,8 +100,7 @@
   async function openChapter(bookId, chapter) {
     const id = chapter.id || chapter.chapterId;
     state.chapterId = id;
-    $("reader-chapter-title").textContent =
-      chapter.title || `${chapter.number ?? ""}화`;
+    $("reader-chapter-title").textContent = chapter.title || `${chapter.number ?? ""}화`;
     $("reader-meta").textContent = "본문을 불러오는 중…";
     $("reader-text").textContent = "";
     for (const button of $("chapter-list").children) {
@@ -115,18 +112,13 @@
       const data = await api(
         `/api/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(id)}`,
       );
-      if (
-        state.chapterId !== id ||
-        state.selectedBook !== bookId ||
-        !$("reader-dialog").open
-      )
+      if (state.chapterId !== id || state.selectedBook !== bookId || !$("reader-dialog").open)
         return;
       $("reader-chapter-title").textContent =
         data.title || chapter.title || `${data.number ?? ""}화`;
       $("reader-meta").textContent =
         `${data.number === undefined ? "" : `${data.number}화 · `}${count((data.text || "").length)}자`;
-      $("reader-text").textContent =
-        data.text || "저장된 본문이 비어 있습니다.";
+      $("reader-text").textContent = data.text || "저장된 본문이 비어 있습니다.";
       document.querySelector(".reader-body").scrollTop = 0;
     } catch (error) {
       if (state.chapterId === id && state.selectedBook === bookId) {
@@ -143,20 +135,15 @@
       .filter(
         (book) =>
           (!query ||
-            `${book.title || ""} ${book.author || ""}`
-              .toLocaleLowerCase()
-              .includes(query)) &&
-          (!genre ||
-            (Array.isArray(book.genres) ? book.genres : []).includes(genre)),
+            `${book.title || ""} ${book.author || ""}`.toLocaleLowerCase().includes(query)) &&
+          (!genre || (Array.isArray(book.genres) ? book.genres : []).includes(genre)),
       )
       .sort((a, b) =>
         sort.value === "title"
           ? String(a.title || "").localeCompare(String(b.title || ""), "ko")
           : sort.value === "chapters"
             ? (b.storedChapterCount || 0) - (a.storedChapterCount || 0)
-            : String(b.updatedAt || "").localeCompare(
-                String(a.updatedAt || ""),
-              ),
+            : String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")),
       );
   }
   function error(message = "") {
@@ -176,26 +163,30 @@
     $("library-download-selected").disabled =
       !selected.size || bundleRequest || bundle?.status === "preparing";
     $("library-download-all").disabled =
-      !books.some(selectable) ||
-      bundleRequest ||
-      bundle?.status === "preparing";
+      !books.some(selectable) || bundleRequest || bundle?.status === "preparing";
     const visible = pagedBooks().filter(selectable),
-      picked = visible.filter((book) =>
-        selected.has(String(book.id || book.bookId)),
-      ).length;
-    $("library-select-page").checked =
-      visible.length > 0 && picked === visible.length;
-    $("library-select-page").indeterminate =
-      picked > 0 && picked < visible.length;
+      picked = visible.filter((book) => selected.has(String(book.id || book.bookId))).length;
+    $("library-select-page").checked = visible.length > 0 && picked === visible.length;
+    $("library-select-page").indeterminate = picked > 0 && picked < visible.length;
+  }
+  function reconcile(parent, children) {
+    const wanted = new Set(children);
+    for (const child of [...parent.children]) if (!wanted.has(child)) child.remove();
+    children.forEach((child, index) => {
+      if (parent.children[index] !== child)
+        parent.insertBefore(child, parent.children[index] || null);
+    });
+  }
+  function text(element, value) {
+    const next = String(value ?? "");
+    if (element.textContent !== next) element.textContent = next;
   }
   function render() {
-    if (!UI.authenticated() || UI.view() !== "library" || document.hidden)
-      return;
-    const fragment = document.createDocumentFragment(),
-      visible = pagedBooks();
-    const total = visibleBooks().length,
+    if (!UI.authenticated() || UI.view() !== "library" || document.hidden) return;
+    const visible = pagedBooks(),
+      total = visibleBooks().length,
       max = Math.max(1, Math.ceil(total / pageSize()));
-    pageLabel.textContent = `${state.page} / ${max} · ${count(total)}개 작품`;
+    text(pageLabel, state.page + " / " + max + " · " + count(total) + "개 작품");
     previous.disabled = state.page <= 1;
     next.disabled = state.page >= max;
     const current = JSON.stringify([
@@ -212,52 +203,73 @@
       return;
     }
     renderSignature = current;
-    if (!visible.length)
-      fragment.append(
-        empty(
+    const cards = visible.map(bookCard);
+    if (!cards.length) {
+      if (!emptyCard)
+        emptyCard = empty(
           "등록된 작품이 없습니다",
           "작품을 등록하면 정보와 수집 상태를 이곳에서 확인할 수 있습니다.",
-        ),
-      );
-    for (const book of visible) fragment.append(bookCard(book));
-    $("books-list").replaceChildren(fragment);
+        );
+      cards.push(emptyCard);
+    }
+    reconcile($("books-list"), cards);
+    const cacheLimit = Math.max(120, pageSize() * 3);
+    while (cardEntries.size > cacheLimit) cardEntries.delete(cardEntries.keys().next().value);
     selectState();
   }
-  function bookCard(book) {
-    const id = String(book.id || book.bookId),
-      card = node("article", "book-card library-card"),
-      profileState = metadataState(book);
+  function createBookCard(book, id) {
+    const card = node("article", "book-card library-card");
     card.dataset.id = id;
-    const cover = node("div", "library-cover");
-    cover.append(node("span", "cover-fallback", "▤"));
-    const thumbnail =
-      book.thumbnail || `/api/books/${encodeURIComponent(id)}/thumbnail`;
-    if (
-      (!profileState ||
-        profileState === "completed" ||
-        book.metadataFetchedAt) &&
-      /^\/api\/books\/[A-Za-z0-9_-]{1,100}\/thumbnail$/.test(thumbnail)
-    ) {
-      const image = node("img");
-      image.src = book.metadataFetchedAt
-        ? `${thumbnail}?v=${encodeURIComponent(book.metadataFetchedAt)}`
-        : thumbnail;
-      image.alt = "";
-      image.loading = "lazy";
-      image.decoding = "async";
-      image.width = 160;
-      image.height = 224;
-      image.addEventListener("error", () => image.remove(), { once: true });
-      cover.append(image);
-    }
-    const label = node("label", "discover-select"),
+    const cover = node("div", "library-cover"),
+      fallback = node("span", "cover-fallback", "▤"),
+      label = node("label", "discover-select"),
       check = node("input");
     check.type = "checkbox";
-    check.disabled = !selectable(book);
-    check.checked = selected.has(id);
-    check.setAttribute("aria-label", `${book.title || "작품"} 선택`);
+    label.append(check);
+    cover.append(fallback, label);
+    const entry = {
+      book,
+      card,
+      cover,
+      fallback,
+      label,
+      check,
+      image: node("img"),
+      failedImage: null,
+      body: node("div", "library-content"),
+      title: node("h2"),
+      author: node("p", "book-author"),
+      tags: node("div", "discover-tags"),
+      tagSignature: "",
+      profile: node("p", "book-meta book-profile-status"),
+      synopsis: node("p", "book-synopsis"),
+      completeness: node("strong", "book-completeness"),
+      meta: node("p", "book-meta"),
+      actions: node("div", "book-actions"),
+      read: node("button", "secondary", "회차 열기 →"),
+      download: node("a", "export-link", "TXT 받기"),
+      noDownload: node("span", "export-link", "저장된 본문 없음"),
+      retry: node("button", "quiet"),
+      metadataRetry: node("button", "quiet metadata-retry", "작품 정보 다시 불러오기"),
+    };
+    entry.image.alt = "";
+    entry.image.loading = "lazy";
+    entry.image.decoding = "async";
+    entry.image.width = 160;
+    entry.image.height = 224;
+    entry.image.addEventListener("error", () => {
+      entry.failedImage = entry.image.getAttribute("src");
+      entry.image.remove();
+    });
+    entry.profile.setAttribute("role", "status");
+    entry.download.href = "/api/books/" + encodeURIComponent(id) + "/export/txt";
+    entry.download.setAttribute("download", "");
+    entry.noDownload.setAttribute("aria-disabled", "true");
+    entry.read.addEventListener("click", () => openBook(entry.book));
+    entry.retry.addEventListener("click", () => retryBook(entry.book));
+    entry.metadataRetry.addEventListener("click", () => retryMetadata(entry.book));
     check.addEventListener("change", () => {
-      if (!selectable(book)) {
+      if (!selectable(entry.book)) {
         check.checked = false;
         return;
       }
@@ -271,143 +283,144 @@
       } else selected.delete(id);
       selectState();
     });
-    label.append(check);
-    cover.append(label);
-    const body = node("div", "library-content");
-    body.append(
-      node("h2", "", book.title || "제목 없는 작품"),
-      node("p", "book-author", book.author || "작가 정보 없음"),
-    );
-    const tags = node("div", "discover-tags");
-    for (const value of [
+    card.append(cover, entry.body);
+    return entry;
+  }
+  function bookCard(book) {
+    const id = String(book.id || book.bookId);
+    let entry = cardEntries.get(id);
+    if (!entry) {
+      entry = createBookCard(book, id);
+    } else cardEntries.delete(id);
+    cardEntries.set(id, entry);
+    entry.book = book;
+    const profileState = metadataState(book),
+      stored = storedChapters(book),
+      expected = book.expectedChapterCount;
+    const eligible = selectable(book),
+      missing =
+        book.missingChapterCount ??
+        (stored != null && expected != null ? Math.max(0, expected - stored) : null),
+      failed = book.failedChapterCount ?? book.failureCount ?? 0;
+    entry.check.disabled = !eligible;
+    entry.check.checked = selected.has(id);
+    entry.check.setAttribute("aria-label", (book.title || "작품") + " 선택");
+    text(entry.title, book.title || "제목 없는 작품");
+    text(entry.author, book.author || "작가 정보 없음");
+    const thumbnail = book.thumbnail || "/api/books/" + encodeURIComponent(id) + "/thumbnail";
+    const imageSource =
+      (!profileState || profileState === "completed" || book.metadataFetchedAt) &&
+      /^\/api\/books\/[A-Za-z0-9_-]{1,100}\/thumbnail$/.test(thumbnail)
+        ? thumbnail +
+          (book.metadataFetchedAt ? "?v=" + encodeURIComponent(book.metadataFetchedAt) : "")
+        : null;
+    if (imageSource && imageSource !== entry.image.getAttribute("src")) {
+      entry.failedImage = null;
+      entry.image.setAttribute("src", imageSource);
+    }
+    reconcile(entry.cover, [
+      entry.fallback,
+      ...(imageSource && imageSource !== entry.failedImage ? [entry.image] : []),
+      entry.label,
+    ]);
+    const tags = [
       ...(Array.isArray(book.genres) ? book.genres : []),
       ...(Array.isArray(book.tags) ? book.tags : []),
       book.platform,
-    ].filter(Boolean))
-      tags.append(node("span", "", value));
-    body.append(tags);
-    const profileMessages = {
+    ].filter(Boolean);
+    const tagSignature = JSON.stringify(tags);
+    if (tagSignature !== entry.tagSignature) {
+      entry.tagSignature = tagSignature;
+      entry.tags.replaceChildren(...tags.map((value) => node("span", "", value)));
+    }
+    const messages = {
       pending: "작품 정보를 불러오는 중… 완료되면 자동으로 표시됩니다.",
       failed: "작품 정보를 불러오지 못했습니다. 다시 불러올 수 있습니다.",
       deferred: "작품 정보 조회 대기 중입니다. 잠시 뒤 다시 불러오세요.",
     };
-    if (profileMessages[profileState]) {
-      const status = node(
-        "p",
-        "book-meta book-profile-status",
-        profileMessages[profileState],
-      );
-      const reason = book.metadataError ?? book.metadata?.error;
-      if (
-        ["failed", "deferred"].includes(profileState) &&
+    const reason = book.metadataError ?? book.metadata?.error;
+    text(
+      entry.profile,
+      (messages[profileState] || "") +
+        (["failed", "deferred"].includes(profileState) &&
         typeof reason === "string" &&
         reason.trim()
-      )
-        status.append(node("span", "", ` ${reason}`));
-      status.setAttribute("role", "status");
-      body.append(status);
-    }
-    if (book.synopsis) body.append(node("p", "book-synopsis", book.synopsis));
-    const stored = storedChapters(book);
-    const expected = book.expectedChapterCount;
-    body.append(
-      node(
-        "strong",
-        "book-completeness",
-        `${stored == null ? "저장 회차 확인 전" : count(stored) + "화 저장"}${expected == null ? " · 전체 회차 미확인" : " / 총 " + count(expected) + "화"}`,
-      ),
+          ? " " + reason
+          : ""),
     );
-    const missing =
-      book.missingChapterCount ??
-      (stored != null && expected != null
-        ? Math.max(0, expected - stored)
-        : null);
-    const failed = book.failedChapterCount ?? book.failureCount ?? 0;
-    const parts = [
-      { ongoing: "연재 중", completed: "완결" }[book.publication],
-      stored === 0
-        ? "본문 수집 대기 · 저장된 회차가 생기면 읽을 수 있습니다."
-        : null,
-      missing !== null && missing > 0 ? `미수집 ${count(missing)}화` : null,
-      failed > 0 ? `실패 ${count(failed)}화` : null,
-    ].filter(Boolean);
-    body.append(
-      node("p", "book-meta", parts.join(" · ") || "저장한 본문을 확인하세요."),
+    text(entry.synopsis, book.synopsis || "");
+    text(
+      entry.completeness,
+      (stored == null ? "저장 회차 확인 전" : count(stored) + "화 저장") +
+        (expected == null ? " · 전체 회차 미확인" : " / 총 " + count(expected) + "화"),
     );
-    const actions = node("div", "book-actions"),
-      read = node("button", "secondary", "회차 열기 →");
-    read.disabled = stored === 0;
-    read.addEventListener("click", () => openBook(book));
-    const download = node(
-      selectable(book) ? "a" : "span",
-      "export-link",
-      selectable(book) ? "TXT 받기" : "저장된 본문 없음",
+    text(
+      entry.meta,
+      [
+        { ongoing: "연재 중", completed: "완결" }[book.publication],
+        stored === 0 ? "본문 수집 대기 · 저장된 회차가 생기면 읽을 수 있습니다." : null,
+        missing !== null && missing > 0 ? "미수집 " + count(missing) + "화" : null,
+        failed > 0 ? "실패 " + count(failed) + "화" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || "저장한 본문을 확인하세요.",
     );
-    if (selectable(book)) {
-      download.href = `/api/books/${encodeURIComponent(id)}/export/txt`;
-      download.setAttribute("download", "");
-    } else download.setAttribute("aria-disabled", "true");
-    actions.append(read, download);
-    if (failed > 0 || (stored > 0 && missing > 0)) {
-      const retry = node(
-        "button",
-        "quiet",
-        missing > 0 && failed === 0
-          ? "누락 회차만 재수집"
-          : "실패 회차만 재수집",
-      );
-      retry.addEventListener("click", () => retryBook(book));
-      actions.append(retry);
-    }
-    if (["failed", "deferred"].includes(profileState)) {
-      const retry = node(
-        "button",
-        "quiet metadata-retry",
-        "작품 정보 다시 불러오기",
-      );
-      retry.disabled = metadataRequests.has(id);
-      retry.addEventListener("click", () => retryMetadata(book));
-      actions.append(retry);
-    }
-    body.append(actions);
-    card.append(cover, body);
-    return card;
+    entry.read.disabled = stored === 0;
+    text(entry.retry, missing > 0 && failed === 0 ? "누락 회차만 재수집" : "실패 회차만 재수집");
+    entry.metadataRetry.disabled = metadataRequests.has(id);
+    reconcile(entry.actions, [
+      entry.read,
+      eligible ? entry.download : entry.noDownload,
+      ...(failed > 0 || (stored > 0 && missing > 0) ? [entry.retry] : []),
+      ...(["failed", "deferred"].includes(profileState) ? [entry.metadataRetry] : []),
+    ]);
+    reconcile(entry.body, [
+      entry.title,
+      entry.author,
+      entry.tags,
+      ...(messages[profileState] ? [entry.profile] : []),
+      ...(book.synopsis ? [entry.synopsis] : []),
+      entry.completeness,
+      entry.meta,
+      entry.actions,
+    ]);
+    return entry.card;
   }
-  function refresh() {
+  function refresh({ force = true } = {}) {
     if (!UI.authenticated()) return Promise.resolve();
+    if (!force && loaded && Date.now() - fetchedAt >= 0 && Date.now() - fetchedAt < 8000) {
+      render();
+      return Promise.resolve();
+    }
     if (loading) return loading;
     const generation = UI.generation();
-    const request = loadBooks(generation);
+    const request = loadBooks(generation, mutationEpoch);
     const pending = request.finally(() => {
       if (loading === pending) loading = null;
     });
     loading = pending;
     return pending;
   }
-  async function loadBooks(generation) {
+  async function loadBooks(generation, epoch) {
     const data = await api("/api/books");
-    if (generation !== UI.generation()) return;
+    if (!UI.authenticated() || generation !== UI.generation() || epoch !== mutationEpoch) return;
+    fetchedAt = Date.now();
+    loaded = true;
     const next = JSON.stringify(data);
     books = Array.isArray(data) ? data : [];
+    const currentIds = new Set(books.map((book) => String(book.id || book.bookId)));
+    for (const id of cardEntries.keys()) if (!currentIds.has(id)) cardEntries.delete(id);
     $("book-badge").textContent = count(books.length);
     if (next === signature) {
       render();
       return;
     }
     for (const id of selected)
-      if (
-        !books.some(
-          (book) => selectable(book) && String(book.id || book.bookId) === id,
-        )
-      )
+      if (!books.some((book) => selectable(book) && String(book.id || book.bookId) === id))
         selected.delete(id);
     const genre = $("library-genre").value;
     const genres = [
-      ...new Set(
-        books.flatMap((book) =>
-          Array.isArray(book.genres) ? book.genres : [],
-        ),
-      ),
+      ...new Set(books.flatMap((book) => (Array.isArray(book.genres) ? book.genres : []))),
     ].sort();
     $("library-genre").replaceChildren(
       node("option", "", "전체 장르"),
@@ -455,27 +468,16 @@
     const ready = bundle?.status === "ready";
     $("bundle-download-link").hidden = !ready;
     if (ready)
-      $("bundle-download-link").href =
-        `/api/downloads/${encodeURIComponent(bundle.id)}/file`;
+      $("bundle-download-link").href = `/api/downloads/${encodeURIComponent(bundle.id)}/file`;
     $("bundle-error").textContent =
-      bundle?.status === "failed"
-        ? bundle.error || "파일을 준비하지 못했습니다."
-        : "";
+      bundle?.status === "failed" ? bundle.error || "파일을 준비하지 못했습니다." : "";
     $("library-bundle-status").hidden = !bundle;
-    $("library-bundle-status").textContent = ready
-      ? "준비된 ZIP 받기"
-      : "ZIP 준비 상태";
+    $("library-bundle-status").textContent = ready ? "준비된 ZIP 받기" : "ZIP 준비 상태";
     selectState();
   }
   async function pollBundle() {
     clearTimeout(bundleTimer);
-    if (
-      !bundle ||
-      bundle.status !== "preparing" ||
-      !UI.authenticated() ||
-      document.hidden
-    )
-      return;
+    if (!bundle || bundle.status !== "preparing" || !UI.authenticated() || document.hidden) return;
     const id = bundle.id,
       generation = UI.generation();
     try {
@@ -517,8 +519,7 @@
       if (generation !== UI.generation()) return;
       bundle = result;
       updateBundle();
-      if (bundle.status === "preparing")
-        bundleTimer = setTimeout(pollBundle, 2000);
+      if (bundle.status === "preparing") bundleTimer = setTimeout(pollBundle, 2000);
     } catch (exception) {
       $("bundle-error").textContent = textError(exception);
     } finally {
@@ -563,30 +564,21 @@
     $("failures-dialog").showModal();
   }
   function retryJob(job) {
-    failuresDialog(
-      { type: "job", id: job.id, title: job.title },
-      job.failedChapters,
-    );
+    failuresDialog({ type: "job", id: job.id, title: job.title }, job.failedChapters);
   }
   async function retryBook(book) {
     const id = book.id || book.bookId;
     try {
-      const failures = await api(
-        `/api/books/${encodeURIComponent(id)}/failures`,
-      );
+      const failures = await api(`/api/books/${encodeURIComponent(id)}/failures`);
       if (!Array.isArray(failures) || !failures.length) {
-        const stored =
-          book.storedChapterCount ?? book.chapterCount ?? book.totalChapters;
+        const stored = book.storedChapterCount ?? book.chapterCount ?? book.totalChapters;
         const missing =
           book.missingChapterCount ??
           (stored != null && book.expectedChapterCount != null
             ? Math.max(0, book.expectedChapterCount - stored)
             : 0);
         if (missing > 0) {
-          failuresDialog(
-            { type: "book", id, title: book.title, missingOnly: true },
-            [],
-          );
+          failuresDialog({ type: "book", id, title: book.title, missingOnly: true }, []);
           return;
         }
         error("이 작품에 확인된 실패·누락 회차가 없습니다.");
@@ -602,9 +594,9 @@
     $("failures-submit").disabled = true;
     $("failures-error").textContent = "";
     try {
-      const chapterIds = [
-        ...$("failures-list").querySelectorAll("input:checked"),
-      ].map((input) => input.value);
+      const chapterIds = [...$("failures-list").querySelectorAll("input:checked")].map(
+        (input) => input.value,
+      );
       if ($("failures-list").children.length && !chapterIds.length)
         throw new Error("재수집할 회차를 선택하세요.");
       const context = failureContext,
@@ -615,9 +607,7 @@
           : `/api/books/${encodeURIComponent(context.id)}/retry-failed`,
         {
           method: "POST",
-          body: JSON.stringify(
-            context.type === "job" ? { action: "retry_failed", ...body } : body,
-          ),
+          body: JSON.stringify(context.type === "job" ? { action: "retry_failed", ...body } : body),
         },
       );
       UI.addJob(job);
@@ -632,12 +622,9 @@
   $("library-select-all").addEventListener("click", () => {
     selected.clear();
     const eligible = books.filter(selectable);
-    for (const book of eligible.slice(0, 200))
-      selected.add(String(book.id || book.bookId));
+    for (const book of eligible.slice(0, 200)) selected.add(String(book.id || book.bookId));
     if (eligible.length > 200)
-      error(
-        "처음 200개 작품을 선택했습니다. 한 번에 최대 200개씩 내려받으세요.",
-      );
+      error("처음 200개 작품을 선택했습니다. 한 번에 최대 200개씩 내려받으세요.");
     render();
   });
   $("library-select-page").addEventListener("change", () => {
@@ -653,12 +640,8 @@
     selected.clear();
     render();
   });
-  $("library-download-selected").addEventListener("click", () =>
-    prepareBundle([...selected]),
-  );
-  $("library-download-all").addEventListener("click", () =>
-    prepareBundle([], true),
-  );
+  $("library-download-selected").addEventListener("click", () => prepareBundle([...selected]));
+  $("library-download-all").addEventListener("click", () => prepareBundle([], true));
   const search = window.CollectorPerformance.debounce(() => {
     state.page = 1;
     render();
@@ -671,6 +654,12 @@
   document.addEventListener("collector:preferences", () => {
     state.page = 1;
     render();
+  });
+  document.addEventListener("collector:mutated", () => {
+    mutationEpoch++;
+    fetchedAt = 0;
+    loaded = false;
+    loading = null;
   });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) clearTimeout(bundleTimer);
@@ -714,6 +703,11 @@
       books = [];
       signature = "";
       renderSignature = "";
+      mutationEpoch++;
+      fetchedAt = 0;
+      loaded = false;
+      cardEntries.clear();
+      emptyCard = null;
       state.page = 1;
       search.cancel();
       $("books-list").replaceChildren();

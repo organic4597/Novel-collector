@@ -12,6 +12,7 @@
     <script src="/performance.js" defer></script>
     <script src="/queue-ui.js" defer></script>
     <script src="/app.js" defer></script>
+    <script src="/login-recovery.js" defer></script>
     <script src="/dashboard-logger.js" defer></script>
     <script src="/logs.js" defer></script>
     <script src="/activity.js" defer></script>
@@ -48,6 +49,25 @@
           수집기 관리자 비밀번호를 사용하세요. 로그인은 6시간 유지됩니다.
         </p>
       </form>
+      <details id="login-recovery" class="login-recovery">
+        <summary>처음 사용하거나 관리자 비밀번호를 잊었나요?</summary>
+        <p>초기 비밀번호는 설치 폴더의 <code>secrets/admin-login.txt</code>에서 확인하세요. 비밀번호를 변경했다면 이 초기 파일은 삭제됩니다.</p>
+        <p><a href="https://github.com/organic4597/Novel-collector/releases/latest" target="_blank" rel="noopener noreferrer">공식 최신 버전 다운로드</a> · <a href="https://github.com/organic4597/Novel-collector/blob/main/docs/INSTALL.md" target="_blank" rel="noopener noreferrer">설치·초기 로그인 안내</a></p>
+        <p id="recovery-remote-guide">원격 서버는 SSH 또는 파일 관리자로 서버 설치 폴더의 초기 접속 파일을 확인하세요. 변경한 비밀번호를 잊었다면 서버 관리자에게 수동 복구를 요청하세요. 원격 웹에서는 재설정을 실행할 수 없습니다.</p>
+        <div id="recovery-local-panel" hidden>
+          <p id="recovery-warning">관리자 비밀번호만 재설정하고 모든 관리자 로그인 세션을 종료합니다. 소설·회차·사이트 계정·브라우저 프로필은 유지됩니다. 새 접속 정보 파일을 반드시 저장하세요.</p>
+          <label><input id="recovery-ack" type="checkbox">변경 범위와 로그인 종료를 확인했습니다.</label>
+          <label for="recovery-phrase">확인 문구 입력</label><input id="recovery-phrase" autocomplete="off">
+          <p id="recovery-phrase-guide"></p><button id="recovery-reset" type="button" disabled>관리자 비밀번호 재설정</button>
+        </div>
+        <p id="recovery-status" role="status"></p>
+        <div id="recovery-result" hidden>
+          <p>새 접속 정보 파일을 저장한 뒤 새 비밀번호로 로그인하세요.</p>
+          <button id="recovery-save" type="button">새 접속 정보 파일 저장</button>
+          <label><input id="recovery-saved" type="checkbox" disabled>파일 저장을 확인했습니다.</label>
+          <p id="recovery-next" hidden>저장한 파일의 새 비밀번호를 로그인 입력란에 입력하세요.</p>
+        </div>
+      </details>
     </section>
 
     <div id="app-view" class="app-shell" hidden>
@@ -279,6 +299,11 @@
             <p id="preset-status" class="field-help" role="status"></p><p id="preset-error" class="error-text" role="alert"></p>
           </div>
           <p class="field-help">이 화면은 추출 영역의 설정·미리보기·프리셋 관리 단계입니다. 저장된 설정은 갱신 북마크릿에서 사용할 수 있습니다. 자동 수집 적용은 현재 수집 경로에 별도 연결하는 단계입니다.</p>
+          <div class="preset-instructions">
+            <label for="preset-default">기본 프리셋</label>
+            <div class="heading-actions"><select id="preset-default"><option value="">불러오는 중...</option></select><button id="preset-add-default" type="button" class="secondary" disabled>추가</button></div>
+            <p id="preset-default-help" class="field-help">선택한 기본 설정을 수정 가능한 복사본으로 추가합니다. 현재 수집 설정은 바뀌지 않습니다.</p>
+          </div>
           <h2>저장한 프리셋 <span id="preset-count" class="muted"></span></h2><div id="preset-list" class="preset-list"></div>
         </section>
         <section id="activity-view" class="view" hidden>

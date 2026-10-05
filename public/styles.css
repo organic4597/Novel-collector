@@ -929,8 +929,11 @@ main {
 }
 .login-view {
   min-height: 100vh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
   padding: 25px;
   background: radial-gradient(ellipse at 50% 0%, #23443355 0, transparent 55%);
 }
@@ -963,6 +966,21 @@ main {
   margin-top: 19px;
   text-align: center;
 }
+.login-recovery {
+  width: min(410px, 100%);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.login-recovery summary { cursor: pointer; font-weight: 600; }
+.login-recovery p { margin: 14px 0; line-height: 1.6; }
+.login-recovery input[type="checkbox"] { width: auto; margin-right: 6px; }
+.login-recovery button { max-width: 100%; }
+#recovery-warning { color: var(--warning); }
+#preset-default { flex: 1; min-width: 180px; }
 label {
   display: block;
   font-size: 12px;

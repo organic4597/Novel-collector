@@ -119,19 +119,21 @@ test("hydration fetches one source page, returns pending immediately and survive
     new URL("./fixtures/work-detail-synthetic.html", import.meta.url),
     "utf8",
   );
-  const dom = new JSDOM(source, { url: "https://newtoki1.org/novel/63206" });
+  const dom = new JSDOM(source, { url: "https://sbxh9.com/novel/63206" });
   const discovery = new Discovery({
     rootDir: join(root, "discovery"),
     launchContext: async () => ({
       route: async () => {},
       close: async () => {},
       newPage: async () => ({
-        goto: async () => {
+        goto: async (target) => {
+          assert.equal(target, "https://sbxh9.com/novel/63206");
           visits++;
+          dom.reconfigure({ url: target });
           await gate;
           return { status: () => 200 };
         },
-        url: () => "https://newtoki1.org/novel/63206",
+        url: () => dom.window.document.URL,
         evaluate: async (fn) => fn(dom.window.document),
         close: async () => {},
       }),
@@ -158,6 +160,8 @@ test("hydration fetches one source page, returns pending immediately and survive
   const result = await service.state("book");
   assert.equal(result.status, "completed", failure?.stack || result.error);
   assert.equal(result.book.expectedChapterCount, 516);
+  assert.equal(result.book.url, "https://newtoki1.org/novel/63206");
+  assert.equal(result.book.metadataSourceOrigin, "https://sbxh9.com");
   assert.equal(
     result.book.author,
     readWorkMetadata(dom.window.document).author,
@@ -189,12 +193,13 @@ test("one-page source establishes exact count while failures have a retry cooldo
       route: async () => {},
       close: async () => {},
       newPage: async () => ({
-        goto: async () => {
+        goto: async (target) => {
+          assert.equal(target, "https://sbxh9.com/novel/1");
           visits++;
           if (fail) throw new Error("temporary unavailable");
           return { status: () => 200 };
         },
-        url: () => "https://newtoki1.org/novel/1",
+        url: () => "https://sbxh9.com/novel/1",
         close: async () => {},
         evaluate: async (fn) =>
           fn.name === "readReaderDocument"
@@ -244,16 +249,21 @@ test("one-page source establishes exact count while failures have a retry cooldo
   );
   await discovery.close();
 });
-test("registerWork validates source identities and cover changes reset only negative cache", async (t) => {
+test("registerWork validates source identities, preserves same-cover caches and refreshes changed cover content", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "discovery-register-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   let images = 0;
+  const imageUrls = [];
   const discovery = new Discovery({
     rootDir: root,
-    fetchImage: async () => {
+    fetchImage: async (url) => {
+      imageUrls.push(url);
       images++;
       if (images === 1) throw new Error("bad image");
-      return { bytes: jpeg, mimeType: "image/jpeg" };
+      return {
+        bytes: Buffer.from([255, 216, 255, 224, images]),
+        mimeType: "image/jpeg",
+      };
     },
   });
   await discovery.registerWork("1", {
@@ -265,17 +275,54 @@ test("registerWork validates source identities and cover changes reset only nega
   await discovery.registerWork("1", {
     url: "https://newtoki1.org/novel/1",
     title: "x",
+    thumbnailUrl: "https://apitk.peertrk.com/a.jpg",
+  });
+  assert.equal(await discovery.thumbnail("1"), null);
+  assert.equal(images, 1, "same failed URL retains the negative retry cache");
+  await discovery.registerWork("1", {
+    url: "https://newtoki1.org/novel/1",
+    title: "x",
     thumbnailUrl: "https://apitk.peertrk.com/b.jpg",
   });
-  assert.ok(await discovery.thumbnail("1"));
+  const previousCover = await discovery.thumbnail("1");
+  assert.ok(previousCover);
+  assert.deepEqual(
+    await readFile(previousCover.path),
+    Buffer.from([255, 216, 255, 224, 2]),
+  );
   assert.equal(images, 2);
+  await discovery.registerWork("1", {
+    url: "https://newtoki1.org/novel/1",
+    title: "updated title",
+    thumbnailUrl: "https://apitk.peertrk.com/b.jpg",
+  });
+  const preservedCover = await discovery.thumbnail("1");
+  assert.equal(preservedCover.etag, previousCover.etag);
+  assert.equal(images, 2, "same successful URL preserves its image cache");
   await discovery.registerWork("1", {
     url: "https://newtoki1.org/novel/1",
     title: "x",
     thumbnailUrl: "https://apitk.peertrk.com/c.jpg",
   });
-  assert.ok(await discovery.thumbnail("1"));
-  assert.equal(images, 2);
+  const changedCover = await discovery.thumbnail("1");
+  assert.ok(changedCover);
+  assert.notEqual(changedCover.etag, previousCover.etag);
+  assert.deepEqual(
+    await readFile(changedCover.path),
+    Buffer.from([255, 216, 255, 224, 3]),
+  );
+  assert.equal(
+    images,
+    3,
+    "changed cover content must not serve the previous image",
+  );
+  assert.equal((await discovery.thumbnail("1")).etag, changedCover.etag);
+  assert.equal(images, 3, "the new cover is fetched only once");
+  assert.deepEqual(imageUrls, [
+    "https://apitk.peertrk.com/a.jpg",
+    "https://apitk.peertrk.com/b.jpg",
+    "https://apitk.peertrk.com/c.jpg",
+  ]);
   await assert.rejects(
     discovery.registerWork("1", { url: "https://newtoki1.org/novel/2" }),
     (error) => error.status === 400,
@@ -291,6 +338,7 @@ test("state handles persisted success/failure, absent books and bounded pending 
         id: "fresh",
         url: "https://newtoki1.org/novel/1",
         metadataVersion: 1,
+        metadataSourceOrigin: "https://sbxh9.com",
         metadataFetchedAt: new Date(now).toISOString(),
       },
     ],
@@ -392,6 +440,7 @@ test("site holds and backoff defer metadata without failure cooldown and retry i
     visits = 0;
   const discovery = new Discovery({
     rootDir: join(root, "discovery"),
+    publicMetadata: false,
     attention: { isHeld: () => held, snapshot: () => ({ sites: [] }) },
     backoff: { snapshot: () => ({ active: backoffActive }) },
     launchContext: async () => ({
@@ -402,7 +451,7 @@ test("site holds and backoff defer metadata without failure cooldown and retry i
           visits++;
           return { status: () => 200 };
         },
-        url: () => "https://newtoki1.org/novel/1",
+        url: () => "https://sbxh9.com/novel/1",
         close: async () => {},
         evaluate: async (fn) =>
           fn.name === "readReaderDocument"
@@ -445,6 +494,7 @@ test("a legacy library cover already cached remains visible during site authenti
     images = 0;
   const discovery = new Discovery({
     rootDir: join(root, "discovery"),
+    publicMetadata: false,
     attention: { isHeld: () => held, snapshot: () => ({ sites: [] }) },
     fetchImage: async () => {
       images++;

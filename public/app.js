@@ -14,7 +14,6 @@ const state = {
   refreshRequested: false,
   queueActionBusy: false,
   generation: 0,
-  booksFetchedAt: 0,
   jobSignature: "",
   cardCache: new Map(),
   pendingActions: new Set(),
@@ -30,16 +29,10 @@ const statuses = {
   cancelled: "취소됨",
 };
 const { phases, actionRules } = window.CollectorQueueUI;
-const activeStatuses = new Set(["queued", "running", "paused"]);
 const finalStatuses = new Set([
   "completed",
   "completed_with_errors",
   "cancelled",
-]);
-const attentionStatuses = new Set([
-  "failed",
-  "needs_attention",
-  "completed_with_errors",
 ]);
 
 const {
@@ -51,6 +44,10 @@ const {
   date,
   textError,
   episodeInput,
+  empty,
+  safeURL,
+  exportFormats,
+  reconcileCards,
 } = window.CollectorPerformance;
 const updateExecutorHelp = window.CollectorPerformance.updateExecutorHelp;
 function errorNotice(message = "") {
@@ -66,81 +63,24 @@ function toast(message) {
     $("toast").hidden = true;
   }, 3500);
 }
-async function api(path, options = {}, timeoutMs = 12000, onProgress = null) {
-  const authGeneration = state.generation;
-  const controller = new AbortController();
-  const cancel = () => controller.abort();
-  if (options.signal?.aborted) cancel();
-  else options.signal?.addEventListener("abort", cancel, { once: true });
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(path, {
-      credentials: "same-origin",
-      cache: "no-store",
-      ...options,
-      signal: controller.signal,
-      headers: {
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...options.headers,
-      },
-    });
-    let data;
-    if (response.ok && response.headers?.get("Content-Type")?.includes("application/x-ndjson")) {
-      const reader = response.body.getReader(), decoder = new TextDecoder();
-      let buffer = "", completed = false;
-      const line = text => {
-        if (!text.trim()) return;
-        let event;
-        try { event = JSON.parse(text); } catch { throw new Error("목록 응답 형식이 올바르지 않습니다."); }
-        if (event.type === "error") throw new Error(event.data?.error || "작품 목록을 불러오지 못했습니다.");
-        if (event.type === "progress" && authGeneration === state.generation) onProgress?.(event.data);
-        if (event.type === "result") { data = event.data; completed = true; }
-      };
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          buffer += decoder.decode(chunk.value, { stream: !chunk.done });
-          if (buffer.length > 2 * 1024 * 1024) throw new Error("목록 응답 크기가 너무 큽니다.");
-          let newline;
-          while ((newline = buffer.indexOf("\n")) !== -1) {
-            line(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
-          }
-          if (chunk.done) break;
-        }
-        if (buffer) line(buffer);
-        if (!completed) throw new Error("목록 전송이 중단됐습니다. 다시 검색해 주세요.");
-      } finally {
-        await reader.cancel().catch(() => {});
-        reader.releaseLock();
-      }
-    } else data = await response.json().catch(() => null);
-    if (!response.ok) {
-      if (
-        response.status === 401 &&
-        path !== "/api/login" &&
-        authGeneration === state.generation
-      )
-        showLogin();
-      throw new Error(data?.error || `서버 요청 실패 (${response.status})`);
-    }
-    return data;
-  } catch (error) {
-    if (error.name === "AbortError")
-      throw new Error(
-        "서버 응답이 지연되고 있습니다. 잠시 후 다시 확인합니다.",
-      );
-    if (error instanceof TypeError)
-      throw new Error("서버에 연결할 수 없습니다. 네트워크 연결을 확인하세요.");
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    options.signal?.removeEventListener("abort", cancel);
-  }
-}
+const api = window.CollectorPerformance.createApi({
+  generation: () => state.generation,
+  onUnauthorized: showLogin,
+  onMutated: (path) =>
+    document.dispatchEvent(
+      new CustomEvent("collector:mutated", { detail: { path } }),
+    ),
+});
 
 function showLogin() {
   state.authenticated = false;
   state.generation += 1;
+  api.invalidate("session");
+  state.polling = false;
+  state.jobs = [];
+  state.status = {};
+  state.selectedJob = null;
+  for (const id of ["jobs-list", "history-list"]) $(id).replaceChildren();
   state.cardCache.clear();
   clearTimeout(state.timer);
   $("app-view").hidden = true;
@@ -152,9 +92,10 @@ function showLogin() {
 function showApp() {
   state.authenticated = true;
   state.generation += 1;
+  api.invalidate("session");
+  state.polling = false;
   state.jobSignature = "";
   state.cardCache.clear();
-  state.booksFetchedAt = 0;
   $("login-view").hidden = true;
   $("app-view").hidden = false;
   $("login-password").value = "";
@@ -191,7 +132,11 @@ async function poll() {
       state.status = results[0].value || {};
     if (results[1].status === "fulfilled")
       state.jobs = Array.isArray(results[1].value) ? results[1].value : [];
-    if (results[1].status === "fulfilled" && state.selectedJob && !state.jobs.some(job => job.id === state.selectedJob)) {
+    if (
+      results[1].status === "fulfilled" &&
+      state.selectedJob &&
+      !state.jobs.some((job) => job.id === state.selectedJob)
+    ) {
       state.selectedJob = null;
       window.CollectorLogs?.close();
     }
@@ -212,117 +157,46 @@ async function poll() {
     );
     if (state.selectedJob && !document.hidden)
       loadEvents(state.selectedJob, generation).catch(() => {});
-    if (
-      state.view === "library" &&
-      !$("captcha-session-dialog").open &&
-      (!state.booksFetchedAt ||
-        Date.now() - state.booksFetchedAt >
-          Math.max(8000, window.CollectorUI.preferences().refreshIntervalMs))
-    ) {
-      loadBooks(generation).catch(error => errorNotice(textError(error)));
+    if (state.view === "library" && !$("captcha-session-dialog").open) {
+      loadBooks(generation).catch((error) => errorNotice(textError(error)));
     }
   } catch (error) {
-    if (generation === state.generation && state.authenticated) {
+    if (error.cancelled && generation === state.generation)
+      state.refreshRequested = true;
+    if (
+      !error.cancelled &&
+      generation === state.generation &&
+      state.authenticated
+    ) {
       connection(false, "연결 확인 필요");
       errorNotice(textError(error));
     }
   } finally {
+    if (generation !== state.generation) return;
     state.polling = false;
     if (state.authenticated && !document.hidden)
       state.timer = setTimeout(
         poll,
         state.refreshRequested
           ? 0
-          : $("captcha-session-dialog").open ? Math.max(10000, window.CollectorUI.preferences().refreshIntervalMs)
-          : window.CollectorUI.preferences().refreshIntervalMs,
+          : $("captcha-session-dialog").open
+            ? Math.max(
+                10000,
+                window.CollectorUI.preferences().refreshIntervalMs,
+              )
+            : window.CollectorUI.preferences().refreshIntervalMs,
       );
   }
 }
 
 function renderSummary() {
-  const jobs = state.jobs;
-  const running = jobs.filter((job) => job.status === "running");
-  const waiting = jobs.filter((job) => job.status === "queued");
-  const runner = state.status.runner;
-  const available =
-    state.status.collector?.available !== false &&
-    (typeof runner === "object"
-      ? runner?.available !== false
-      : runner !== false);
-  const concurrency = Math.max(
-    1,
-    Math.min(2, number(state.status.maxConcurrency) || 2),
-  );
-  $("active-summary").textContent = `${count(running.length)} / ${concurrency}`;
-  $("waiting-summary").textContent = count(waiting.length);
-  $("saved-summary").textContent = count(
-    jobs.reduce((sum, job) => sum + number(job.completed), 0),
-  );
-  $("runner-summary").textContent = state.status.queuePaused
-    ? "전체 수집 일시정지 (자동 재개 없음)"
-    : !available
-      ? safeString(state.status.collector?.lastError || runner?.lastError) ||
-        "서버 수집기 확인 필요"
-      : state.status.backoff?.active
-        ? "서버 요청 제한으로 대기 중"
-        : running.length
-          ? `${count(running.length)}개 작품 수집 중 · 최대 ${concurrency}개`
-          : "다음 예약을 기다리고 있습니다";
-  $("agent-summary").textContent = "서버";
-  $("agent-note").textContent = "PC 없이 자동 실행";
-  $("queue-start-all").disabled = state.queueActionBusy;
-  $("queue-pause-all").disabled = state.queueActionBusy;
-  $("queue-pause-all").setAttribute(
-    "aria-pressed",
-    String(Boolean(state.status.queuePaused)),
-  );
-  const queuedCount = jobs.filter(
-    (job) => !finalStatuses.has(job.status),
-  ).length;
-  $("queue-badge").textContent = count(queuedCount);
-  $("jobs-count").textContent = count(queuedCount);
-  $("history-badge").textContent = count(
-    jobs.filter((job) => finalStatuses.has(job.status)).length,
-  );
-  updateExecutorHelp();
-  window.CollectorQueueUI?.renderBackoff(state.status, {
-    node,
-    count,
-    date,
-    safeString,
-    number,
-  });
+  window.CollectorPerformance.renderSummary(state);
 }
 
-function empty(title, message) {
-  const wrapper = node("div", "empty-state");
-  wrapper.append(node("strong", "", title), node("p", "", message));
-  return wrapper;
-}
 function filterJob(job) {
-  if (finalStatuses.has(job.status)) return false;
-  if (state.filter === "active") return activeStatuses.has(job.status);
-  if (state.filter === "attention") return attentionStatuses.has(job.status);
-  return true;
+  return window.CollectorPerformance.filterJob(job, state.filter);
 }
-function safeURL(value) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-function exportFormats(job) {
-  const exports = job.exports;
-  if (Array.isArray(exports))
-    return ["txt", "epub"].filter((format) =>
-      exports.some((item) => item === format || item?.format === format),
-    );
-  if (exports && typeof exports === "object")
-    return ["txt", "epub"].filter((format) => Boolean(exports[format]));
-  return [];
-}
+
 function renderJobs() {
   if (!["queue", "history"].includes(state.view) || document.hidden) return;
   const signature = JSON.stringify([
@@ -332,6 +206,7 @@ function renderJobs() {
     [...state.pendingActions],
     state.selectedJob,
     Boolean(state.status.backoff?.active),
+    (state.status.siteAttention || []).map((site) => [site.host, site.kind]),
     state.view,
   ]);
   if (signature === state.jobSignature) return;
@@ -354,7 +229,7 @@ function renderJobs() {
       ),
     );
   if (state.view === "queue") {
-    const cards = visible.map(job => cachedCard(job, queued));
+    const cards = visible.map((job) => cachedCard(job, queued));
     if (!cards.length) $("jobs-list").replaceChildren(fragment);
     else reconcileCards($("jobs-list"), cards);
   }
@@ -371,39 +246,54 @@ function renderJobs() {
   });
   $("history-count").textContent = count(history.length);
   if (state.view === "history")
-    reconcileCards($("history-list"),
-      (history.length
+    reconcileCards(
+      $("history-list"),
+      history.length
         ? [...history].reverse().map((job) => cachedCard(job, queued, true))
         : [
             empty(
               "수집 기록이 없습니다",
               "완료·취소한 예약은 이곳에 표시됩니다.",
             ),
-          ]),
+          ],
     );
   if (focusId) $(focusId)?.focus({ preventScroll: true });
 }
-function reconcileCards(list, cards) {
-  for (const [index, card] of cards.entries()) {
-    if (list.children[index] !== card) list.insertBefore(card, list.children[index] || null);
-  }
-  const wanted = new Set(cards);
-  for (const node of [...list.children]) if (!wanted.has(node)) node.remove();
-}
 function cachedCard(job, queued, history = false) {
   const key = `${history ? "history" : "queue"}:${job.id}`;
-  const signature = JSON.stringify([job, state.selectedJob === job.id, state.pendingActions.has(job.id),
-    state.status.backoff?.active, queued.findIndex(item => item.id === job.id),
-    (state.status.siteAttention || []).map(s => [s.host, s.kind])]);
+  const signature = JSON.stringify([
+    job,
+    state.status.backoff?.active,
+    queued.findIndex((item) => item.id === job.id),
+    isCaptchaPending(job),
+  ]);
   const cached = state.cardCache.get(key);
-  if (cached?.signature === signature) return cached.node;
-  const node = jobCard(job, queued, history);
+  if (cached?.signature === signature) return patchCard(cached.node, job);
+  const next = jobCard(job, queued, history);
+  const node = cached
+    ? window.CollectorPerformance.patchElement(cached.node, next)
+    : next;
   state.cardCache.set(key, { signature, node });
-  if (state.cardCache.size > 400) state.cardCache.delete(state.cardCache.keys().next().value);
-  return node;
+  if (state.cardCache.size > 400)
+    state.cardCache.delete(state.cardCache.keys().next().value);
+  return patchCard(node, job);
 }
-function jobCard(job, queued, inHistory = false) {
-  const captchaPending =
+function patchCard(card, job) {
+  for (const button of card.querySelectorAll(".job-actions button")) {
+    if (
+      button.id === `logs-${job.id}` ||
+      button.id === `history-logs-${job.id}`
+    )
+      button.textContent =
+        state.selectedJob === job.id ? "로그 보는 중" : "로그";
+    else
+      button.disabled =
+        state.pendingActions.has(job.id) || job.deleting === true;
+  }
+  return card;
+}
+function isCaptchaPending(job) {
+  return (
     job.status === "needs_attention" &&
     (sourceNotice(job.error) !== safeString(job.error) ||
       (state.status.siteAttention || []).some((site) => {
@@ -414,7 +304,11 @@ function jobCard(job, queued, inHistory = false) {
         } catch {
           return false;
         }
-      }));
+      }))
+  );
+}
+function jobCard(job, queued, inHistory = false) {
+  const captchaPending = isCaptchaPending(job);
   const card = node(
     "article",
     `job-card ${job.status === "running" ? "running" : ""}`,
@@ -493,8 +387,14 @@ function jobCard(job, queued, inHistory = false) {
   ])
     detail.append(node("span", "", value));
   card.append(top, tags, progressHead, track, detail);
-  if (job.captcha?.active) card.append(node("p", "job-current",
-    `자동 CAPTCHA ${job.captcha.attempt}/${job.captcha.maxAttempts} · ${job.captcha.stage} · 예상 시간 갱신 중`));
+  if (job.captcha?.active)
+    card.append(
+      node(
+        "p",
+        "job-current",
+        `자동 CAPTCHA ${job.captcha.attempt}/${job.captcha.maxAttempts} · ${job.captcha.stage} · 예상 시간 갱신 중`,
+      ),
+    );
   if (job.status === "running") {
     const seconds = Number(job.estimatedSecondsRemaining);
     const estimated =
@@ -540,7 +440,9 @@ function jobCard(job, queued, inHistory = false) {
     state.selectedJob === job.id ? "로그 보는 중" : "로그",
   );
   logs.id = `${inHistory && job.status === "failed" ? "history-" : ""}logs-${job.id}`;
-  logs.addEventListener("click", () => openEvents(job));
+  logs.addEventListener("click", () =>
+    openEvents(window.CollectorUI.job(job.id) || job),
+  );
   actions.append(logs);
   for (const [action, label] of actionRules[job.status] || []) {
     if (captchaPending && ["resume", "retry"].includes(action)) continue;
@@ -551,7 +453,9 @@ function jobCard(job, queued, inHistory = false) {
     );
     button.id = `${inHistory && job.status === "failed" ? "history-" : ""}${action}-${job.id}`;
     button.disabled = state.pendingActions.has(job.id) || job.deleting === true;
-    button.addEventListener("click", () => jobAction(job, action));
+    button.addEventListener("click", () =>
+      jobAction(window.CollectorUI.job(job.id) || job, action),
+    );
     actions.append(button);
   }
   for (const format of exportFormats(job)) {
@@ -568,15 +472,21 @@ function jobCard(job, queued, inHistory = false) {
     retry.id = `${inHistory && job.status === "failed" ? "history-" : ""}retry-failed-${job.id}`;
     retry.disabled = state.pendingActions.has(job.id) || job.deleting === true;
     retry.addEventListener("click", () =>
-      window.CollectorLibrary.retryJob(job),
+      window.CollectorLibrary.retryJob(window.CollectorUI.job(job.id) || job),
     );
     actions.append(retry);
   }
   {
-    const remove = node("button", "danger", job.deleting ? "삭제 중…" : inHistory ? "기록 삭제" : "예약 삭제");
+    const remove = node(
+      "button",
+      "danger",
+      job.deleting ? "삭제 중…" : inHistory ? "기록 삭제" : "예약 삭제",
+    );
     remove.id = `delete-${job.id}`;
     remove.disabled = state.pendingActions.has(job.id) || job.deleting === true;
-    remove.addEventListener("click", () => deleteRecord(job));
+    remove.addEventListener("click", () =>
+      deleteRecord(window.CollectorUI.job(job.id) || job),
+    );
     actions.append(remove);
   }
   footer.append(actions);
@@ -615,11 +525,24 @@ async function deleteRecord(job) {
   state.pendingActions.add(job.id);
   renderJobs();
   try {
-    const result = await api(`/api/jobs/${encodeURIComponent(job.id)}`, { method: "DELETE" });
+    const result = await api(`/api/jobs/${encodeURIComponent(job.id)}`, {
+      method: "DELETE",
+    });
     if (result?.pending) {
-      state.jobs = state.jobs.map(entry => entry.id === job.id ? { ...entry, status: "cancelled", deleting: true, phase: "예약 삭제 중" } : entry);
+      state.jobs = state.jobs.map((entry) =>
+        entry.id === job.id
+          ? {
+              ...entry,
+              status: "cancelled",
+              deleting: true,
+              phase: "예약 삭제 중",
+            }
+          : entry,
+      );
       state.refreshRequested = true;
-      toast("수집 종료를 기다린 뒤 예약을 삭제합니다. 저장한 본문은 유지됩니다.");
+      toast(
+        "수집 종료를 기다린 뒤 예약을 삭제합니다. 저장한 본문은 유지됩니다.",
+      );
       renderSummary();
       return;
     }
@@ -644,12 +567,19 @@ async function loadEvents() {
   return window.CollectorLogs.refresh();
 }
 async function loadBooks() {
-  await window.CollectorLibrary.refresh();
-  state.booksFetchedAt = Date.now();
+  await window.CollectorLibrary.refresh({ force: false });
 }
 function switchView(view) {
   state.view = view;
-  for (const id of ["queue", "library", "history", "discover", "settings", "activity", "presets"])
+  for (const id of [
+    "queue",
+    "library",
+    "history",
+    "discover",
+    "settings",
+    "activity",
+    "presets",
+  ])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
     const selected = button.dataset.view === view;

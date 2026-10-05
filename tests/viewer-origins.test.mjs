@@ -11,6 +11,7 @@ import {
   makeBookId,
 } from "../src/collector.mjs";
 import { JSDOM } from "jsdom";
+import { SiteAutoAuth } from "../src/site-auto-auth.mjs";
 
 test("verified viewer mapping persists and changes catalog and chapter transport, never canonical identity", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "viewer-origin-"));
@@ -19,7 +20,12 @@ test("verified viewer mapping persists and changes catalog and chapter transport
   const origins = new ViewerOrigins({ store });
   await origins.load();
   const chapter = "https://newtoki1.org/novel/21104/3001372";
-  assert.equal(origins.resolve(chapter), chapter);
+  assert.equal(origins.get("newtoki1.org"), null);
+  assert.equal(
+    origins.resolve(chapter),
+    "https://sbxh9.com/novel/21104/3001372",
+  );
+  assert.equal(await store.json(origins.path), null);
   await origins.save("newtoki1.org", "https://sbxh9.com");
   assert.equal(
     origins.resolve(chapter),
@@ -84,12 +90,13 @@ test("rendered normal chapter links map to canonical identities with strict work
     assert.throws(() => origins.canonicalChapter(value, source));
 });
 
-test("normal-viewer chapter collection uses mapped profile without posting canonical credentials to a peer", async () => {
+test("normal-viewer chapter collection uses its own account lookup without posting canonical credentials to a peer", async (t) => {
   const origins = new ViewerOrigins({
     store: { path: (v) => v, json: async () => null, atomic: async () => {} },
   });
   await origins.save("newtoki1.org", "https://sbxh9.com");
   let posts = 0;
+  const accountLookups = [];
   const visits = [];
   const reader = {
     text: "정상 본문",
@@ -103,15 +110,37 @@ test("normal-viewer chapter collection uses mapped profile without posting canon
       return { status: () => 200 };
     },
     evaluate: async () => reader,
+    context: () => ({
+      request: {
+        post: async () => {
+          posts++;
+          assert.fail("canonical credentials must not be posted to a viewer");
+        },
+      },
+    }),
   };
+  const autoAuth = new SiteAutoAuth({
+    accounts: {
+      status: (name) => {
+        accountLookups.push(name);
+        return {
+          configured: name === "newtoki1.org",
+          enabled: name === "newtoki1.org",
+        };
+      },
+      getCredentials: () =>
+        assert.fail("an unconfigured viewer cannot load canonical credentials"),
+    },
+    siteBrowser: {},
+    attention: {},
+    scheduler: {},
+  });
+  t.after(() => autoAuth.close());
   const collector = new Collector({
     store: {},
     profileDir: "fixture/profiles",
     viewerOrigins: origins,
-    authenticatePage: async () => {
-      posts++;
-      throw Error("must not send credentials");
-    },
+    authenticatePage: (page, signal) => autoAuth.loginPage(page, signal),
   });
   await collector.navigate(
     page,
@@ -120,6 +149,7 @@ test("normal-viewer chapter collection uses mapped profile without posting canon
   );
   assert.deepEqual(visits, ["https://sbxh9.com/novel/21104/3001372"]);
   assert.equal(posts, 0);
+  assert.deepEqual(accountLookups, ["sbxh9.com"]);
   assert.equal(collector.fork(1).viewerOrigins, origins);
 });
 

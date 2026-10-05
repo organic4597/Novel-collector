@@ -20,6 +20,9 @@
   let workPopup = false;
   let autoQueue = [],
     requestChain = Promise.resolve();
+  const pageSnapshots = new Map(), pageTTL = 30 * 60 * 1000;
+  let dataEpoch = 0, refreshTimer = null, refreshChecks = 0;
+  const cardPool = new Map();
   let renderedCards = new Map(),
     renderedIds = [];
   let pendingLoad = null, interruptedPage = null,
@@ -130,36 +133,18 @@
     }
     const ids = visible.map((item) => String(item.id)),
       nextCards = new Map();
-    const placeholders = loading ? loadingCards.slice(0, Math.max(0, loadingCount - loadedCount)) : [];
+    const placeholders = loading ? loadingCards.slice(loadedCount, loadingCount) : [];
     const sameOrder =
       ids.length === renderedIds.length &&
       ids.every((id, index) => id === renderedIds[index]);
     for (const item of visible) {
-      const id = String(item.id),
-        signature = cardSignature(item),
-        previous = renderedCards.get(id);
-      const entry =
-        previous?.signature === signature
-          ? previous
-          : { signature, node: card(item) };
-      nextCards.set(id, entry);
-      if (sameOrder && previous && entry !== previous)
-        previous.node.replaceWith(entry.node);
+      const id = String(item.id), entry = cardPool.get(id) || card(item);
+      patchCard(entry, item);
+      cardPool.delete(id); cardPool.set(id, entry); nextCards.set(id, entry);
     }
-    if (!sameOrder || placeholders.length !== renderedLoadingCount || !$("discover-list").children.length) {
-      const nodes = visible.map((item) => nextCards.get(String(item.id)).node);
-      nodes.push(...placeholders);
-      $("discover-list").replaceChildren(
-        ...(nodes.length
-          ? nodes
-          : [
-              UI.empty(
-                "조건에 맞는 작품이 없습니다",
-                "검색 조건이나 회차 필터를 변경해 보세요.",
-              ),
-            ]),
-      );
-    }
+    const nodes = visible.map(item => nextCards.get(String(item.id)).node).concat(placeholders);
+    reconcile($("discover-list"), nodes.length ? nodes : [UI.empty("조건에 맞는 작품이 없습니다", "검색 조건이나 회차 필터를 변경해 보세요.")]);
+    while (cardPool.size > 120) cardPool.delete(cardPool.keys().next().value);
     renderedCards = nextCards;
     renderedIds = ids;
     renderedLoadingCount = placeholders.length;
@@ -171,198 +156,129 @@
     selectionState();
     observeVisible();
   }
-  function thumbnail(item, cover) {
-    if (
-      typeof item.thumbnail !== "string" ||
-      !/^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail)
-    )
-      return;
-    const img = UI.node("img");
-    img.src = item.thumbnail;
-    img.alt = "";
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.width = 160;
-    img.height = 224;
-    img.addEventListener("error", () => img.remove(), { once: true });
-    cover.append(img);
+  function reconcile(parent, nodes) {
+    let cursor = parent.firstChild;
+    for (const el of nodes) { if (el !== cursor) parent.insertBefore(el, cursor); cursor = el.nextSibling; }
+    while (cursor) { const next = cursor.nextSibling; cursor.remove(); cursor = next; }
   }
-  function cardSignature(item) {
-    const id = String(item.id);
-    return JSON.stringify([item, pending.has(id), checking, selected.has(id)]);
-  }
+  function text(el, value) { value = String(value ?? ""); if (el.textContent !== value) el.textContent = value; }
   function card(item) {
-    const id = String(item.id),
-      el = UI.node("article", "discover-card");
-    el.dataset.id = id;
-    const cover = UI.node("div", "discover-cover");
-    cover.append(UI.node("span", "cover-fallback", "▤"));
-    thumbnail(item, cover);
-    const selectLabel = UI.node("label", "discover-select");
-    const check = UI.node("input");
-    check.type = "checkbox";
-    check.checked = selected.has(id);
-    check.setAttribute("aria-label", `${item.title} 선택`);
-    check.addEventListener("change", () => {
-      if (check.checked) {
-        if (selected.size >= 100) {
-          check.checked = false;
-          notice("", "한 번에 최대 100개 작품을 선택할 수 있습니다.");
-          return;
-        }
-        selected.set(id, item);
-      } else selected.delete(id);
-      const entry = renderedCards.get(id);
-      if (entry?.node === el) entry.signature = cardSignature(display(item));
-      selectionState();
+    const id = String(item.id), el = UI.node("article", "discover-card"); el.dataset.id = id;
+    const e = { node: el, item, id, cover: UI.node("div", "discover-cover"), check: UI.node("input"),
+      link: UI.node("a", "discover-title-link"), author: UI.node("p", "discover-author"), tags: UI.node("div", "discover-tags"),
+      count: UI.node("strong", "discover-count"), meta: UI.node("p", "discover-meta"), button: UI.node("button", "quiet") };
+    e.cover.append(UI.node("span", "cover-fallback", "▤"));
+    const label = UI.node("label", "discover-select"); e.check.type = "checkbox"; label.append(e.check); e.cover.append(label);
+    e.check.addEventListener("change", () => {
+      if (e.check.checked) { if (selected.size >= 100) { e.check.checked = false; notice("", "한 번에 최대 100개 작품을 선택할 수 있습니다."); return; } selected.set(id, e.item); }
+      else selected.delete(id); selectionState();
     });
-    selectLabel.append(check);
-    cover.append(selectLabel);
-    const content = UI.node("div", "discover-content");
-    const heading = UI.node("h2"), link = UI.node("a", "discover-title-link", item.title || "제목 없음");
-    link.href = `/?work=${encodeURIComponent(id)}`;
-    link.addEventListener("click", event => {
-      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      window.DiscoveryDetails?.open(display(item));
+    e.link.href = "/?work=" + encodeURIComponent(id);
+    e.link.addEventListener("click", event => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); window.DiscoveryDetails?.open(e.item); });
+    const heading = UI.node("h2"); heading.append(e.link);
+    const content = UI.node("div", "discover-content"); content.append(heading, e.author, e.tags, e.count, e.meta, e.button);
+    e.button.addEventListener("click", async () => {
+      if (checking) return; checking = true; render();
+      try { await refresh(e.item); notice("회차 정보를 확인했습니다."); }
+      catch (error) { if (!error.cancelled) notice("", UI.textError(error)); }
+      finally { checking = false; render(); scheduleAuto(); }
     });
-    heading.append(link);
-    content.append(heading, UI.node("p", "discover-author", item.author || "작가 정보 확인 전"));
-    const tags = UI.node("div", "discover-tags");
-    for (const value of [
-      ...(Array.isArray(item.genres) ? item.genres : []),
-      ...(Array.isArray(item.tags) ? item.tags.slice(0, 4).map(tag => `#${tag}`) : []),
-      item.platform,
-    ].filter(Boolean))
-      tags.append(UI.node("span", "", value));
-    content.append(tags);
-    const countKnown =
-      Number.isSafeInteger(item.episodeCount) && item.episodeCount >= 0;
-    const publication =
-      { ongoing: "연재 중", completed: "완결" }[item.publication] ||
-      "연재 상태 미확인";
-    content.append(
-      UI.node(
-        "strong",
-        "discover-count",
-        pending.has(id)
-          ? "회차 확인 중…"
-          : countKnown
-            ? `총 ${UI.count(item.episodeCount)}화`
-            : "회차 확인 전",
-      ),
-      UI.node(
-        "p",
-        "discover-meta",
-        `${publication}${item.updatedLabel ? " · " + item.updatedLabel : ""}`,
-      ),
-    );
-    const button = UI.node(
-      "button",
-      "quiet",
-      countKnown ? "회차 다시 확인" : "회차 확인",
-    );
-    button.disabled = checking || pending.has(id);
-    button.addEventListener("click", async () => {
-      if (checking) return;
-      checking = true;
-      render();
-      try {
-        await refresh(item);
-        notice("회차 정보를 확인했습니다.");
-      } catch (error) {
-        notice("", UI.textError(error));
-      } finally {
-        checking = false;
-        render();
-        scheduleAuto();
-      }
-    });
-    content.append(button);
-    el.append(cover, content);
-    el.addEventListener("click", event => {
-      if (!event.target.closest("a, button, input, label, select")) window.DiscoveryDetails?.open(display(item));
-    });
-    return el;
+    el.append(e.cover, content);
+    el.addEventListener("click", event => { if (!event.target.closest("a, button, input, label, select")) window.DiscoveryDetails?.open(e.item); });
+    return e;
   }
-  async function load(target = 1) {
-    if (loading || !authenticated() || document.hidden) return;
+  function patchCard(e, item) {
+    e.item = item; if (selected.has(e.id)) selected.set(e.id, item);
+    text(e.link, item.title || "제목 없음"); text(e.author, item.author || "작가 정보 확인 전");
+    e.check.checked = selected.has(e.id); e.check.setAttribute("aria-label", (item.title || "작품") + " 선택");
+    const values = [...(Array.isArray(item.genres) ? item.genres : []), ...(Array.isArray(item.tags) ? item.tags.slice(0, 4).map(tag => "#" + tag) : []), item.platform].filter(Boolean);
+    const tags = values.join("\u001f"); if (tags !== e.tagKey) { e.tagKey = tags; e.tags.replaceChildren(...values.map(value => UI.node("span", "", value))); }
+    const knownCount = Number.isSafeInteger(item.episodeCount) && item.episodeCount >= 0;
+    text(e.count, pending.has(e.id) ? "회차 확인 중…" : knownCount ? "총 " + UI.count(item.episodeCount) + "화" : "회차 확인 전");
+    text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + (item.updatedLabel ? " · " + item.updatedLabel : ""));
+    text(e.button, knownCount ? "회차 다시 확인" : "회차 확인"); e.button.disabled = checking || pending.has(e.id);
+    const source = typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
+    if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;
+      if (source) { const img = UI.node("img"); img.src = source; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.width = 160; img.height = 224;
+        img.addEventListener("error", () => img.remove(), { once: true }); e.image = img; e.cover.append(img); }
+    }
+  }
+  function queryFor(target) {
+    return new URLSearchParams({ page: String(target), query: $("discover-query").value.trim(), genre: $("discover-genre").value,
+      platform: $("discover-platform").value, publication: $("discover-publication").value, sort: $("discover-sort").value });
+  }
+  function rememberPage(key, data, complete) {
+    pageSnapshots.delete(key); pageSnapshots.set(key, { data: { ...data, items: [...data.items] }, complete, at: Date.now() });
+    while (pageSnapshots.size > 3) pageSnapshots.delete(pageSnapshots.keys().next().value);
+  }
+  function pageNotice(data) {
+    notice(UI.count(items.length) + "개 작품 · " + (data.stale ? data.revalidating ? "저장된 목록 표시 · 최신 목록 갱신 중…" : "저장된 목록 표시 · 갱신 대기" : data.cacheHit ? "저장된 목록" : "최신 목록") +
+      (data.cachedAt ? " · " + UI.date(data.cachedAt) : ""), data.refreshError || "");
+  }
+  function scheduleRefresh(data) {
+    clearTimeout(refreshTimer);
+    if (!data.revalidating || data.refreshError || !active || !authenticated() || document.hidden || refreshChecks >= 30) return;
+    refreshTimer = setTimeout(() => { refreshChecks++; void load(page, { force: true, revalidate: true }); }, 2000);
+  }
+  async function load(target = 1, options = {}) {
+    if (!authenticated() || document.hidden) return;
+    const query = queryFor(target), key = query.toString(), cached = pageSnapshots.get(key);
+    if (pendingLoad?.key === key) return;
+    if (pendingLoad) { pendingLoad.controller.abort(); pendingLoad = null; loading = false; }
+    clearTimeout(refreshTimer);
+    if (!options.revalidate) refreshChecks = 0;
     const changingPage = target !== page;
     const previous = { items, page, maxPage, pageIncomplete };
-    const request = { target, controller: new AbortController(), generation: UI.generation(), received: false, focused: false };
-    pendingLoad = request;
-    interruptedPage = null;
-    loading = true;
-    stopAuto();
-    active = true;
-    sourceAutoPaused = false;
-    const current = () => pendingLoad === request && active && authenticated() && request.generation === UI.generation();
-    items = [];
-    loadedCount = 0;
-    loadingCount = 40;
-    loadingCards = Array.from({ length: 40 }, () => {
-      const card = UI.node("article", "discover-card is-loading");
-      card.setAttribute("aria-hidden", "true");
-      card.append(UI.node("div", "discover-cover"));
-      const content = UI.node("div", "discover-content");
-      for (let line = 0; line < 4; line++) content.append(UI.node("div", "discover-loading-line"));
-      card.append(content);
-      return card;
-    });
-    $("discover-search").disabled = true;
-    $("discover-prev").disabled = true;
-    $("discover-next").disabled = true;
-    notice("작품 목록을 불러오는 중…");
-    render();
-    if (changingPage && UI.view() === "discover")
-      $("discover-list").firstElementChild?.scrollIntoView({ block: "start", behavior: "instant" });
-    const query = new URLSearchParams({
-      page: String(target),
-      query: $("discover-query").value.trim(),
-      genre: $("discover-genre").value,
-      platform: $("discover-platform").value,
-      publication: $("discover-publication").value,
-      sort: $("discover-sort").value,
-    });
+    active = true; sourceAutoPaused = false; stopAuto();
+    if (cached) {
+      pageSnapshots.delete(key); pageSnapshots.set(key, cached);
+      items = cached.data.items; page = cached.data.page || target; maxPage = cached.data.maxPage || 1;
+      pageIncomplete = !cached.complete; loadedCount = cached.data.loadedCount ?? items.length; loadingCount = 40;
+      loading = !cached.complete; render(); pageNotice(cached.data);
+      if (changingPage) $("discover-list").firstElementChild?.scrollIntoView({ block: "start", behavior: "instant" });
+      if (cached.complete && !cached.dirty && !cached.data.stale && Date.now() - cached.at < pageTTL && !options.force) return;
+    }
+    const request = { target, key, controller: new AbortController(), generation: UI.generation(), dataEpoch,
+      received: false, focused: false, background: !!cached?.complete };
+    pendingLoad = request; interruptedPage = null; loading = !request.background;
+    const current = () => pendingLoad === request && active && authenticated() && request.generation === UI.generation() && request.dataEpoch === dataEpoch;
+    if (!cached) {
+      items = []; loadedCount = 0; loadingCount = 40;
+      loadingCards = Array.from({ length: 40 }, () => {
+        const card = UI.node("article", "discover-card is-loading"); card.setAttribute("aria-hidden", "true"); card.append(UI.node("div", "discover-cover"));
+        const content = UI.node("div", "discover-content"); for (let line = 0; line < 4; line++) content.append(UI.node("div", "discover-loading-line")); card.append(content); return card;
+      });
+    }
+    notice(request.background ? "저장된 목록 표시 · 최신 목록을 확인하는 중…" : "작품 목록을 불러오는 중…"); render();
+    if (changingPage && !cached && UI.view() === "discover") $("discover-list").firstElementChild?.scrollIntoView({ block: "start", behavior: "instant" });
     const apply = (data, complete = false) => {
       if (!current()) return;
-      items = Array.isArray(data.items) ? data.items : [];
-      page = data.page || target;
-      maxPage = Math.max(1, data.maxPage || 1);
-      loadedCount = data.loadedCount ?? items.length;
-      loadingCount = Number.isSafeInteger(data.total)
-        ? Math.min(40, Math.max(0, data.total - (page - 1) * 40)) : 40;
-      request.received ||= items.length > 0;
-      for (const item of items)
-        if (item.episodeCount !== null && item.episodeCount !== undefined) metadata(item);
-      if (complete) {
-        loading = false;
-        pageIncomplete = false;
-        notice(`${UI.count(items.length)}개 작품 · ${data.cacheHit ? "저장된 목록" : "최신 목록"}${data.cachedAt ? " · " + UI.date(data.cachedAt) : ""}`);
-      } else notice(`${UI.count(loadedCount)} / ${UI.count(loadingCount)}개 작품 확인 · 준비된 작품부터 표시 중…`);
+      const received = Array.isArray(data.items) ? data.items : [];
+      if (!request.background || complete) {
+        items = received.map(item => data.stale && known.has(String(item.id)) ? { ...item, ...known.get(String(item.id)) } : item);
+        page = data.page || target; maxPage = Math.max(1, data.maxPage || 1); loadedCount = data.loadedCount ?? items.length;
+        loadingCount = Number.isSafeInteger(data.total) ? Math.min(40, Math.max(0, data.total - (page - 1) * 40)) : 40;
+        for (const item of items) if (item.episodeCount != null) { known.set(String(item.id), item); if (selected.has(String(item.id))) selected.set(String(item.id), item); }
+        rememberPage(key, { ...data, items }, complete);
+      }
+      request.received ||= received.length > 0;
+      if (complete) { loading = false; pageIncomplete = false; pageNotice(data); scheduleRefresh(data); }
+      else notice(request.background ? "저장된 목록 표시 · 최신 목록 갱신 중…" : UI.count(loadedCount) + " / " + UI.count(loadingCount) + "개 작품 확인 · 준비된 작품부터 표시 중…");
       render();
       if (changingPage && !request.focused && !workPopup && !document.hidden && UI.view() === "discover") {
-        const first = $("discover-list").querySelector(".discover-title-link");
-        if (first) { first.focus({ preventScroll: true }); request.focused = true; }
+        const first = $("discover-list").querySelector(".discover-title-link"); if (first) { first.focus({ preventScroll: true }); request.focused = true; }
       }
     };
     try {
-      const data = await UI.api("/api/discover?" + query,
-        { headers: { Accept: "application/x-ndjson" }, signal: request.controller.signal }, 60000, data => apply(data));
+      const data = await UI.api("/api/discover?" + query, { force: !!options.force, headers: { Accept: "application/x-ndjson" }, signal: request.controller.signal }, 60000, data => apply(data));
       apply(data, true);
     } catch (error) {
-      if (current() && !request.controller.signal.aborted) {
+      if (current() && !request.controller.signal.aborted && !error.cancelled) {
         if (!request.received) { items = previous.items; page = previous.page; maxPage = previous.maxPage; pageIncomplete = previous.pageIncomplete; }
-        else pageIncomplete = true;
-        notice(request.received ? `${UI.count(items.length)}개 작품 표시 · 나머지 조회 실패` : "", UI.textError(error));
+        else if (!request.background) pageIncomplete = true;
+        notice(items.length ? UI.count(items.length) + "개 작품 표시 · 목록 갱신 실패" : "", UI.textError(error));
       }
-    } finally {
-      if (pendingLoad === request) {
-        pendingLoad = null;
-        loading = false;
-        render();
-      }
-    }
+    } finally { if (pendingLoad === request) { pendingLoad = null; loading = false; render(); } }
   }
   function refresh(item) {
     const current = version,
@@ -501,7 +417,7 @@
   }
   $("discover-form").addEventListener("submit", (event) => {
     event.preventDefault();
-    load(1);
+    load(1, { force: true });
   });
   $("discover-prev").addEventListener("click", () => load(page - 1));
   $("discover-next").addEventListener("click", () => load(page + 1));
@@ -584,8 +500,7 @@
     if (active) {
       sourceAutoPaused = false;
       if (interruptedPage !== null) load(interruptedPage);
-      else if (!items.length) load(1);
-      else render();
+      else load(page);
     } else {
       if (pendingLoad) {
         interruptedPage = pendingLoad.target;
@@ -593,7 +508,7 @@
         pendingLoad = null;
         loading = false;
       }
-      stopAuto();
+      clearTimeout(refreshTimer); stopAuto();
     }
   });
   document.addEventListener("collector:work-popup",event=>{
@@ -601,6 +516,7 @@
     if(workPopup)stopAuto();else if(active)render();
   });
   document.addEventListener("collector:auth", () => {
+    clearTimeout(refreshTimer); pageSnapshots.clear(); dataEpoch++;
     pendingLoad?.controller.abort();
     pendingLoad = null;
     interruptedPage = null;
@@ -614,6 +530,7 @@
     attempted.clear();
     pending.clear();
     renderedCards.clear();
+    cardPool.clear();
     renderedIds = [];
     renderedLoadingCount = 0;
     $("discover-list").setAttribute("aria-busy", "false");
@@ -626,6 +543,10 @@
     } else if (active) render();
   });
 
+  document.addEventListener("collector:mutated", event => {
+    if (!/^\/api\/discover\/\d+\/(overview|refresh)$/.test(event.detail?.path || "")) return;
+    dataEpoch++; for (const entry of pageSnapshots.values()) entry.dirty = true;
+  });
   $("add-batch-button").addEventListener("click", () => {
     $("batch-error").textContent = "";
     $("batch-result").textContent = "";

@@ -8,11 +8,14 @@ import { update } from "../tools/update.mjs";
 import { fork } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { createServer } from "node:net";
-const version="1.0.0.4",repository="example/Novel-collector";
+import { APP_VERSION, versionParts } from "../src/version.mjs";
+const nextParts=versionParts(APP_VERSION);nextParts[3]++;
+const version=nextParts.join("."),repository="example/Novel-collector";
 const manifest=JSON.stringify({name:"novel-collector",version:"1.0.0"});
 const lockfile=JSON.stringify({name:"novel-collector",version:"1.0.0",lockfileVersion:3,requires:true,packages:{"":{name:"novel-collector",version:"1.0.0"}}});
 async function fixture(t){
-  const root=await mkdtemp(join(tmpdir(),"update worker spaces "));t.after(()=>rm(root,{recursive:true,force:true}));
+  const root=await mkdtemp(join(tmpdir(),"update worker spaces "));
+  t.after(()=>rm(root,{recursive:true,force:true,maxRetries:20,retryDelay:100}));
   await mkdir(join(root,"tools"));await writeFile(join(root,"run.mjs"),"OLD_SOURCE");await writeFile(join(root,"tools","recover-update.mjs"),await readFile(new URL("../tools/recover-update.mjs",import.meta.url)));
   for(const path of ["data","secrets","profile"]){await mkdir(join(root,path));await writeFile(join(root,path,"private.txt"),"CANARY_"+path);}return root;
 }

@@ -40,7 +40,7 @@ function fixture(
         return { status: () => this.responseStatus || 200 };
       },
       async evaluate(reader) {
-        const dom = new JSDOM(body, { url: probe });
+        const dom = new JSDOM(body, { url: this.currentUrl });
         try {
           return reader(dom.window.document);
         } finally {
@@ -70,6 +70,7 @@ function fixture(
     };
   const context = {
     async route() {},
+    async unroute() {},
     async newPage() {
       return page;
     },
@@ -77,6 +78,7 @@ function fixture(
       calls.push(["close"]);
     },
   };
+  page.context = () => context;
   const scheduler = {
     async reserveManualSlot(slot) {
       if (busy) throw Object.assign(new Error("busy"), { status: 409 });
@@ -190,7 +192,7 @@ test("internal automatic authentication receives only the reserved source page a
   let invoked = 0;
   const result = await f.browser.authenticate(async (page, target) => {
     assert.equal(page, f.page);
-    assert.deepEqual(target, { host, slot: 1 });
+    assert.deepEqual(target, { host, viewerHost: host, slot: 1 });
     invoked++;
     return { password: "test-only-secret", pendingToken: "private-test-token" };
   });
@@ -612,7 +614,7 @@ test("automatic held-site recovery uses legitimate membership and real body proo
           : '<div data-theme-novel-content><div class="wr-none">일일 조회 인증이 필요합니다.</div></div>'),
     );
     let posts = 0;
-    f.page.request = {
+    f.page.context().request = {
       post: async () => {
         posts++;
         throw Error("unexpected credential POST");
@@ -621,17 +623,22 @@ test("automatic held-site recovery uses legitimate membership and real body proo
     const accounts = {
       status: () => ({ configured: true, enabled: true }),
       getCredentials: () => ({
-        host,
+        host: "sbxh9.com",
         username: "test-user",
         password: "test-only",
         pin: "5286",
       }),
+    };
+    f.browser.viewerOrigins = {
+      get: () => "https://sbxh9.com",
+      save: async () => {},
     };
     const auto = new SiteAutoAuth({
       accounts,
       siteBrowser: f.browser,
       attention: f.attention,
       scheduler: f.scheduler,
+      accountHostFor: () => "sbxh9.com",
       login: (input) =>
         ensureSiteLogin({ ...input, validateHost: async () => true }),
     });

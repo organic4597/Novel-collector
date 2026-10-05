@@ -46,7 +46,7 @@ test("Chromium displays and selects a streamed prefix before the source finishes
       await page.locator("#discover-next").click();
       await page.waitForFunction(() => document.querySelectorAll("#discover-list [data-id]").length === 8);
       const first = await page.locator("#discover-list .discover-card").first().boundingBox();
-      assert.ok(first.y >= 0 && first.y <= 20);
+      assert.ok(first.y >= 0 && first.y <= 20, JSON.stringify({ width, first }));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       release();
       await page.waitForFunction(() => document.getElementById("discover-list").getAttribute("aria-busy") === "false");

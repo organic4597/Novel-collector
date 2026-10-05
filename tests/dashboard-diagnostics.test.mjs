@@ -7,7 +7,6 @@ import { ActivityLog,updateLog,updateEvent } from "../src/activity-log.mjs";
 import { createApp } from "../src/server.mjs";
 import { command } from "../tools/update.mjs";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
 async function fixture(t){const root=await mkdtemp(join(tmpdir(),"dashboard-log-"));t.after(()=>rm(root,{recursive:true,force:true}));return root;}
 test("dashboard log excludes crawler records while retaining API, browser and update diagnostics",async t=>{
@@ -37,7 +36,7 @@ test("all dashboard API completions include reads and updater calls, but log pol
 
 test("a new server bootstrap failure is recorded even when its stdout is hidden",async t=>{
   const root=await fixture(t);await mkdir(join(root,".updates"));await writeFile(join(root,".updates","pending-verification.json"),"{}");
-  const preload=fileURLToPath(new URL("../tools/startup-diagnostics.mjs",import.meta.url));
+  const preload=new URL("../tools/startup-diagnostics.mjs",import.meta.url).href;
   const code=await new Promise((yes,no)=>{const child=spawn(process.execPath,["--import",preload,"-e","console.error('bootstrap refused token=PRIVATE_TOKEN');process.exit(2)"],{env:{...process.env,UPDATER_DIAGNOSTICS_ROOT:root},stdio:"ignore"});child.on("error",no);child.on("exit",yes);});assert.equal(code,2);
   const log=await new ActivityLog({path:join(root,"activity.jsonl")}).load();await log.syncExternal(join(root,".updates","dashboard-events.jsonl"));assert.equal(log.query().items[0].details.step,"START_SERVER");assert.ok(!JSON.stringify(log.query()).includes("PRIVATE_TOKEN"));await log.close();
 });

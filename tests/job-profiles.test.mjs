@@ -18,6 +18,7 @@ async function runtime(t, options = {}) {
     maximumActive = 0;
   const discovery = new Discovery({
     rootDir: join(root, "discovery"),
+    publicMetadata: options.publicMetadata ?? true,
     delayMs: 0,
     attention: { isHeld: () => held, snapshot: () => ({ sites: [] }) },
     fetchImage: async () => {
@@ -35,6 +36,7 @@ async function runtime(t, options = {}) {
         let url;
         return {
           goto: async (value) => {
+            assert.equal(new URL(value).origin, "https://sbxh9.com");
             active++;
             maximumActive = Math.max(maximumActive, active);
             url = value;
@@ -112,7 +114,11 @@ test("registration saves zero-chapter profiles and book association while the ne
   assert.deepEqual(profiles.state(registered.bookId), { status: "pending" });
   release();
   await profiles.wait();
-  assert.deepEqual(visits, ["https://newtoki1.org/novel/1"]);
+  assert.deepEqual(visits, ["https://sbxh9.com/novel/1"]);
+  assert.equal(
+    (await store.getBook(registered.bookId)).metadataSourceOrigin,
+    "https://sbxh9.com",
+  );
 });
 
 test("successful profile and cover persist through duplicate registration and a later restart", async (t) => {
@@ -313,8 +319,10 @@ test("cover failure preserves successful metadata and leaves chapter jobs queued
   assert.equal(images(), 1);
 });
 
-test("site hold defers the profile without a retry spin or persisted failure", async (t) => {
-  const { store, profiles, metadata, visits, hold } = await runtime(t);
+test("protected profile gate defers on a site hold without a retry spin or persisted failure", async (t) => {
+  const { store, profiles, metadata, visits, hold } = await runtime(t, {
+    publicMetadata: false,
+  });
   hold(true);
   const [job] = await profiles.registerJobs([await store.createJob(input(5))]);
   await profiles.wait();
@@ -328,6 +336,21 @@ test("site hold defers the profile without a retry spin or persisted failure", a
   await profiles.registerJobs([job]);
   await profiles.wait();
   assert.equal(visits.length, 1);
+});
+
+test("public metadata remains available during a protected-body hold and preserves canonical book identity", async (t) => {
+  const { store, profiles, metadata, visits, hold } = await runtime(t);
+  hold(true);
+  const [job] = await profiles.registerJobs([await store.createJob(input(15))]);
+  await profiles.wait();
+  assert.equal((await metadata.state(job.bookId)).status, "completed");
+  assert.deepEqual(visits, ["https://sbxh9.com/novel/15"]);
+  const book = await store.getBook(job.bookId);
+  assert.equal(book.id, "newtoki1_org-15");
+  assert.equal(book.url, "https://newtoki1.org/novel/15");
+  assert.equal(book.metadataSourceOrigin, "https://sbxh9.com");
+  assert.equal(book.storedChapterCount, 0);
+  assert.equal((await store.getJob(job.id)).status, "queued");
 });
 
 test("full queue preserves completed profiles and cover storage errors preserve metadata", async (t) => {
@@ -347,6 +370,7 @@ test("full queue preserves completed profiles and cover storage errors preserve 
     url: "https://newtoki1.org/novel/11",
     title: "저장 작품",
     metadataVersion: 1,
+    metadataSourceOrigin: "https://sbxh9.com",
     metadataFetchedAt: "2000-01-01T00:00:00.000Z",
     expectedChapterCount: 20,
   });

@@ -4,7 +4,7 @@ import { join,resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { latestRelease,releaseZip } from "../src/update-network.mjs";
 import { APP_VERSION,compareVersions,repositoryName } from "../src/version.mjs";
-import { atomicJson,readJson,exists,safePath } from "../src/update-files.mjs";
+import { atomicJson,readJson,exists,safePath,assertUpdatePermissions } from "../src/update-files.mjs";
 import { extractSource,sourceManifest,assertUnmodified,activate,rollback,privateBackup,restorePrivate,transactionId,validateStagedRuntime } from "../src/update-engine.mjs";
 import { updateLog,updateEvent,redactDiagnostic } from "../src/activity-log.mjs";
 import { npmCliPath } from "../run.mjs";
@@ -58,6 +58,7 @@ export async function update({root,repository,version,offline=false,hooks={}}={}
     if(offline){const server=await readJson(join(base,"server.json"));if(server?.pid){let alive=false;try{process.kill(server.pid,0);alive=true;}catch{}if(alive)throw Error("실행 중인 프로그램은 먼저 종료하세요.");}}
     const installed=await readJson(join(base,"installed-version.json")),current=installed?.version||APP_VERSION;if(compareVersions(version,current)<=0)throw Error("새 버전이 아닙니다.");
     step="CHECK_SOURCE";await report("preparing","설치 버전과 로컬 소스 변경 검사");await assertUnmodified(root,await sourceManifest(root));
+    step="CHECK_PERMISSIONS";await report("preparing","백업 읽기와 소스·런타임 교체 권한 검사");await assertUpdatePermissions(root);
     step="CHECK_RELEASE";await report("preparing","GitHub 릴리스 확인");
     const {release}=await (hooks.latest||latestRelease)(repository);if(!release||release.version!==version)throw Error("릴리스가 변경됐습니다.");
     step="DOWNLOAD";await report("preparing","릴리스 ZIP 다운로드와 SHA256 확인");const archive=await(hooks.download||releaseZip)(release);

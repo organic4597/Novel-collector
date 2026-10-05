@@ -1,13 +1,48 @@
-import { mkdir,writeFile,rename,rm } from "node:fs/promises";
+import { mkdir,writeFile,rename,rm,readdir,lstat,chown,chmod } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { join,dirname,resolve } from "node:path";
 import { fileURLToPath,pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
 import { createHash,randomUUID } from "node:crypto";
 import { prepareRuntime,npmCliPath,runCommand } from "../run.mjs";
 import { githubBytes } from "../src/update-network.mjs";
-import { atomicJson,exists } from "../src/update-files.mjs";
+import { atomicJson,exists,MANAGED_SOURCE,assertUpdatePermissions } from "../src/update-files.mjs";
 import { APP_VERSION } from "../src/version.mjs";
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),"..");
+const exec=promisify(execFile);
+export async function prepareInstallPermissions(root,{uid,gid}){
+  if(!Number.isSafeInteger(uid)||uid<=0||!Number.isSafeInteger(gid)||gid<0)throw Error("일반 사용자 또는 서비스 전용 계정을 지정하세요.");
+  const directories=new Set(["src","public","tools","tests","docs","deploy",".runtime","node_modules",".venv-captcha","data","secrets","profile",".updates"]);
+  async function own(path,privatePath=false){
+    const info=await lstat(path);if(info.isSymbolicLink())return;
+    await chown(path,privatePath?uid:info.uid,gid);
+    const mode=privatePath?(info.mode&0o700):(info.mode&0o7777)|((info.mode&0o700)>>3);
+    await chmod(path,mode|(info.isDirectory()?0o2000:0));
+    if(info.isDirectory())for(const entry of await readdir(path))await own(join(path,entry),privatePath);
+  }
+  if((await lstat(root)).isSymbolicLink())throw Error("실제 설치 폴더에서 실행하세요.");
+  const info=await lstat(root);await chown(root,info.uid,gid);await chmod(root,(info.mode&0o7777)|0o2070);
+  for(const entry of await readdir(root))if(directories.has(entry)||MANAGED_SOURCE.test(entry))await own(join(root,entry),["data","secrets","profile",".updates"].includes(entry));
+}
+async function installAccount(root,serviceUser){
+  if(process.platform!=="linux"){if(serviceUser)throw Error("--service-user는 Linux 설치 옵션입니다.");return null;}
+  if(!serviceUser&&process.geteuid?.()===0){
+    try{
+      const {stdout}=await exec("systemctl",["show","novel-collector.service","--property=User,WorkingDirectory"]);
+      const fields=Object.fromEntries(stdout.trim().split("\n").map(line=>{const cut=line.indexOf("=");return[line.slice(0,cut),line.slice(cut+1)];}));
+      if(resolve(fields.WorkingDirectory||"/")===resolve(root))serviceUser=fields.User;
+    }catch{}
+    serviceUser||=process.env.SUDO_USER;
+    if(!serviceUser||serviceUser==="root")throw Error("실행 계정을 먼저 준비한 뒤 --service-user <계정>으로 설치하세요.");
+  }
+  if(!serviceUser)return null;
+  if(!/^[a-zA-Z_][a-zA-Z0-9_.-]*\$?$/.test(serviceUser))throw Error("서비스 계정 이름을 확인하세요.");
+  const uid=Number((await exec("id",["-u",serviceUser])).stdout.trim()),gid=Number((await exec("id",["-g",serviceUser])).stdout.trim());
+  if(uid===0)throw Error("수집기는 root 대신 일반 사용자 또는 서비스 전용 계정으로 실행하세요.");
+  if(process.geteuid?.()!==0&&uid!==process.geteuid?.())throw Error("다른 실행 계정의 소유권 준비에는 root 설치 권한이 필요합니다.");
+  return{user:serviceUser,uid,gid};
+}
 export function uvAsset(platform=process.platform,arch=process.arch){
   if(!["x64","arm64"].includes(arch))throw Error("x64/arm64 시스템을 사용하세요.");
   if(platform==="win32")return `uv-${arch==="x64"?"x86_64":"aarch64"}-pc-windows-msvc.zip`;
@@ -21,7 +56,8 @@ export function linuxDependencyCommand(os,platform=process.platform,cli=null,nod
   throw Error("자동 설치는 Debian/Ubuntu 및 RHEL/Rocky/AlmaLinux/Fedora를 지원합니다.");
 }
 async function execute(command,args,options){const result=await runCommand(command,args,options);if(result.code!==0)throw Error("설치 명령이 실패했습니다.");}
-export async function installRuntime({rootDir=ROOT,skipOsDeps=false,env={...process.env}}={}){
+export async function installRuntime({rootDir=ROOT,skipOsDeps=false,serviceUser=null,env={...process.env}}={}){
+  const account=await installAccount(rootDir,serviceUser);
   const runtime=join(rootDir,".runtime"),uvDir=join(runtime,"uv"),uvExe=join(uvDir,process.platform==="win32"?"uv.exe":"uv");await mkdir(runtime,{recursive:true,mode:0o700});
   const available=await runCommand(process.platform==="win32"?"uv.exe":"uv",["--version"],{capture:true,env}).catch(()=>null);
   if(!available||available.code!==0){
@@ -54,6 +90,19 @@ export async function installRuntime({rootDir=ROOT,skipOsDeps=false,env={...proc
   const {sourceManifest}=await import("../src/update-engine.mjs");
   if(!await exists(join(rootDir,".updates","managed-source.json")))await atomicJson(join(rootDir,".updates","managed-source.json"),await sourceManifest(rootDir));
   if(!await exists(join(rootDir,".updates","installed-version.json")))await atomicJson(join(rootDir,".updates","installed-version.json"),{version:APP_VERSION});
+  if(account&&process.geteuid?.()===0){
+    await prepareInstallPermissions(rootDir,account);
+    await exec("runuser",["-u",account.user,"--",process.execPath,join(rootDir,"tools","install-runtime.mjs"),"--check-permissions"],{cwd:rootDir,env});
+  }else await assertUpdatePermissions(rootDir);
+  console.info("실행 계정의 백업 읽기·소스 및 런타임 교체 권한 확인 완료.");
   console.info("설치 완료. start.sh / start.ps1로 실행하세요.");
 }
-if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url)installRuntime({skipOsDeps:process.argv.includes("--skip-os-deps")}).catch(()=>{console.error("설치 실패. 네트워크와 OS 패키지 설치 권한을 확인하세요. 기존 사용자 저장소는 초기화하지 않습니다.");process.exitCode=1;});
+if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){
+  const args=process.argv.slice(2),index=args.indexOf("--service-user");
+  const run=async()=>{
+    if(args.includes("--check-permissions")){await assertUpdatePermissions(ROOT);console.info("백업·교체 권한 확인 완료.");return;}
+    if(index>=0&&(!args[index+1]||args[index+1].startsWith("--")))throw Error("--service-user 뒤에 실행 계정을 지정하세요.");
+    await installRuntime({skipOsDeps:args.includes("--skip-os-deps"),serviceUser:index>=0?args[index+1]:null});
+  };
+  run().catch(error=>{console.error("설치 실패: "+error.message);process.exitCode=1;});
+}

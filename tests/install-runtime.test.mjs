@@ -8,7 +8,7 @@ import { waitForUpdate } from "../run.mjs";
 test("bootstrap chooses native portable Python tooling and distro-specific browser dependencies",()=>{
   assert.equal(uvAsset("win32","x64"),"uv-x86_64-pc-windows-msvc.zip");assert.equal(uvAsset("linux","arm64"),"uv-aarch64-unknown-linux-gnu.tar.gz");
   assert.deepEqual(linuxDependencyCommand('ID=ubuntu',"linux","/app with spaces/playwright/cli.js","/portable node/node"),["/portable node/node",["/app with spaces/playwright/cli.js","install-deps","chromium"]]);
-  assert.equal(linuxDependencyCommand('ID=rocky')[0],"dnf");assert.equal(linuxDependencyCommand('ID=windows',"win32"),null);assert.throws(()=>uvAsset("darwin","x64"));
+  assert.equal(linuxDependencyCommand('ID=rocky',"linux")[0],"dnf");assert.equal(linuxDependencyCommand('ID=windows',"win32"),null);assert.throws(()=>uvAsset("darwin","x64"));
 });
 test("clean installers download Node with checksums and never delete user storage",async()=>{
   for(const file of ["install.sh","install.ps1"]){const text=await readFile(new URL("../"+file,import.meta.url),"utf8");assert.match(text,/SHASUMS256/);assert.match(text,/tools[\\/]install-runtime\.mjs/);assert.ok(!/rm[^\n]*(?:data|secrets|profile)|Remove-Item[^\n]*(?:data|secrets|profile)/.test(text));}

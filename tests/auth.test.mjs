@@ -8,6 +8,7 @@ import {
   rm,
   stat,
   readdir,
+  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -173,4 +174,88 @@ test("concurrent password changes cannot both use a stale current password", asy
   assert.equal(results[1].status, "rejected");
   assert.equal(results[1].reason.status, 403);
   assert.equal(credentials.verify(replacement), true);
+});
+
+async function startupLink(t, target, path, directory = false) {
+  try {
+    await symlink(
+      target,
+      path,
+      directory ? (process.platform === "win32" ? "junction" : "dir") : "file",
+    );
+    return true;
+  } catch (error) {
+    if (
+      process.platform === "win32" &&
+      ["EPERM", "EACCES"].includes(error.code)
+    ) {
+      t.skip("Windows file symlink privilege unavailable");
+      return false;
+    }
+    throw error;
+  }
+}
+
+test("credential startup refuses a linked secrets directory without creating external state", async (t) => {
+  const root = await directory(t),
+    outside = join(root, "outside"),
+    secrets = join(root, "secrets");
+  await mkdir(outside);
+  if (!(await startupLink(t, outside, secrets, true))) return;
+  await assert.rejects(openCredentials({ directory: secrets }), /경로|안전/);
+  assert.deepEqual(await readdir(outside), []);
+});
+
+for (const name of ["admin-login.txt", "admin-credentials.json"])
+  test(`credential startup refuses a linked ${name} without changing its external target`, async (t) => {
+    const root = await directory(t),
+      secrets = join(root, "secrets"),
+      outside = join(root, "outside-file");
+    await mkdir(secrets);
+    const value =
+      name === "admin-login.txt"
+        ? "outside-password-fixture"
+        : JSON.stringify({
+            version: 1,
+            algorithm: "scrypt",
+            salt: "a".repeat(64),
+            hash: "b".repeat(128),
+          });
+    await writeFile(outside, value, { mode: 0o644 });
+    const originalMode = (await stat(outside)).mode;
+    if (!(await startupLink(t, outside, join(secrets, name)))) return;
+    await assert.rejects(openCredentials({ directory: secrets }), /경로|안전/);
+    assert.equal(await readFile(outside, "utf8"), value);
+    assert.equal((await stat(outside)).mode, originalMode);
+    assert.deepEqual(await readdir(secrets), [name]);
+  });
+
+test("credential startup rejects a linked ancestor before creating a missing secrets directory", async (t) => {
+  const root = await directory(t),
+    outside = join(root, "outside"),
+    alias = join(root, "alias");
+  await mkdir(outside);
+  if (!(await startupLink(t, outside, alias, true))) return;
+  await assert.rejects(
+    openCredentials({ directory: join(alias, "new-secrets") }),
+    /경로|안전/,
+  );
+  assert.deepEqual(await readdir(outside), []);
+});
+
+test("credential startup creates a missing nested installation directory inside its verified parent", async (t) => {
+  const root = await directory(t),
+    secrets = join(root, "installation", "secrets");
+  const credentials = await openCredentials({ directory: secrets });
+  const initialPassword = (
+    await readFile(join(secrets, "admin-login.txt"), "utf8")
+  ).trim();
+  assert.equal(credentials.verify(initialPassword), true);
+  assert.deepEqual((await readdir(secrets)).sort(), [
+    "admin-credentials.json",
+    "admin-login.txt",
+  ]);
+  if (process.platform !== "win32")
+    for (const path of [join(root, "installation"), secrets])
+      assert.equal((await stat(path)).mode & 0o777, 0o700);
 });

@@ -2,7 +2,7 @@
 (() => {
   const UI=window.CollectorUI,$=id=>document.getElementById(id),labels={listing:"소설 목록",detail:"소설 정보·회차 목록",reader:"회차 본문"};
   const patterns={listing:"/novel",detail:"/novel/{workId}",reader:"/novel/{workId}/{episodeId}"};
-  let records=[],editing=null,loading=false,saving=false,epoch=0,workspace,storageKey,bridgeToken,updatedAt=null,returnValue=null;
+  let records=[],defaultRecords=[],defaultError="",editing=null,loading=false,saving=false,epoch=0,workspace,storageKey,bridgeToken,updatedAt=null,returnValue=null;
   const active=()=>UI.authenticated()&&UI.view()==="presets"&&!document.hidden;
   const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
   const empty=(name="sbxh9 수집 프리셋",origin="https://sbxh9.com")=>({version:2,name,origin,pages:Object.fromEntries(Object.entries(patterns).map(([kind,pagePattern])=>[kind,{pagePattern,fields:{}}]))});
@@ -44,12 +44,31 @@
       const button=UI.node("button",action==="remove"?"danger":"secondary",label);button.type="button";button.disabled=saving;button.onclick=()=>void act(record.id,action);buttons.append(button);
     }el.append(identity,buttons);return el;
   }
+  function renderDefaults(){
+    const select=$("preset-default"),button=$("preset-add-default"),help=$("preset-default-help");if(!select||!button)return;
+    const previous=select.value;
+    select.replaceChildren(...(defaultRecords.length?defaultRecords.map(record=>{
+      const option=UI.node("option","",record.name);option.value=record.id;return option;
+    }):[UI.node("option","",loading?"불러오는 중...":"선택할 기본 프리셋이 없습니다.")]));
+    if(!defaultRecords.length)select.options[0].value="";
+    else select.value=defaultRecords.some(record=>record.id===previous)?previous:defaultRecords[0].id;
+    select.disabled=loading||saving||!defaultRecords.length;
+    button.disabled=loading||saving||!select.value||records.length>=100;
+    if(help)help.textContent=defaultError||(records.length>=100?"프리셋 100개 한도입니다. 기존 항목을 삭제한 뒤 추가하세요.":
+      ((defaultRecords.find(record=>record.id===select.value)?.description||"기본 프리셋을 선택하세요.")+" 추가하면 수정 가능한 복사본을 저장합니다. 현재 수집 설정은 바뀌지 않습니다."));
+  }
+  function resetDefaults(){
+    defaultRecords=[];defaultError="";
+    const select=$("preset-default"),button=$("preset-add-default");if(!select||!button)return;
+    const option=UI.node("option","","로그인 후 기본 프리셋을 선택하세요.");option.value="";select.replaceChildren(option);select.disabled=button.disabled=true;
+    if($("preset-default-help"))$("preset-default-help").textContent="로그인 후 기본 프리셋을 추가할 수 있습니다.";
+  }
   function render(){
     if(!active())return;
     $("preset-list").replaceChildren(...(records.length?records.map(row):[UI.node("p","muted","아직 서버에 저장한 프리셋이 없습니다.")]));
     $("preset-count").textContent=`${records.length}개 저장`;$("preset-save").textContent=editing?"프리셋 수정 저장":"프리셋 서버 저장";$("preset-cancel-edit").hidden=!editing;
     for(const id of ["preset-save","preset-json","preset-file","preset-kind","preset-name","preset-cancel-edit"])$(id).disabled=saving;
-    tree();
+    tree();renderDefaults();
   }
   function adopt(config,id=null,key=null,token=null,savedAt=null){
     updatedAt=savedAt;
@@ -57,9 +76,24 @@
     $("preset-json").value=JSON.stringify(workspace,null,2);window.CollectorPresetGuide.render();bookmarklet();render();
   }
   async function refresh(){
-    if(!active()||loading)return;loading=true;const own=epoch,generation=UI.generation();
-    try{const result=await UI.api("/api/extraction-presets");if(own!==epoch||generation!==UI.generation()||!active())return;records=Array.isArray(result)?result:[];render();}
-    catch(e){if(own===epoch&&active())message("",UI.textError(e));}finally{if(own===epoch)loading=false;}
+    if(!active()||loading)return;loading=true;renderDefaults();const own=epoch,generation=UI.generation();
+    try{const [saved,defaults]=await Promise.allSettled([UI.api("/api/extraction-presets"),$("preset-default")?UI.api("/api/extraction-presets/defaults"):Promise.resolve([])]);
+      if(own!==epoch||generation!==UI.generation()||!active())return;
+      if(saved.status==="fulfilled")records=Array.isArray(saved.value)?saved.value:[];else message("",UI.textError(saved.reason));
+      if(defaults.status==="fulfilled"){
+        defaultRecords=Array.isArray(defaults.value)?defaults.value.filter(record=>record&&typeof record.id==="string"&&typeof record.name==="string"&&record.id.length<=100&&record.name.length<=80):[];defaultError="";
+      }else{defaultRecords=[];defaultError=UI.textError(defaults.reason);}
+    }catch(e){if(own===epoch&&active())message("",UI.textError(e));}finally{if(own===epoch){loading=false;render();}}
+  }
+  async function addDefault(){
+    if(saving||loading||!active())return;
+    const defaultId=$("preset-default")?.value;if(!defaultId||records.length>=100)return;
+    saving=true;render();const own=epoch,generation=UI.generation();
+    try{const result=await UI.api("/api/extraction-presets/defaults",{method:"POST",body:JSON.stringify({defaultId})});
+      if(own!==epoch||generation!==UI.generation()||!active())return;
+      adopt(result.config,result.id,result.id,null,result.updatedAt||null);
+      message("기본 프리셋의 수정 가능한 복사본을 추가했습니다. 현재 수집 설정은 바뀌지 않습니다.");await refresh();
+    }catch(e){if(own===epoch&&active())message("",UI.textError(e));}finally{if(own===epoch){saving=false;render();}}
   }
   async function save(input){
     if(saving||!active())return;saving=true;render();const own=epoch,generation=UI.generation();
@@ -93,6 +127,8 @@
   }
   $("preset-save").onclick=()=>{let input;try{input=JSON.parse($("preset-json").value);}catch{message("","저장할 고정 항목이나 설정 JSON을 먼저 가져오세요.");return;}input.name=$("preset-name").value.trim()||input.name;void save(input);};
   $("preset-cancel-edit").onclick=()=>{adopt(empty());message();};$("preset-refresh").onclick=refresh;
+  if($("preset-add-default"))$("preset-add-default").onclick=()=>void addDefault();
+  if($("preset-default"))$("preset-default").addEventListener("change",renderDefaults);
   $("preset-bookmarklet").onclick=event=>{event.preventDefault();message("이 링크를 북마크바로 끌어 등록한 뒤 원본 페이지에서 실행하세요.");};
   $("preset-kind").addEventListener("change",bookmarklet);$("preset-name").addEventListener("change",bookmarklet);document.addEventListener("preset:guide",bookmarklet);
   document.addEventListener("preset:source",event=>{const url=new URL(event.detail);if(!editing&&!Object.values(workspace.pages).some(p=>Object.keys(p.fields).length))workspace.origin=url.origin;bookmarklet();});
@@ -107,6 +143,7 @@
   };
   document.addEventListener("collector:view",()=>{epoch++;loading=saving=false;if(active()){render();void refresh();}});
   document.addEventListener("collector:auth",()=>{epoch++;if(!UI.authenticated()){
+    resetDefaults();
     records=[];editing=null;loading=saving=false;$("preset-json").value="";$("preset-list").replaceChildren();$("preset-bookmarklet-code").value="";$("preset-bookmarklet-code").hidden=true;$("preset-file").value="";
     workspace=empty();storageKey=random();bridgeToken=random();updatedAt=null;returnValue=null;$("preset-name").value=workspace.name;$("preset-page-tree").replaceChildren();bookmarklet();
     try{for(const key of Object.keys(localStorage))if(key.startsWith("nc-preset-bridge:"))localStorage.removeItem(key);}catch{}

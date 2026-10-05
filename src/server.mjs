@@ -30,6 +30,7 @@ import { ViewerOrigins } from "./viewer-origins.mjs";
 import { createCaptchaSessionRouter } from "./captcha-session-api.mjs";
 import { AdminSessions, SESSION_TTL_MS } from "./admin-sessions.mjs";
 import { createAdminSessionRouter } from "./admin-session-api.mjs";
+import { createAdminRecoveryRouter } from "./admin-recovery.mjs";
 import { retainedBrowserOptions } from "./browser-retention.mjs";
 import {
   requestProtocol,
@@ -204,6 +205,16 @@ export function createApp({
   const originOptions = { secureCookies, trustProxy };
   const cookie = (token, request) =>
     `collector_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${token ? Math.floor(sessionTtlMs / 1000) : 0}; Expires=${new Date(token ? Date.now() + sessionTtlMs : 0).toUTCString()}${requestProtocol(request, originOptions) === "https" ? "; Secure" : ""}`;
+  const closeAdminBrowser = () => {
+    void captchaSession?.close?.()?.catch(() => {});
+    if (siteBrowser) void siteBrowser.close().catch(() => {});
+  };
+  const adminRecoveryRouter = createAdminRecoveryRouter({
+    sessions,
+    credentials: credentialService,
+    cookie,
+    closeBrowser: closeAdminBrowser,
+  });
   const adminRouter = createAdminSessionRouter({
     sessions,
     credentials: credentialService,
@@ -212,10 +223,7 @@ export function createApp({
     ttlMs: sessionTtlMs,
     attempts,
     address: (request) => requestAddress(request, trustProxy),
-    closeBrowser: () => {
-      void captchaSession?.close?.()?.catch(() => {});
-      if (siteBrowser) void siteBrowser.close().catch(() => {});
-    },
+    closeBrowser: closeAdminBrowser,
   });
   const send = (response, status, value, headers = {}) => {
     response.writeHead(status, {
@@ -269,6 +277,8 @@ export function createApp({
           if (origin.host !== request.headers.host)
             throw HTTP_ERROR("다른 사이트에서 보낸 요청입니다.", 403);
         }
+        if (await adminRecoveryRouter({ request, response, url, send, readBody: body }))
+          return;
         if (await adminRouter({ request, response, url, send, readBody: body }))
           return;
         if (parts[1] === "agents") {
@@ -596,6 +606,7 @@ export function createApp({
         "/": "index.html",
         "/index.html": "index.html",
         "/app.js": "app.js",
+        "/login-recovery.js": "login-recovery.js",
         "/discovery.js": "discovery.js",
         "/discovery-detail.js": "discovery-detail.js",
         "/settings.js": "settings.js",

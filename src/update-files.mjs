@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import { dirname,join,resolve,relative,isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 
-export const MANAGED_SOURCE=/^(?:LICENSE|README\.md|\.gitignore|package(?:-lock)?\.json|requirements-captcha\.txt|run\.mjs|(?:install|start)\.(?:sh|ps1)|src\/[^/]+\.mjs|public\/[^/]+\.(?:js|html|css)|tests\/[^/]+\.(?:test\.mjs|py)|tests\/fixtures\/[^/]+\.(?:html|mjs)|tools\/[^/]+\.(?:mjs|py)|docs\/(?:[A-Z]+\.md|assets\/[^/]+\.svg)|deploy\/novel-collector\.service)$/;
+export const MANAGED_SOURCE=/^(?:LICENSE|README\.md|\.gitignore|run\.mjs|(?:install|start)\.(?:sh|ps1)|package(?:-lock)?\.json|requirements-captcha\.txt|src\/[^/]+\.mjs|public\/[^/]+\.(?:js|html|css)|tests\/[^/]+\.test\.mjs|tests\/captcha_position_test\.py|tests\/fixtures\/(?:captcha-reader\.html|work-detail-synthetic\.html|discovery-synthetic\.mjs)|tools\/(?:captcha_position\.py|evaluate_captcha\.py|check-publication\.mjs|update\.mjs|recover-update\.mjs|install-runtime\.mjs|startup-diagnostics\.mjs|reset-admin\.mjs)|docs\/(?:CAPTCHA|CONTRACT|TESTING|INSTALL|UPDATE|TROUBLESHOOTING|DASHBOARD|PRESETS)\.md|docs\/assets\/[^/]+\.svg|deploy\/novel-collector\.service)$/;
 export function sourcePath(value){
   if(typeof value!=="string"||value.includes("\\")||/[\x00-\x1f:]/.test(value)||value.split("/").some(p=>!p||p==="."||p==="..")||!MANAGED_SOURCE.test(value))throw Error("사용자 데이터 또는 허용되지 않은 업데이트 경로입니다.");return value;
 }

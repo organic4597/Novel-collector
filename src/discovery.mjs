@@ -30,7 +30,7 @@ import {
 
 import { SourceRequestGate } from "./source-request-gate.mjs";
 import { readWorkMetadata } from "./collection-metadata.mjs";
-import { openNormalDiscovery } from "./normal-discovery.mjs";
+import { DiscoveryPageCache, catalogFreshness } from "./discovery-page-cache.mjs";
 
 const PAGE_TTL = 30 * 60 * 1000,
   NEGATIVE_TTL = 6 * 60 * 60 * 1000;
@@ -157,6 +157,7 @@ export class Discovery {
     this.onRequestFailure = onRequestFailure;
     this.viewerOrigins = viewerOrigins;
     this.publicMetadata = publicMetadata;
+    this.pageCache = new DiscoveryPageCache(this, normalizeDiscoveryQuery, PAGE_TTL);
     this.sourceGate = new SourceRequestGate({
       owner: this,
       backoff,
@@ -486,6 +487,7 @@ export class Discovery {
           const used = [];
           const snapshot = () => ({ ...first, items: [...items], page: query.page, maxPage, total,
             cacheHit: used.every(data => data.cacheHit),
+            ...catalogFreshness([first, ...used]),
             cachedAt: used.map(data => data.cachedAt).sort()[0] || first.cachedAt });
           for (let page = Math.floor(start / sourceSize) + 1;
                page <= Math.ceil(end / sourceSize); page++) {
@@ -514,113 +516,8 @@ export class Discovery {
       if (this.listObservers.get(key) === observers && !this.pending.has(key)) this.listObservers.delete(key);
     });
   }
-  sourceList(input = {}, { knownMaxPage, knownTotal } = {}) {
-    const query = normalizeDiscoveryQuery(input),
-      remote = { ...query, minEpisodes: null, maxEpisodes: null };
-    const key = createHash("sha256")
-      .update(
-        `normal-v1:${new URL(this.transportUrl("https://newtoki1.org/novel")).origin}:${JSON.stringify(remote)}`,
-      )
-      .digest("hex");
-    return this.dedupe(
-      `list:${key}:${query.minEpisodes}:${query.maxEpisodes}`,
-      () =>
-        this.exclusive(async () => {
-          await this.init();
-          const path = join(this.rootDir, "pages", `${key}.json`);
-          let data = await json(path);
-          const cacheHit = !!data && this.now() - data.savedAt < PAGE_TTL;
-          if (!cacheHit) {
-            const context = await this.openContext();
-            const page = await context.newPage();
-            try {
-              // The former newtoki pub/sst/plat/epage list request is backed up
-              // and inactive. Only the normal site's rendered public controls
-              // and its observed ordinary search page drive discovery.
-              const parsed = await openNormalDiscovery(
-                this,
-                page,
-                query,
-                readDiscoveryDocument,
-                readReaderDocument,
-                { knownMaxPage, knownTotal },
-              );
-              if (!parsed.items.length && parsed.maxPage > 1)
-                throw attention("작품 목록을 찾지 못했습니다.");
-              if (
-                !Number.isSafeInteger(parsed.maxPage) ||
-                parsed.maxPage < 1 ||
-                parsed.maxPage > 1000
-              )
-                throw new Error("목록 페이지 수가 잘못됐습니다.");
-              data = {
-                ...parsed,
-                savedAt: this.now(),
-                cachedAt: new Date(this.now()).toISOString(),
-              };
-              await atomic(path, JSON.stringify(data));
-              for (const item of data.items) {
-                validId(item.id);
-                await this.updateWork(item.id, (previous) => ({
-                  ...previous,
-                  ...item,
-                  ...mergeSourceMetadata(previous, item),
-                  episodeCount:
-                    previous?.episodeCount ?? item.episodeCount ?? null,
-                  detailCachedAt: previous?.detailCachedAt || null,
-                  cachedAt: data.cachedAt,
-                }));
-              }
-            } finally {
-              await page.close();
-            }
-          }
-          let items = await Promise.all(
-            data.items.map(async (item) => {
-              const work = await json(
-                join(this.rootDir, "works", `${validId(item.id)}.json`),
-              );
-              const { thumbnailUrl, ...publicItem } = { ...item, ...work };
-              return {
-                ...publicItem,
-                thumbnail: thumbnailUrl
-                  ? `/api/discover/${item.id}/thumbnail`
-                  : null,
-                cachedAt: data.cachedAt,
-              };
-            }),
-          );
-          const hasEpisodeFilter =
-            query.minEpisodes !== null || query.maxEpisodes !== null;
-          const unknownEpisodeCount = items.filter(
-            (item) => item.episodeCount === null,
-          ).length;
-          if (hasEpisodeFilter)
-            items = items.filter(
-              (item) =>
-                item.episodeCount !== null &&
-                (query.minEpisodes === null ||
-                  item.episodeCount >= query.minEpisodes) &&
-                (query.maxEpisodes === null ||
-                  item.episodeCount <= query.maxEpisodes),
-            );
-          return {
-            items,
-            normalCatalog: !!data.normalCatalog,
-            page: data.page,
-            maxPage: data.maxPage,
-            total: data.total ?? null,
-            cachedAt: data.cachedAt,
-            cacheHit,
-            unknownEpisodeCount,
-            filters: {
-              ...data.filters,
-              ...query,
-              episodeScope: hasEpisodeFilter ? "known-only" : "all",
-            },
-          };
-        }),
-    );
+  sourceList(input = {}, options = {}) {
+    return this.pageCache.list(input, options);
   }
   detail(value) {
     const id = validId(value);

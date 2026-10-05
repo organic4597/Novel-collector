@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { isIP } from "node:net";
 import { isPublicAddress } from "./collector.mjs";
+import { listDefaultPresets, defaultPresetConfig } from "./default-presets.mjs";
 
 export const PRESET_FIELDS = Object.freeze({
   listing: ["items", "title", "author", "genres", "tags", "platform", "episodeCount", "publication", "thumbnail", "url", "updatedLabel", "nextPageButton"],
@@ -110,7 +111,8 @@ export function groupPreset(input){
 export class ExtractionPresets {
   constructor({ store, maxPresets = 100 }) {
     this.store = store; this.path = store.path("extraction-presets.json");
-    this.maxPresets = maxPresets; this.records = new Map(); this.control = Promise.resolve();
+    if (!Number.isSafeInteger(maxPresets) || maxPresets < 1) throw bad("프리셋 저장 개수 설정을 확인하세요.");
+    this.maxPresets = Math.min(100, maxPresets); this.records = new Map(); this.control = Promise.resolve();
   }
   async load() {
     try { if ((await stat(this.path)).size > 2 * 1024 * 1024) throw Error(); } catch (e) { if (e.code !== "ENOENT") throw Object.assign(new Error("프리셋 저장소를 읽지 못했습니다."), { status: 503 }); }
@@ -136,6 +138,16 @@ export class ExtractionPresets {
     if (!record) throw Object.assign(new Error("프리셋을 찾을 수 없습니다."), { status: 404 });
     return structuredClone(record);
   }
+  defaults() { return listDefaultPresets(); }
+  async addDefault(defaultId) {
+    const config = validatePreset(defaultPresetConfig(defaultId));
+    return this.serialized(() => {
+      const names = new Set([...this.records.values()].map(record => record.config.name));
+      let name = config.name, copy = 2;
+      while (names.has(name)) name = `${config.name} (복사본 ${copy++})`;
+      return this.#saveRecord({ ...config, name });
+    });
+  }
   serialized(operation) {
     const work = this.control.catch(() => {}).then(operation); this.control = work; return work;
   }
@@ -147,14 +159,15 @@ export class ExtractionPresets {
   }
   save(input, id = null) {
     const config = validatePreset(input);
-    return this.serialized(async () => {
+    return this.serialized(() => this.#saveRecord(config, id));
+  }
+  async #saveRecord(config, id = null) {
       if (id && !this.records.has(id)) this.get(id);
       if (!id && this.records.size >= this.maxPresets) throw Object.assign(new Error("프리셋은 최대 100개 저장할 수 있습니다."), { status: 409 });
       const now = new Date().toISOString();
       const record = { id: id || randomUUID(), config, createdAt: id ? this.records.get(id).createdAt : now, updatedAt: now };
       const next = new Map(this.records); next.set(record.id, record); await this.persist(next);
       return structuredClone(record);
-    });
   }
   remove(id) {
     return this.serialized(async () => { this.get(id); const next = new Map(this.records); next.delete(id); await this.persist(next); return { deleted: true }; });

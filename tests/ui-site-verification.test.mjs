@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { JSDOM } from "jsdom";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 25));
 const automatic = (state, extra = {}) => ({
+  accountHost: "sbxh9.com",
   configured: true,
   enabled: true,
   state,
@@ -265,7 +266,7 @@ for (const state of ["idle", "waiting", "running", "ready"]) {
   });
 }
 test("Authentication failure has settings and one explicit deduplicated retry", async (t) => {
-  const { w, calls, resolveTest, update } = await fixture(t, {
+  const { w, calls, resolveTest, update, snapshot } = await fixture(t, {
     deferredTest: true,
     autoLogin: automatic("needs_attention", {
       error: "로그인 정보를 확인하세요.",
@@ -286,7 +287,9 @@ test("Authentication failure has settings and one explicit deduplicated retry", 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, "/api/site-account/test");
   assert.equal(calls[0].options.method, "POST");
-  assert.deepEqual(JSON.parse(calls[0].options.body), { host: "newtoki1.org" });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { host: "sbxh9.com" });
+  assert.equal(snapshot.siteAttention[0].host, "newtoki1.org");
+  assert.equal(snapshot.siteAttention[0].held, true);
   resolveTest();
   await tick();
 });
@@ -404,13 +407,34 @@ function pointer(w, frame, type, x, y) {
   frame.dispatchEvent(event);
 }
 test("CAPTCHA opens current site through the server and permits only two reader origins", async (t) => {
-  const f = await fixture(t, { kind: "captcha" });
+  let opened = false;
+  const f = await fixture(t, {
+    kind: "captcha",
+    sessionHandler: async (path) => {
+      if (path.endsWith("/open")) opened = true;
+      if (path.endsWith("/close")) opened = false;
+      return {
+        open: opened,
+        host: "newtoki1.org",
+        width: 1280,
+        height: 900,
+        slot: 1,
+        pendingSlots: [1, 2],
+      };
+    },
+  });
   await openSession(f);
-  assert.deepEqual(JSON.parse(f.calls[0].options.body), {
+  assert.equal(f.calls[0].path, "/api/captcha-session/status");
+  const request = f.calls.find(
+    (call) => call.path === "/api/captcha-session/open",
+  );
+  assert.ok(request);
+  assert.equal(request.options.method, "POST");
+  assert.deepEqual(JSON.parse(request.options.body), {
     host: "newtoki1.org",
     viewerOrigin: "https://sbxh9.com",
   });
-  assert.equal(f.calls[0].path, "/api/captcha-session/open");
+  assert.equal(request.path, "/api/captcha-session/open");
   const select = f.w.document.getElementById("captcha-session-viewer");
   assert.deepEqual(
     [...select.options].map((x) => x.value),
@@ -618,30 +642,84 @@ test("Logout drops queued input and late responses; text field clears before sen
   );
   assert.equal(frame.hasAttribute("src"), false);
 });
-test("automatic retry hides the manual screen and disables input while attempts remain", async t => {
-  let automatic=false;
-  const f=await fixture(t,{kind:"captcha",autoLogin:automaticState(),sessionHandler:(path)=>{
-    if(path.endsWith("/retry"))automatic=true;
-    return{open:true,host:"newtoki1.org",width:1280,height:900,pendingSlots:[1],automatic:automatic?{active:true,state:"running",attempt:2,maxAttempts:5,stage:"ANALYZING"}:null};
-  }});
-  function automaticState(){return{configured:true,enabled:true,state:"needs_attention",failureKind:"captcha"};}
-  action(f.w,"captcha-auto").click();await tick();await tick();
-  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden,true);
-  assert.equal(f.w.document.getElementById("captcha-session-text-form").hidden,true);
-  assert.equal(f.w.document.getElementById("captcha-session-retry").disabled,true);
-  assert.match(f.w.document.getElementById("captcha-session-status").textContent,/2\/5/);
+test("automatic retry hides the manual screen and disables input while attempts remain", async (t) => {
+  let automatic = false;
+  const f = await fixture(t, {
+    kind: "captcha",
+    autoLogin: automaticState(),
+    sessionHandler: (path) => {
+      if (path.endsWith("/retry")) automatic = true;
+      return {
+        open: true,
+        host: "newtoki1.org",
+        width: 1280,
+        height: 900,
+        pendingSlots: [1],
+        automatic: automatic
+          ? {
+              active: true,
+              state: "running",
+              attempt: 2,
+              maxAttempts: 5,
+              stage: "ANALYZING",
+            }
+          : null,
+      };
+    },
+  });
+  function automaticState() {
+    return {
+      configured: true,
+      enabled: true,
+      state: "needs_attention",
+      failureKind: "captcha",
+    };
+  }
+  action(f.w, "captcha-auto").click();
+  await tick();
+  await tick();
+  assert.equal(
+    f.w.document.querySelector(".captcha-session-screen").hidden,
+    true,
+  );
+  assert.equal(
+    f.w.document.getElementById("captcha-session-text-form").hidden,
+    true,
+  );
+  assert.equal(
+    f.w.document.getElementById("captcha-session-retry").disabled,
+    true,
+  );
+  assert.match(
+    f.w.document.getElementById("captcha-session-status").textContent,
+    /2\/5/,
+  );
 });
 
-test("a late cancelled frame cannot show 409 errors or restart polling during automatic work", async t => {
-  let active = false, resolveFrame, requests = 0;
-  const f = await fixture(t, { kind: "captcha", sessionHandler: path => {
-    if (path.endsWith("/retry")) active = true;
-    return { open: true, host: "newtoki1.org", width: 1280, height: 900,
-      automatic: active ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" } : null };
-  } });
+test("a late cancelled frame cannot show 409 errors or restart polling during automatic work", async (t) => {
+  let active = false,
+    resolveFrame,
+    requests = 0;
+  const f = await fixture(t, {
+    kind: "captcha",
+    sessionHandler: (path) => {
+      if (path.endsWith("/retry")) active = true;
+      return {
+        open: true,
+        host: "newtoki1.org",
+        width: 1280,
+        height: 900,
+        automatic: active
+          ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" }
+          : null,
+      };
+    },
+  });
   f.w.fetch = async () => {
     requests++;
-    return new Promise(resolve => { resolveFrame = resolve; });
+    return new Promise((resolve) => {
+      resolveFrame = resolve;
+    });
   };
   await openSession(f);
   assert.equal(requests, 1);
@@ -649,63 +727,128 @@ test("a late cancelled frame cannot show 409 errors or restart polling during au
   await tick();
   resolveFrame({ ok: false, status: 409 });
   await tick();
-  assert.equal(f.w.document.getElementById("captcha-session-error").textContent, "");
-  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(
+    f.w.document.getElementById("captcha-session-error").textContent,
+    "",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1100));
   assert.equal(requests, 1);
-  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
+  assert.equal(
+    f.w.document.querySelector(".captcha-session-screen").hidden,
+    true,
+  );
 });
 
-test("a frame conflict checks server state and stops manual polling when another tab owns automatic work", async t => {
-  let active = false, requests = 0;
-  const f = await fixture(t, { kind: "captcha", sessionHandler: () => ({
-    open: true, host: "newtoki1.org", width: 1280, height: 900,
-    automatic: active ? { active: true, attempt: 2, maxAttempts: 5, stage: "ANALYZING" } : null,
-  }) });
-  f.w.fetch = async () => { requests++; active = true; return { ok: false, status: 409 }; };
+test("a frame conflict checks server state and stops manual polling when another tab owns automatic work", async (t) => {
+  let active = false,
+    requests = 0;
+  const f = await fixture(t, {
+    kind: "captcha",
+    sessionHandler: () => ({
+      open: true,
+      host: "newtoki1.org",
+      width: 1280,
+      height: 900,
+      automatic: active
+        ? { active: true, attempt: 2, maxAttempts: 5, stage: "ANALYZING" }
+        : null,
+    }),
+  });
+  f.w.fetch = async () => {
+    requests++;
+    active = true;
+    return { ok: false, status: 409 };
+  };
   await openSession(f);
-  assert.equal(f.w.document.getElementById("captcha-session-error").textContent, "");
-  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
-  await new Promise(resolve => setTimeout(resolve, 1100));
+  assert.equal(
+    f.w.document.getElementById("captcha-session-error").textContent,
+    "",
+  );
+  assert.equal(
+    f.w.document.querySelector(".captcha-session-screen").hidden,
+    true,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1100));
   assert.equal(requests, 1);
 });
 
-test("genuine server frame failures remain visible", async t => {
+test("genuine server frame failures remain visible", async (t) => {
   const f = await fixture(t, { kind: "captcha" });
   f.w.fetch = async () => ({ ok: false, status: 503 });
   await openSession(f);
-  assert.match(f.w.document.getElementById("captcha-session-error").textContent, /503/);
+  assert.match(
+    f.w.document.getElementById("captcha-session-error").textContent,
+    /503/,
+  );
 });
 
-test("manual input stays disabled with a loading notice until the first screen image is ready", async t => {
+test("manual input stays disabled with a loading notice until the first screen image is ready", async (t) => {
   let resolveFrame;
   const f = await fixture(t, { kind: "captcha" });
-  f.w.fetch = async () => new Promise(resolve => { resolveFrame = resolve; });
+  f.w.fetch = async () =>
+    new Promise((resolve) => {
+      resolveFrame = resolve;
+    });
   const frame = await openSession(f);
-  assert.match(f.w.document.getElementById("captcha-session-status").textContent, /불러오는 중/);
-  assert.equal(f.w.document.getElementById("captcha-session-apply").disabled, true);
+  assert.match(
+    f.w.document.getElementById("captcha-session-status").textContent,
+    /불러오는 중/,
+  );
+  assert.equal(
+    f.w.document.getElementById("captcha-session-apply").disabled,
+    true,
+  );
   pointer(f.w, frame, "pointerdown", 100, 100);
-  assert.equal(f.calls.some(call => call.path.endsWith("/input")), false);
-  resolveFrame({ ok: true, status: 200, blob: async () => new f.w.Blob(["jpeg"], { type: "image/jpeg" }) });
+  assert.equal(
+    f.calls.some((call) => call.path.endsWith("/input")),
+    false,
+  );
+  resolveFrame({
+    ok: true,
+    status: 200,
+    blob: async () => new f.w.Blob(["jpeg"], { type: "image/jpeg" }),
+  });
   await tick();
   frame.dispatchEvent(new f.w.Event("load"));
-  assert.match(f.w.document.getElementById("captcha-session-status").textContent, /준비 완료/);
-  assert.equal(f.w.document.getElementById("captcha-session-apply").disabled, false);
+  assert.match(
+    f.w.document.getElementById("captcha-session-status").textContent,
+    /준비 완료/,
+  );
+  assert.equal(
+    f.w.document.getElementById("captcha-session-apply").disabled,
+    false,
+  );
 });
 
-test("a temporary status failure keeps manual frames stopped and resumes status polling", async t => {
-  let active = false, statusCalls = 0;
-  const f = await fixture(t, { kind: "captcha", sessionHandler: path => {
-    if (path.endsWith("/retry")) active = true;
-    if (path.endsWith("/status") && active && ++statusCalls === 1) throw Error("Temporary status failure");
-    return { open: true, host: "newtoki1.org", width: 1280, height: 900,
-      automatic: active ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" } : null };
-  } });
+test("a temporary status failure keeps manual frames stopped and resumes status polling", async (t) => {
+  let active = false,
+    statusCalls = 0;
+  const f = await fixture(t, {
+    kind: "captcha",
+    sessionHandler: (path) => {
+      if (path.endsWith("/retry")) active = true;
+      if (path.endsWith("/status") && active && ++statusCalls === 1)
+        throw Error("Temporary status failure");
+      return {
+        open: true,
+        host: "newtoki1.org",
+        width: 1280,
+        height: 900,
+        automatic: active
+          ? { active: true, attempt: 1, maxAttempts: 5, stage: "ANALYZING" }
+          : null,
+      };
+    },
+  });
   await openSession(f);
   const frames = f.frameRequests();
   f.w.document.getElementById("captcha-session-retry").click();
   await tick();
-  await new Promise(resolve => setTimeout(resolve, 1100));
+  await new Promise((resolve) => setTimeout(resolve, 1100));
   assert.ok(statusCalls >= 2);
   assert.equal(f.frameRequests(), frames);
-  assert.equal(f.w.document.querySelector(".captcha-session-screen").hidden, true);
+  assert.equal(
+    f.w.document.querySelector(".captcha-session-screen").hidden,
+    true,
+  );
 });

@@ -4,6 +4,7 @@ import { setTimeout as wait } from "node:timers/promises";
 import { SiteAutoAuth } from "../src/site-auto-auth.mjs";
 
 const host = "newtoki1.org";
+const sourceCredentialFixture = "source-test-only";
 function fixture(
   t,
   { failLogin = false, disabled = false, busy = false } = {},
@@ -264,7 +265,7 @@ test("wait follows the actual operation and reused membership checks the already
   assert.equal(f.site.held, false);
 });
 
-test("trusted peer viewer skips canonical credential authentication and verifies rendered body without reload", async (t) => {
+test("a viewer with canonical credentials fails closed before authentication or releasing the held site", async (t) => {
   const f = fixture(t),
     originalOpen = f.auto.siteBrowser.open;
   f.auto.siteBrowser.open = async (input) => {
@@ -275,14 +276,70 @@ test("trusted peer viewer skips canonical credential authentication and verifies
     assert.fail("canonical credentials must not reach peer viewer");
   f.auto.login = async () =>
     assert.fail("peer viewer must not attempt canonical login");
-  const originalCheck = f.auto.siteBrowser.check;
-  f.auto.siteBrowser.check = async (options) => {
-    assert.deepEqual(options, { reload: false });
-    return originalCheck();
+  f.auto.siteBrowser.check = async () =>
+    assert.fail("mismatched credentials cannot authorize body verification");
+  await f.auto.start(host);
+  assert.equal((await f.auto.wait(host)).state, "needs_attention");
+  assert.equal(f.site.held, true);
+  assert.deepEqual(f.site.verifiedSlots, []);
+  assert.equal(
+    f.calls.some((call) => call[0] === "authenticate"),
+    false,
+  );
+});
+
+test("a viewer authenticates only with its own account record and proves both pending slots before release", async (t) => {
+  const f = fixture(t),
+    accountHost = "sbxh9.com",
+    requestedAccounts = [];
+  f.auto.accountHostFor = () => accountHost;
+  f.auto.accounts.status = async (name) => {
+    requestedAccounts.push(name);
+    assert.equal(name, accountHost);
+    return { configured: true, enabled: true };
+  };
+  f.auto.accounts.getCredentials = async (name) => {
+    assert.equal(name, accountHost);
+    return {
+      host: name,
+      username: "source_user",
+      password: sourceCredentialFixture,
+      pin: "1234",
+    };
+  };
+  const originalOpen = f.auto.siteBrowser.open;
+  f.auto.siteBrowser.open = async (input) => {
+    await originalOpen(input);
+    return { ...input, viewerHost: accountHost };
+  };
+  f.auto.siteBrowser.authenticate = async (callback) => {
+    const slot = f.calls.filter((call) => call[0] === "open").at(-1)[1];
+    f.calls.push(["authenticate", slot]);
+    await callback(
+      { url: () => `https://${accountHost}/novel/21104/111` },
+      { host, viewerHost: accountHost, slot },
+    );
+  };
+  f.auto.login = async ({ page, credentials }) => {
+    assert.equal(new URL(page.url()).hostname, credentials.host);
+    assert.equal(credentials.host, accountHost);
+    return { authenticated: true, reused: true };
   };
   await f.auto.start(host);
-  assert.equal((await f.auto.wait(host)).state, "ready");
+  const state = await f.auto.wait(host);
+  assert.equal(state.accountHost, accountHost);
+  assert.equal(state.host, host);
+  assert.equal(state.state, "ready");
+  assert.deepEqual(requestedAccounts, [accountHost]);
+  assert.deepEqual(f.site.verifiedSlots, [1, 2]);
   assert.equal(f.site.held, false);
+  assert.deepEqual(
+    f.calls.filter((call) => call[0] === "authenticate"),
+    [
+      ["authenticate", 1],
+      ["authenticate", 2],
+    ],
+  );
 });
 
 test("sanitized failureKind distinguishes proof failures from wrong credentials", async (t) => {
@@ -321,7 +378,11 @@ test("different hosts serialize the shared source browser until all pending slot
   const auto = new SiteAutoAuth({
     accounts: {
       status: () => ({ enabled: true, configured: true }),
-      getCredentials: () => ({ username: "test", password: "test-only" }),
+      getCredentials: (name) => ({
+        host: name,
+        username: "test",
+        password: "test-only",
+      }),
     },
     attention: { get: (name) => structuredClone(sites.get(name)) },
     scheduler: {},

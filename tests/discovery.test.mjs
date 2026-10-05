@@ -145,7 +145,7 @@ test("encoded canonical list URLs preserve filters and pagination", async () => 
   await discovery.navigate(
     {
       goto: async () => ({ status: () => 200 }),
-      url: () => canonical,
+      url: () => "https://sbxh9.com/novel?page=3",
       evaluate: async () => ({ challenge: false }),
     },
     "https://newtoki1.org/novel?page=3",
@@ -252,6 +252,7 @@ test("redirects validate the next host and DNS, and stop after three redirects",
 });
 test("page and thumbnail survive restart, deduplicate requests and detail counts unique chapters", async () => {
   const dir = await mkdtemp(join(tmpdir(), "discovery-"));
+  let currentUrl;
   let navigations = 0,
     images = 0;
   const launchContext = async () => ({
@@ -259,13 +260,14 @@ test("page and thumbnail survive restart, deduplicate requests and detail counts
     close: async () => {},
     newPage: async () => ({
       goto: async (url) => {
+        currentUrl = url;
         navigations++;
         if (navigations === 1) {
-          assert.equal(new URL(url).searchParams.get("pub"), "all");
+          assert.equal(url, "https://sbxh9.com/novel");
         }
         return { status: () => 200 };
       },
-      url: () => "https://newtoki1.org/novel",
+      url: () => currentUrl,
       close: async () => {},
       evaluate: async (fn) =>
         fn.name === "readDiscoveryDocument"
@@ -332,13 +334,14 @@ test("page and thumbnail survive restart, deduplicate requests and detail counts
 });
 test("failed thumbnails use negative cache and unknown episode filters are explicit", async () => {
   const dir = await mkdtemp(join(tmpdir(), "discovery-"));
+  let currentUrl;
   let images = 0;
   const context = {
     route: async () => {},
     close: async () => {},
     newPage: async () => ({
-      goto: async () => ({ status: () => 200 }),
-      url: () => "https://newtoki1.org/novel",
+      goto: async url => { currentUrl=url; return { status: () => 200 }; },
+      url: () => currentUrl,
       close: async () => {},
       evaluate: async (fn) =>
         fn.name === "readReaderDocument"
@@ -448,7 +451,7 @@ test("navigation rejects access checks, errors, unexpected hosts and CAPTCHA", a
     (error) => error.code === "NEEDS_ATTENTION",
   );
 });
-test("detail paginates exactly and filter query carries original site values", async () => {
+test("detail fixture paginates exactly and the normal search uses public form values", async () => {
   const dir = await mkdtemp(join(tmpdir(), "discovery-"));
   let currentUrl = "",
     navigations = 0;
@@ -515,21 +518,17 @@ test("detail paginates exactly and filter query carries original site values", a
       page: 2,
       publication: "completed",
       sort: "episodes",
-      platform: "문피아",
-      genre: "무협",
       query: "책",
-      author: "작가",
     });
     const url = new URL(currentUrl);
-    assert.equal(url.searchParams.get("plat"), "munpia");
-    assert.equal(url.searchParams.get("pub"), "completed");
-    assert.equal(url.searchParams.get("sst"), "as_episode");
-    assert.equal(url.searchParams.get("tag"), "무협");
-    assert.equal(url.searchParams.get("stx"), "책");
-    assert.equal(url.searchParams.get("author"), "작가");
+    assert.equal(url.pathname, "/search");
+    assert.equal(url.searchParams.get("status"), "completed");
+    assert.equal(url.searchParams.get("sort"), "episodes");
+    assert.equal(url.searchParams.get("q"), "책");
+    assert.equal(url.searchParams.get("field"), "title");
     assert.equal((await d.detail("1")).episodeCount, 3);
     assert.equal((await d.detail("1")).episodeCount, 3);
-    assert.equal(navigations, 3);
+    assert.equal(navigations, 4, "the logical-page adapter reads the first source page before page two");
     await assert.rejects(d.detail("2"), (error) => error.status === 404);
     assert.throws(
       () => d.detail("../evil"),
@@ -544,10 +543,7 @@ test("detail paginates exactly and filter query carries original site values", a
       page: 2,
       publication: "completed",
       sort: "episodes",
-      platform: "문피아",
-      genre: "무협",
       query: "책",
-      author: "작가",
       minEpisodes: 3,
       maxEpisodes: 3,
     });

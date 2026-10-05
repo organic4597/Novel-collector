@@ -1,7 +1,7 @@
 "use strict";
 (() => {
   const UI = window.CollectorUI, $ = id => document.getElementById(id);
-  const cache = new Map(), origins = new Set(["https://sbxh9.com", "https://toki32.com"]);
+  const cache = new Map(), tagKeys = new Map(), origins = new Set(["https://sbxh9.com", "https://toki32.com"]);
   const originalTitle = document.title;
   const dialog = $("work-dialog");
   let opener = null;
@@ -25,7 +25,8 @@
       ["work-tags", item.tags, "#", "태그 정보 없음"],
     ]) {
       const labels = Array.isArray(values) ? values.filter(v=>typeof v === "string" && v.trim()).slice(0,30) : [];
-      $(id).replaceChildren(...(labels.length ? labels.map(v=>UI.node("span","work-chip",prefix+v.replace(/^#/,""))) : [UI.node("span","muted",fallback)]));
+      const key=labels.join("\u001f");
+      if(tagKeys.get(id)!==key){tagKeys.set(id,key);$(id).replaceChildren(...(labels.length ? labels.map(v=>UI.node("span","work-chip",prefix+v.replace(/^#/,""))) : [UI.node("span","muted",fallback)]));}
     }
     const cover = $("work-cover");
     if (typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail)) {
@@ -39,7 +40,7 @@
   }
   function remember(work) {
     if (!work || !valid(work.id)) return;
-    cache.set(String(work.id), { item: work, at: Date.now() });
+    cache.set(String(work.id), { item: work, at: Date.now(), dirty: false });
     if (cache.size > 100) cache.delete(cache.keys().next().value);
     window.DiscoveryCatalog?.update(work);
   }
@@ -47,7 +48,7 @@
     if (!current(own) || !item) return;
     loading = true;
     $("work-error").textContent = "";
-    $("work-status").textContent = "저장된 작품 정보를 확인하는 중…";
+    $("work-status").textContent = item.synopsis ? "저장된 작품 소개 표시 · 최신 정보를 확인하는 중…" : "저장된 작품 정보를 확인하는 중…";
     show(item);
     const id = item.id, generation = UI.generation();
     try {
@@ -70,7 +71,7 @@
       show(result.item);
       $("work-status").textContent = "작품 정보 확인 완료 · 소개 페이지 기준";
     } catch (error) {
-      if (current(own)) { loading = false; show(item); $("work-error").textContent = UI.textError(error); $("work-status").textContent = "저장된 정보를 표시합니다. 소개를 다시 확인할 수 있습니다."; }
+      if (current(own) && !error.cancelled) { loading = false; show(item); $("work-error").textContent = UI.textError(error); $("work-status").textContent = "저장된 정보를 표시합니다. 소개를 다시 확인할 수 있습니다."; }
     } finally { if (own === epoch) { loading = false; show(item); } }
   }
   function open(work) {
@@ -78,7 +79,7 @@
     const id = String(work.id), own = ++epoch;
     cancelWait(); loading = false; submitting = false; item = { ...work, id };
     const cached = cache.get(id);
-    if (cached && Date.now() - cached.at < 30*60*1000) item = { ...item, ...cached.item };
+    if (cached) item = { ...item, ...cached.item };
     if (!dialog.open) {
       opener=document.activeElement;savedScroll={x:scrollX,y:scrollY};
       document.documentElement.classList.add("work-popup-open");dialog.showModal();
@@ -86,7 +87,7 @@
     }
     $("work-error").textContent = "";
     show(item); $("work-close").focus({preventScroll:true});
-    if (cached && Date.now() - cached.at < 30*60*1000) $("work-status").textContent = "저장된 작품 소개";
+    if (cached && !cached.dirty && Date.now() - cached.at < 30*60*1000) $("work-status").textContent = "저장된 작품 소개";
     else void load(own);
   }
   function closed() {
@@ -137,6 +138,10 @@
   });
   document.addEventListener("collector:view",()=>{
     if(dialog.open && UI.view()!=="discover")back();
+  });
+  document.addEventListener("collector:mutated",event=>{
+    const id=(event.detail?.path || "").match(/^\/api\/discover\/(\d{1,15})\/(overview|refresh)$/)?.[1];
+    if(id && cache.has(id))cache.set(id,{...cache.get(id),dirty:true});
   });
   document.addEventListener("visibilitychange",()=>{
     if(document.hidden){epoch++;cancelWait();loading=false;}

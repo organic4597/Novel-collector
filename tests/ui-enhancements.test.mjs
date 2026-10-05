@@ -184,7 +184,8 @@ async function setup(
   ]) {
     try {
       w.eval(
-        await readFile(new URL("../public/" + name, import.meta.url), "utf8"),
+        (await readFile(new URL("../public/" + name, import.meta.url), "utf8")) +
+          "\n//# sourceURL=" + new URL("../public/" + name, import.meta.url).href,
       );
     } catch (error) {
       if (error.code !== "ENOENT") throw error;

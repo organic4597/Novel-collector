@@ -4,7 +4,7 @@ import { mkdtemp,mkdir,writeFile,readFile,rm,symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { extractSource,activate,privateBackup,restorePrivate,rollback,transactionId } from "../src/update-engine.mjs";
+import { extractSource,activate,privateBackup,restorePrivate,rollback,transactionId,sourceManifest } from "../src/update-engine.mjs";
 import { renameRetry,atomicJson,readJson } from "../src/update-files.mjs";
 import { recover } from "../tools/recover-update.mjs";
 const sources={"run.mjs":"export const updated=true;","package.json":JSON.stringify({name:"novel-collector"}),"package-lock.json":"{}","src/server.mjs":"export const server=true;","src/updates.mjs":"export const updates=true;","tools/update.mjs":"export const updater=true;"};
@@ -16,6 +16,18 @@ test("source replacement never overlays DB, credentials, profiles or local envir
   assert.equal(await readFile(join(root,"run.mjs"),"utf8"),sources["run.mjs"]);
   for(const p of ["data","secrets","profile"])assert.equal(await readFile(join(root,p,"user.json"),"utf8"),"PRIVATE_"+p);
   assert.equal(await readFile(join(root,".env"),"utf8"),"PRIVATE_ENV");assert.equal((await readJson(join(root,".updates","installed-version.json"))).version,"1.0.0.1");
+});
+
+test("local helper tools and private docs remain outside source manifests and survive an update", async t=>{
+  const root=await fixture(t),id=transactionId(),stage=join(root,".updates",id,"source");
+  await mkdir(join(root,"tools"));await mkdir(join(root,"docs"));
+  const extras=["tools/local-helper.py","tools/local-helper.mjs","docs/PRIVATE.md"];
+  for(const path of extras)await writeFile(join(root,path),"LOCAL_USER_FILE");
+  const before=await sourceManifest(root);
+  for(const path of extras)assert.equal(Object.hasOwn(before.files,path),false);
+  const files=await extractSource(await zip(),stage);
+  await activate(root,{id,stage,files,version:"1.0.0.4"});
+  for(const path of extras)assert.equal(await readFile(join(root,path),"utf8"),"LOCAL_USER_FILE");
 });
 test("archives cannot assign private paths, escape via traversal or introduce symlinks",async t=>{
   const root=await fixture(t);

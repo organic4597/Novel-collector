@@ -18,7 +18,7 @@ test("metadata rate limits expose Retry-After separately from site authenticatio
       status: () => status,
       headerValue: async (name) => (name === "retry-after" ? header : null),
     }),
-    url: () => "https://newtoki1.org/novel",
+    url: () => "https://sbxh9.com/novel",
     evaluate: async () => ({ challenge: false }),
   });
   await assert.rejects(
@@ -76,6 +76,7 @@ test("site authentication hold blocks uncached requests but retains cached cover
   const d = new Discovery({
     rootDir: root,
     attention,
+    publicMetadata: false,
     launchContext: async () => {
       launches++;
       return { route: async () => {}, close: async () => {} };
@@ -131,7 +132,7 @@ test("HTTP 200 daily quota CAPTCHA reports explicit attention kind and origin wi
   });
   const page = (reader) => ({
     goto: async () => ({ status: () => 200 }),
-    url: () => "https://newtoki1.org/novel/1",
+    url: () => "https://sbxh9.com/novel/1",
     evaluate: async () => reader,
   });
   await assert.rejects(
@@ -190,7 +191,7 @@ test("site holds abort browser asset requests and cached lists remain readable",
         visits++;
         return { status: () => 200 };
       },
-      url: () => "https://newtoki1.org/novel",
+      url: () => "https://sbxh9.com/novel",
       close: async () => {},
       evaluate: async (fn) =>
         fn.name === "readReaderDocument"
@@ -212,6 +213,7 @@ test("site holds abort browser asset requests and cached lists remain readable",
   const d = new Discovery({
     rootDir: root,
     attention,
+    publicMetadata: false,
     launchContext: async () => context,
   });
   await d.list({});
@@ -221,7 +223,7 @@ test("site holds abort browser asset requests and cached lists remain readable",
     request: () => ({
       resourceType: () => "script",
       url: () => "https://apitk.peertrk.com/script.js",
-      frame: () => ({ url: () => "https://newtoki1.org/novel" }),
+      frame: () => ({ url: () => "https://sbxh9.com/novel" }),
     }),
     abort: async () => {
       aborted++;
@@ -260,6 +262,7 @@ test("a hold arriving during browser creation closes the pending context before 
   const d = new Discovery({
     rootDir: "unused",
     attention: { isHeld: () => held, snapshot: () => ({ sites: [] }) },
+    publicMetadata: false,
     launchContext: async () => ({
       route: async () => {
         started();

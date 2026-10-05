@@ -179,7 +179,8 @@ async function setup(t, configuration = {}) {
   ]) {
     try {
       w.eval(
-        await readFile(new URL("../public/" + file, import.meta.url), "utf8"),
+        (await readFile(new URL("../public/" + file, import.meta.url), "utf8")) +
+          "\n//# sourceURL=" + new URL("../public/" + file, import.meta.url).href,
       );
     } catch (e) {
       if (file === "app.js" || e.code !== "ENOENT") throw e;
@@ -376,7 +377,7 @@ test("forty-item pages scroll to the first work and preserve selection on next a
   assert.match(w.document.getElementById("discover-selected").textContent, /2/);
   assert.equal(w.document.getElementById("discover-query").value, "Synthetic search");
   const requests = calls.filter(call => call.path.startsWith("/api/discover?"));
-  assert.deepEqual(requests.map(call => new URL(call.path, "http://localhost").searchParams.get("page")), ["1", "2", "3", "2", "1"]);
+  assert.deepEqual(requests.map(call => new URL(call.path, "http://localhost").searchParams.get("page")), ["1", "2", "3", "1"], "returning to the same-filter cached page avoids another source request");
 });
 
 test("discovery reserves forty loading cards immediately and fills the prepared prefix in order", async t => {

@@ -16,25 +16,28 @@ async function fixture(t, { fail = false } = {}) {
     new URL("./fixtures/work-detail-synthetic.html", import.meta.url),
     "utf8",
   );
-  const dom = new JSDOM(source, { url: "https://newtoki1.org/novel/63206" });
+  const dom = new JSDOM(source, { url: "https://sbxh9.com/novel/63206" });
   let release;
   const gate = new Promise((resolve) => {
     release = resolve;
   });
-  const counts = { visits: 0, images: 0 };
+  const counts = { visits: 0, images: 0, sourceUrls: [] };
   const discovery = new Discovery({
     rootDir: join(root, "discovery"),
     launchContext: async () => ({
       route: async () => {},
       close: async () => {},
       newPage: async () => ({
-        goto: async () => {
+        goto: async (target) => {
+          assert.equal(target, "https://sbxh9.com/novel/63206");
           counts.visits++;
+          counts.sourceUrls.push(target);
+          dom.reconfigure({ url: target });
           await gate;
           if (fail) throw new Error("source unavailable");
           return { status: () => 200 };
         },
-        url: () => "https://newtoki1.org/novel/63206",
+        url: () => dom.window.document.URL,
         evaluate: async (fn) => fn(dom.window.document),
         close: async () => {},
       }),
@@ -118,6 +121,8 @@ test("link registration returns before source loads and exposes a cached profile
   assert.equal(ready[0].storedChapterCount, 0);
   assert.equal(ready[0].metadataStatus, "completed");
   assert.equal(f.counts.visits, 1);
+  assert.deepEqual(f.counts.sourceUrls, ["https://sbxh9.com/novel/63206"]);
+  assert.equal(ready[0].metadataSourceOrigin, "https://sbxh9.com");
   assert.equal(
     f.counts.images,
     1,

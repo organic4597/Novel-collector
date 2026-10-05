@@ -156,7 +156,7 @@ export function createApp({
   const siteBrowserRouter = createSiteBrowserRouter({ siteBrowser });
   const captchaRouter = createCaptchaSessionRouter({ captchaSession });
   const presetsRouter = createExtractionPresetsRouter({ presets: extractionPresets });
-  const updatesRouter = createUpdatesRouter({ updates });
+  const updatesRouter = createUpdatesRouter({ updates, activity });
   const siteAccountsRouter = createSiteAccountsRouter({
     accounts,
     autoAuth,
@@ -244,7 +244,7 @@ export function createApp({
   };
   const app = createServer(async (request, response) => {
     const started=Date.now();let auditUrl;try{auditUrl=new URL(request.url,"http://localhost");}catch{auditUrl={pathname:"/invalid"};}const auditRoute=dashboardRoute(auditUrl.pathname);
-    const audited=auditUrl.pathname.startsWith("/api/")&&!(["/api/activity","/api/dashboard-log","/api/health"].includes(auditUrl.pathname)||auditUrl.pathname.startsWith("/api/agents/"));
+    const audited=auditUrl.pathname.startsWith("/api/")&&!(["/api/activity","/api/dashboard-log","/api/health","/api/updates/log"].includes(auditUrl.pathname)||auditUrl.pathname.startsWith("/api/agents/"));
     if(audited)response.once("finish",()=>recordActivity({scope:"api",level:response.statusCode>=500?"error":response.statusCode>=400?"warn":"info",message:`${request.method} ${auditRoute} · ${response.statusCode}`,details:{method:request.method,status:response.statusCode,elapsedMs:Date.now()-started}}));
     try {
       const retryAfterSeconds = requestRetrySeconds(

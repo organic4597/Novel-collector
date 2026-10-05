@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { APP_VERSION, UPDATE_REPOSITORY, compareVersions, repositoryName,versionParts } from "./version.mjs";
 import { latestRelease } from "./update-network.mjs";
 import { atomicJson,readJson,assertWritable,safePath,exists } from "./update-files.mjs";
+import { redactDiagnostic } from "./activity-log.mjs";
 
 export const DAY=86400000;
 const fail=(message,status=409)=>Object.assign(new Error(message),{status});
@@ -38,10 +39,20 @@ export class Updates {
   async apply(version){
     if(this.child)throw fail("업데이트가 이미 진행 중입니다.");
     await this.check();const status=await this.status();if(status.busy)throw fail("이전 업데이트 상태를 먼저 확인하세요.");
-    if(!status.installable||version!==this.cached.release?.version)throw fail("업데이트 가능한 최신 버전을 다시 확인하세요.");
-    if(!this.onReady)throw fail("업데이트 재시작 연결을 사용할 수 없습니다.",503);
-    if(process.env.INVOCATION_ID&&(process.env.UPDATE_WORKER_SURVIVES_SERVICE!=="1"||!process.env.UPDATE_SERVICE_NAME))throw fail("서비스 업데이트용 KillMode/쓰기 경로/서비스 이름 설정을 먼저 적용하세요.",503);
-    try{await assertWritable(this.rootDir);}catch{throw fail("설치 폴더의 쓰기 권한이 없어 자동 업데이트할 수 없습니다.",503);}
+    let step="CHECK_VERSION",errorCode="VERSION_NOT_AVAILABLE";
+    try{
+      if(!status.installable||version!==this.cached.release?.version)throw fail("업데이트 가능한 최신 버전을 다시 확인하세요.");
+      step="CHECK_RESTART";errorCode="RESTART_UNAVAILABLE";
+      if(!this.onReady)throw fail("업데이트 재시작 연결을 사용할 수 없습니다.",503);
+      step="CHECK_SERVICE_CONFIG";errorCode="SERVICE_CONFIG_REQUIRED";
+      if(process.env.INVOCATION_ID&&(process.env.UPDATE_WORKER_SURVIVES_SERVICE!=="1"||!process.env.UPDATE_SERVICE_NAME))throw fail("서비스 업데이트용 KillMode/쓰기 경로/서비스 이름 설정을 먼저 적용하세요.",503);
+      step="CHECK_WRITE_PERMISSION";errorCode="INSTALL_NOT_WRITABLE";
+      try{await assertWritable(this.rootDir);}catch{throw fail("설치 폴더의 쓰기 권한이 없어 자동 업데이트할 수 없습니다.",503);}
+    }catch(error){
+      await atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 시작 실패: "+redactDiagnostic(error.message),
+        version:this.cached.release?.version||null,step,errorCode}).catch(()=>{});
+      throw Object.assign(error,{step,errorCode});
+    }
     // Acquire the worker lock synchronously before yielding to another POST.
     if(this.child)throw fail("업데이트가 이미 진행 중입니다.");this.child={pending:true};
     try{

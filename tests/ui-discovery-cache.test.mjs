@@ -18,6 +18,19 @@ async function fixture(t, { unknown = false } = {}) {
   navigate("discover"); await tick();
   return { w, calls, item, navigate, setHandler: value => { handler = value; }, expire: () => { now += 31 * 60 * 1000; }, logout: () => { auth = false; generation++; w.document.dispatchEvent(new w.CustomEvent("collector:auth", { detail: false })); } };
 }
+test("discovery ratings and genre-tag labels use current values without rebuilding cards", async t => {
+  const f = await fixture(t), d = f.w.document, card = d.querySelector('[data-id="1"]');
+  const meta = card.querySelector(".discover-meta"), image = card.querySelector("img");
+  assert.match(meta.textContent, /평점 미확인/);
+  f.w.DiscoveryCatalog.update({...f.item(1),genres:["현대","현대"],tags:["현대","액션","액션"],rating:4.7});
+  assert.match(meta.textContent, /평점 4\.7 \/ 5/);
+  assert.deepEqual(Array.from(card.querySelectorAll(".discover-tags span"),node=>node.textContent),["현대","#액션"]);
+  f.w.DiscoveryCatalog.update({...f.item(1),rating:3.2});
+  assert.match(meta.textContent, /평점 3\.2 \/ 5/);
+  assert.equal(d.querySelector('[data-id="1"]'),card);assert.equal(card.querySelector("img"),image);
+  f.w.DiscoveryCatalog.update({...f.item(1),rating:0});assert.match(meta.textContent,/평점 0\.0 \/ 5/);
+  for(const rating of [null,undefined,-1,6,"4.8"]){f.w.DiscoveryCatalog.update({...f.item(1),rating});assert.match(meta.textContent,/평점 미확인/);}
+});
 test("discovery manual checking and metadata updates patch existing title, controls and covers", async t => {
   const f = await fixture(t), d = f.w.document;
   const first = d.querySelector('[data-id="1"]'), cover = first.querySelector("img"), title = first.querySelector(".discover-title-link"), second = d.querySelector('[data-id="2"]');
@@ -86,11 +99,11 @@ test("page cache is bounded to three snapshots and selection survives an evicted
 test("selected unknown-count work submits the latest visible metadata without replacing its checkbox", async t => {
   const f=await fixture(t,{unknown:true}),d=f.w.document;
   const check=d.querySelector('[data-id="1"] input');check.click();
-  f.setHandler(async()=>({items:[{...f.item(1),title:"最新 제목",author:"새 작가"},f.item(2)],page:1,maxPage:3}));
+  f.setHandler(async()=>({items:[{...f.item(1),title:"최신 제목",author:"새 작가"},f.item(2)],page:1,maxPage:3}));
   d.getElementById("discover-form").dispatchEvent(new f.w.Event("submit",{cancelable:true}));await tick();
   let submitted;f.w.CollectorUI.batch=async jobs=>{submitted=jobs;return{jobs:[{}]};};
   d.getElementById("discover-add-selected").click();await tick();
-  assert.equal(submitted[0].title,"最新 제목");
+  assert.equal(submitted[0].title,"최신 제목");
   assert.equal(submitted[0].url,"https://newtoki1.org/novel/1");
   assert.equal(d.querySelector('[data-id="1"] input'),check);
 });

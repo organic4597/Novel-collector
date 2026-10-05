@@ -213,6 +213,9 @@ export class Scheduler {
   async startAll() {
     return startQueue(this);
   }
+  async reorder(jobId,beforeId){
+    return this.withControl(()=>this.store.reorderJobs(jobId,beforeId,this.activeJobIds));
+  }
   async stop() {
     return this.withControl(async () => {
       this.enabled = false;

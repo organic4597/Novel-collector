@@ -146,6 +146,7 @@ export class Discovery {
     this.serial = Promise.resolve();
     this.detailSerial = Promise.resolve();
     this.pending = new Map();
+    this.listObservers = new Map();
     this.imageSerial = Promise.resolve();
     this.detailStates = new Map();
     this.overviewStates = new Map();
@@ -411,18 +412,49 @@ export class Discovery {
   async suspendRequests() {
     return this.sourceGate.suspend();
   }
-  list(input = {}) {
+  refreshConnection() {
+    // Both listing and detail users finish before the shared context is closed.
+    // Saved profiles and the site's authentication/rate-limit state are retained.
+    return this.exclusive(() => this.exclusiveDetail(async () => {
+      await this.sourceGate.suspend();
+      this.dnsCache.clear();
+    }));
+  }
+  list(input = {}, { onProgress } = {}) {
     // Dashboard pages are independent of the source site's page size. Keep
     // source-page caches intact and join only the pages covering this range.
     const query = normalizeDiscoveryQuery(input, 25000);
     const key = `paged-list:${JSON.stringify(query)}`;
+    let observers = this.listObservers.get(key);
+    if (!this.pending.has(key)) {
+      observers = { listeners: new Set(), last: null };
+      this.listObservers.set(key, observers);
+    }
+    if (typeof onProgress === "function") {
+      observers.listeners.add(onProgress);
+      if (observers.last) Promise.resolve().then(() => onProgress(observers.last)).catch(() => {});
+    }
+    const publicPage = result => {
+      const unknownEpisodeCount = result.items.filter(item => item.episodeCount == null).length;
+      const hasEpisodeFilter = query.minEpisodes !== null || query.maxEpisodes !== null;
+      const items = hasEpisodeFilter ? result.items.filter(item => item.episodeCount != null &&
+        (query.minEpisodes === null || item.episodeCount >= query.minEpisodes) &&
+        (query.maxEpisodes === null || item.episodeCount <= query.maxEpisodes)) : [...result.items];
+      const { normalCatalog, ...data } = result;
+      return { ...data, items, pageSize: DISCOVERY_PAGE_SIZE, loadedCount: result.items.length, unknownEpisodeCount,
+        filters: { ...result.filters, ...query, episodeScope: hasEpisodeFilter ? "known-only" : "all" } };
+    };
+    const publish = async result => {
+      observers.last = publicPage(result);
+      await Promise.allSettled([...observers.listeners].map(listener => Promise.resolve().then(() => listener(observers.last))));
+    };
     return this.dedupe(key, async () => {
       this.checkOpen();
       const loaded = new Map();
       const read = async page => {
         if (!loaded.has(page)) loaded.set(page, await this.sourceList({
           ...query, page, minEpisodes: undefined, maxEpisodes: undefined,
-        }));
+        }, { knownMaxPage: loaded.get(1)?.maxPage, knownTotal: loaded.get(1)?.total }));
         return loaded.get(page);
       };
       const first = await read(1);
@@ -452,6 +484,9 @@ export class Discovery {
           const items = [];
           const ids = new Set();
           const used = [];
+          const snapshot = () => ({ ...first, items: [...items], page: query.page, maxPage, total,
+            cacheHit: used.every(data => data.cacheHit),
+            cachedAt: used.map(data => data.cachedAt).sort()[0] || first.cachedAt });
           for (let page = Math.floor(start / sourceSize) + 1;
                page <= Math.ceil(end / sourceSize); page++) {
             const data = await read(page);
@@ -466,25 +501,20 @@ export class Discovery {
               ids.add(item.id);
               items.push(item);
             }
+            await publish(snapshot());
           }
           if (items.length !== end - start)
             throw Object.assign(new Error("작품 목록이 변경됐습니다. 다시 검색해 주세요."), { status: 409 });
-          result = { ...first, items, page: query.page, maxPage, total,
-            cacheHit: used.every(data => data.cacheHit),
-            cachedAt: used.map(data => data.cachedAt).sort()[0] || first.cachedAt };
+          result = snapshot();
         }
       }
-      const unknownEpisodeCount = result.items.filter(item => item.episodeCount == null).length;
-      const hasEpisodeFilter = query.minEpisodes !== null || query.maxEpisodes !== null;
-      const items = hasEpisodeFilter ? result.items.filter(item => item.episodeCount != null &&
-        (query.minEpisodes === null || item.episodeCount >= query.minEpisodes) &&
-        (query.maxEpisodes === null || item.episodeCount <= query.maxEpisodes)) : result.items;
-      const { normalCatalog, ...publicResult } = result;
-      return { ...publicResult, items, pageSize: DISCOVERY_PAGE_SIZE, unknownEpisodeCount,
-        filters: { ...result.filters, ...query, episodeScope: hasEpisodeFilter ? "known-only" : "all" } };
+      return publicPage(result);
+    }).finally(() => {
+      observers.listeners.delete(onProgress);
+      if (this.listObservers.get(key) === observers && !this.pending.has(key)) this.listObservers.delete(key);
     });
   }
-  sourceList(input = {}) {
+  sourceList(input = {}, { knownMaxPage, knownTotal } = {}) {
     const query = normalizeDiscoveryQuery(input),
       remote = { ...query, minEpisodes: null, maxEpisodes: null };
     const key = createHash("sha256")
@@ -513,6 +543,7 @@ export class Discovery {
                 query,
                 readDiscoveryDocument,
                 readReaderDocument,
+                { knownMaxPage, knownTotal },
               );
               if (!parsed.items.length && parsed.maxPage > 1)
                 throw attention("작품 목록을 찾지 못했습니다.");

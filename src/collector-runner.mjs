@@ -40,7 +40,8 @@ export async function runCollection(job, hooks, signal, bookId) {
     abortIfNeeded(signal);
     signal?.addEventListener("abort", onAbort, { once: true });
     let page,
-      mainHost = null;
+      mainHost = null,
+      connect = null;
     if (operation.pooled) {
       const target = new URL(this.viewerOrigins?.resolve(job.url) || job.url);
       if (
@@ -52,24 +53,27 @@ export async function runCollection(job, hooks, signal, bookId) {
       )
         throw new Error("수집 브라우저 슬롯과 HTTPS 사이트 주소를 확인하세요.");
       mainHost = target.hostname;
-      const lease = await this.contextPool.acquire({
-        slot: this.slotId,
-        origin: target.origin,
-        open: async () => {
-          const created = await this.openContext();
-          try {
-            return { context: created, page: await created.newPage() };
-          } catch (error) {
-            await created.close().catch(() => {});
-            throw error;
-          }
-        },
-      });
-      this.contextLease = lease;
-      context = lease.context;
-      page = lease.page;
-      this.authenticationChecked = false;
-      this.navigationAuthentication = new WeakMap();
+      connect = async () => {
+        const lease = await this.contextPool.acquire({
+          slot: this.slotId,
+          origin: target.origin,
+          open: async () => {
+            const created = await this.openContext();
+            try {
+              return { context: created, page: await created.newPage() };
+            } catch (error) {
+              await created.close().catch(() => {});
+              throw error;
+            }
+          },
+        });
+        this.contextLease = lease;
+        context = lease.context;
+        page = lease.page;
+        this.authenticationChecked = false;
+        this.navigationAuthentication = new WeakMap();
+      };
+      await connect();
     } else context = await this.openContext();
     this.context = context;
     this.availability = { available: true, lastError: null };
@@ -189,6 +193,19 @@ export async function runCollection(job, hooks, signal, bookId) {
           `${chapter.number}화 · 준비중 회차 건너뜀 (나중에 실패분 재수집 가능)`,
         );
       } else {
+        if (this.contextLease?.refreshDue) {
+          // Renew only between chapters, after the previous read/write has
+          // finished. The normal navigation handles any expired site login.
+          await this.contextLease.release({ discard: true });
+          this.contextLease = null;
+          this.context = null;
+          abortIfNeeded(signal);
+          await connect();
+          this.context = context;
+          abortIfNeeded(signal);
+          await this.installNetworkGuard(context, { allowedMainHost: mainHost });
+          await hooks.event("info", "12시간 브라우저 연결 갱신 완료");
+        }
         const attemptStart = this.clock();
         let sourceFailed = true;
         try {

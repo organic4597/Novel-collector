@@ -1,4 +1,5 @@
 const SIX_HOURS = 6 * 60 * 60 * 1000;
+export const SESSION_REFRESH_MS = 12 * 60 * 60 * 1000;
 const ORIGINS = new Set(["https://sbxh9.com", "https://toki32.com"]);
 const fail = (message, status = 409) =>
   Object.assign(new Error(message), { status });
@@ -43,6 +44,63 @@ export class CollectionContexts {
     this.closures = new WeakMap();
     this.closing = false;
     this.closePromise = null;
+    this.refreshTimer = null;
+    this.refreshWork = null;
+    this.lastRefreshAt = null;
+    this.nextRefreshAt = null;
+  }
+
+  refreshDue(entry) {
+    return !!entry.refreshRequested || this.clock() >= entry.createdAt + SESSION_REFRESH_MS;
+  }
+
+  refreshStatus() {
+    return { intervalMs: SESSION_REFRESH_MS, lastRefreshAt: this.lastRefreshAt,
+      nextRefreshAt: this.nextRefreshAt,
+      pendingSlots: [...this.entries.values()].filter(entry => entry.busy && this.refreshDue(entry)).map(entry => entry.slot) };
+  }
+
+  async refreshIdle() {
+    this.available();
+    let closed = 0, deferred = 0;
+    for (const slot of this.entries.keys()) {
+      const entry = this.entries.get(slot);
+      if (!entry?.context) continue;
+      if (entry.busy) {
+        this.set(slot, { ...entry, refreshRequested: true });
+        deferred++;
+      } else {
+        if (await this.retire({ ...entry, refreshRequested: true })) closed++;
+        else deferred++;
+      }
+    }
+    return { closed, deferred };
+  }
+
+  startRefresh({ afterRefresh = async () => {}, onEvent = () => {} } = {}) {
+    if (this.refreshTimer || this.refreshWork || this.closing) return;
+    const schedule = () => {
+      if (this.closing) return;
+      this.nextRefreshAt = this.clock() + SESSION_REFRESH_MS;
+      this.refreshTimer = setTimeout(() => {
+        this.refreshTimer = null;
+        this.refreshWork = (async () => {
+          try {
+            const state = await this.refreshIdle();
+            await afterRefresh();
+            this.lastRefreshAt = this.clock();
+            onEvent({ scope: "service", level: "info", message: `12시간 브라우저 연결 갱신: ${state.closed}개 정리 · 사용 중 ${state.deferred}개는 안전한 시점에 갱신`, details: { stage: "SESSION_REFRESH", count: state.closed } });
+          } catch {
+            if (!this.closing) onEvent({ scope: "service", level: "error", message: "정기 브라우저 연결 갱신을 완료하지 못했습니다.", details: { stage: "SESSION_REFRESH", errorCode: "SESSION_REFRESH_FAILED" } });
+          } finally {
+            this.refreshWork = null;
+            schedule();
+          }
+        })();
+      }, SESSION_REFRESH_MS);
+      this.refreshTimer.unref?.();
+    };
+    schedule();
   }
 
   set(slot, entry) {
@@ -110,6 +168,7 @@ export class CollectionContexts {
       context,
       page,
       responseBox,
+      createdAt: this.clock(),
       generation: Symbol(),
       busy: false,
       timer: null,
@@ -132,13 +191,13 @@ export class CollectionContexts {
         const current = this.entries.get(entry.slot);
         if (!current || current.generation !== generation || current.busy)
           return;
-        if (this.clock() < current.idleAt + this.idleMs) {
+        if (this.clock() < Math.min(current.idleAt + this.idleMs, current.createdAt + SESSION_REFRESH_MS)) {
           this.park(current, current.idleAt);
           return;
         }
         void this.retire(current).catch(() => {});
       },
-      Math.max(1, idleAt + this.idleMs - this.clock()),
+      Math.max(1, Math.min(idleAt + this.idleMs, entry.createdAt + SESSION_REFRESH_MS) - this.clock()),
     );
     timer.unref?.();
     const parked = { ...entry, busy: false, leaseToken: null, idleAt, timer };
@@ -225,6 +284,7 @@ export class CollectionContexts {
       if (current.page !== page || current.origin !== origin)
         throw fail("기존 슬롯과 같은 브라우저 화면을 사용하세요.");
       if (response !== null) current.responseBox.value = response;
+      if (this.refreshDue(current)) { await this.retire(current); return; }
       this.park(current);
       return;
     }
@@ -242,7 +302,7 @@ export class CollectionContexts {
     const current = this.entries.get(slot);
     if (current?.busy)
       throw fail("이 수집 슬롯은 다른 작업에서 사용 중입니다.");
-    if (current && current.origin === origin && this.usable(current))
+    if (current && current.origin === origin && this.usable(current) && !this.refreshDue(current))
       return this.lease(current);
     if (current && !(await this.retire(current, { reserve: true })))
       throw fail("이전 브라우저의 종료를 기다려 주세요.", 503);
@@ -284,9 +344,14 @@ export class CollectionContexts {
       active = { ...record, busy: true, timer: null, leaseToken };
     this.set(record.slot, active);
     let released = false;
+    const pool = this;
     return {
       context: record.context,
       page: record.page,
+      get refreshDue() {
+        const current = pool.entries.get(record.slot);
+        return current?.leaseToken === leaseToken && pool.refreshDue(current);
+      },
       get response() {
         return record.responseBox.value;
       },
@@ -300,7 +365,7 @@ export class CollectionContexts {
           current.context !== record.context
         )
           return;
-        if (input.discard || this.closing || !this.usable(current))
+        if (input.discard || this.closing || !this.usable(current) || this.refreshDue(current))
           await this.retire(current);
         else this.park(current);
       },
@@ -310,6 +375,8 @@ export class CollectionContexts {
   close() {
     if (this.closePromise) return this.closePromise;
     this.closing = true;
+    clearTimeout(this.refreshTimer);
+    this.nextRefreshAt = null;
     this.closePromise = Promise.all(
       [...this.entries.values()].map((entry) => this.retire(entry)),
     ).then(() => undefined);

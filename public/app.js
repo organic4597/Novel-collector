@@ -66,9 +66,12 @@ function toast(message) {
     $("toast").hidden = true;
   }, 3500);
 }
-async function api(path, options = {}, timeoutMs = 12000) {
+async function api(path, options = {}, timeoutMs = 12000, onProgress = null) {
   const authGeneration = state.generation;
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (options.signal?.aborted) cancel();
+  else options.signal?.addEventListener("abort", cancel, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(path, {
@@ -81,7 +84,36 @@ async function api(path, options = {}, timeoutMs = 12000) {
         ...options.headers,
       },
     });
-    const data = await response.json().catch(() => null);
+    let data;
+    if (response.ok && response.headers?.get("Content-Type")?.includes("application/x-ndjson")) {
+      const reader = response.body.getReader(), decoder = new TextDecoder();
+      let buffer = "", completed = false;
+      const line = text => {
+        if (!text.trim()) return;
+        let event;
+        try { event = JSON.parse(text); } catch { throw new Error("목록 응답 형식이 올바르지 않습니다."); }
+        if (event.type === "error") throw new Error(event.data?.error || "작품 목록을 불러오지 못했습니다.");
+        if (event.type === "progress" && authGeneration === state.generation) onProgress?.(event.data);
+        if (event.type === "result") { data = event.data; completed = true; }
+      };
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+          if (buffer.length > 2 * 1024 * 1024) throw new Error("목록 응답 크기가 너무 큽니다.");
+          let newline;
+          while ((newline = buffer.indexOf("\n")) !== -1) {
+            line(buffer.slice(0, newline)); buffer = buffer.slice(newline + 1);
+          }
+          if (chunk.done) break;
+        }
+        if (buffer) line(buffer);
+        if (!completed) throw new Error("목록 전송이 중단됐습니다. 다시 검색해 주세요.");
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    } else data = await response.json().catch(() => null);
     if (!response.ok) {
       if (
         response.status === 401 &&
@@ -102,6 +134,7 @@ async function api(path, options = {}, timeoutMs = 12000) {
     throw error;
   } finally {
     clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", cancel);
   }
 }
 

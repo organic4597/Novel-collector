@@ -133,3 +133,42 @@ test("logical pages above the physical-page limit remain accessible", async () =
   assert.equal(result.items.at(-1).id, "95000");
   assert.ok(f.calls.every(query => query.page <= 1000));
 });
+
+test("the cached prefix is published before waiting for the next physical page", async () => {
+  const f = fixture(), read = f.discovery.sourceList, progress = [];
+  let release, entered;
+  const waiting = new Promise(resolve => { entered = resolve; });
+  f.discovery.sourceList = async (query, options) => {
+    if (query.page === 2) {
+      assert.equal(options.knownMaxPage, 3);
+      entered();
+      await new Promise(resolve => { release = resolve; });
+    }
+    return read(query);
+  };
+  const result = f.discovery.list({ page: 2 }, { onProgress: value => progress.push(value) });
+  await waiting;
+  assert.deepEqual(progress.map(value => value.items.length), [8]);
+  assert.deepEqual(progress[0].items.map(item => item.id), f.works.slice(40, 48).map(item => item.id));
+  release();
+  assert.equal((await result).items.length, 40);
+  assert.deepEqual(progress.map(value => value.items.length), [8, 40]);
+  assert.equal(progress[0].items.length, 8, "later progress does not mutate an earlier snapshot");
+});
+
+test("concurrent list callers share source work and receive the current prefix", async () => {
+  const f = fixture(), read = f.discovery.sourceList, first = [], second = [];
+  let release, entered;
+  const waiting = new Promise(resolve => { entered = resolve; });
+  f.discovery.sourceList = async query => {
+    if (query.page === 2) { entered(); await new Promise(resolve => { release = resolve; }); }
+    return read(query);
+  };
+  const one = f.discovery.list({ page: 2 }, { onProgress: value => first.push(value.items.length) });
+  await waiting;
+  const two = f.discovery.list({ page: 2 }, { onProgress: value => second.push(value.items.length) });
+  release(); await Promise.all([one, two]);
+  assert.deepEqual(first, [8, 40]);
+  assert.deepEqual(second, [8, 40]);
+  assert.deepEqual(f.calls.map(query => query.page), [1, 2]);
+});

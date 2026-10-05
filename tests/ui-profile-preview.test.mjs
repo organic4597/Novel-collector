@@ -22,7 +22,9 @@ async function setup(t, initialBooks) {
   let bookHandler = async (value) => structuredClone(value);
   let authenticated = true,
     generation = 1;
+  w.eval(await readFile(new URL("../public/performance.js",import.meta.url),"utf8"));
   w.CollectorPerformance = {
+    ...w.CollectorPerformance,
     debounce(fn) {
       fn.cancel = () => {};
       return fn;

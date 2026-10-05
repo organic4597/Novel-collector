@@ -114,6 +114,13 @@ test("library deduplicates genre, tag and platform labels without changing metad
   await f.w.CollectorLibrary.refresh();
   assert.equal(tags.children.length, 0);
 });
+test("failed library cover images reveal title artwork and update it when metadata changes",async t=>{
+  const f=await fixture(t),card=f.w.document.querySelector('[data-id="1"]');
+  card.querySelector("img").dispatchEvent(new f.w.Event("error"));
+  assert.ok(card.querySelector(".cover-fallback svg"));assert.match(card.querySelector(".cover-fallback").textContent,/작품 1/);
+  f.setRows([{...f.rows()[0],title:"변경된 작품 제목"}]);await f.w.CollectorLibrary.refresh();
+  assert.match(card.querySelector(".cover-fallback").textContent,/변경된 작품/);
+});
 test("library selection and one-book changes preserve cards, covers and current failure controls", async (t) => {
   const f = await fixture(t),
     d = f.w.document;

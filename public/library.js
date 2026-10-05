@@ -260,7 +260,9 @@
     entry.image.addEventListener("error", () => {
       entry.failedImage = entry.image.getAttribute("src");
       entry.image.remove();
+      entry.fallback.hidden=false;
     });
+    entry.image.addEventListener("load",()=>{entry.fallback.hidden=true;});
     entry.profile.setAttribute("role", "status");
     entry.download.href = "/api/books/" + encodeURIComponent(id) + "/export/txt";
     entry.download.setAttribute("download", "");
@@ -306,6 +308,7 @@
     entry.check.checked = selected.has(id);
     entry.check.setAttribute("aria-label", (book.title || "작품") + " 선택");
     text(entry.title, book.title || "제목 없는 작품");
+    window.CollectorPerformance.titleCover(entry.fallback,book.title);
     text(entry.author, book.author || "작가 정보 없음");
     const thumbnail = book.thumbnail || "/api/books/" + encodeURIComponent(id) + "/thumbnail";
     const imageSource =
@@ -316,6 +319,7 @@
         : null;
     if (imageSource && imageSource !== entry.image.getAttribute("src")) {
       entry.failedImage = null;
+      entry.fallback.hidden=false;
       entry.image.setAttribute("src", imageSource);
     }
     reconcile(entry.cover, [
@@ -323,6 +327,7 @@
       ...(imageSource && imageSource !== entry.failedImage ? [entry.image] : []),
       entry.label,
     ]);
+    if(!imageSource||imageSource===entry.failedImage)entry.fallback.hidden=false;
     const tags = [
       ...new Set(
         [

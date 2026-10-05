@@ -214,7 +214,7 @@
               </button>
             </div>
           </div>
-          <p class="muted">대기·일시정지 예약을 드래그해 순서를 바꿀 수 있습니다. 키보드와 모바일에서는 순서 위로·아래로 버튼을 사용하세요.</p>
+          <p class="muted">수집 중·대기·일시정지 예약을 드래그해 순서를 바꿀 수 있습니다. 수집 중인 작품은 현재 회차 저장 후 반영합니다. 키보드와 모바일에서는 순서 위로·아래로 버튼을 사용하세요.</p>
           <div id="jobs-list" class="jobs-list" aria-live="polite"></div>
         </section>
         <section id="history-view" class="view" hidden>
@@ -330,7 +330,9 @@
           </div>
           <form id="discover-form" class="discover-filters">
             <div class="search-field">
-              <label for="discover-query">작품 제목</label
+              <label for="discover-search-type">검색 대상</label>
+              <select id="discover-search-type"><option value="title">작품 제목</option><option value="author">작가 이름</option></select>
+              <label for="discover-query">검색어</label
               ><input id="discover-query" placeholder="제목으로 검색" />
             </div>
             <div>
@@ -418,7 +420,7 @@
         <dialog id="work-dialog" class="modal work-introduction-modal" aria-labelledby="work-title">
           <div class="modal-heading"><h2>작품 소개</h2><button id="work-close" class="icon-button" type="button" aria-label="작품 소개 닫기">×</button></div>
           <div class="work-layout">
-            <aside class="work-cover"><img id="work-cover" alt="작품 표지" width="240" height="336" hidden><span class="cover-fallback" aria-hidden="true">▤</span></aside>
+            <aside class="work-cover"><img id="work-cover" alt="작품 표지" width="240" height="336" hidden><span id="work-cover-fallback" class="cover-fallback"></span></aside>
             <article class="work-profile">
               <p class="eyebrow">WORK INTRODUCTION</p><h1 id="work-title">작품 정보</h1>
               <p id="work-status" class="field-help" role="status"></p><p id="work-error" class="error-text" role="alert"></p>

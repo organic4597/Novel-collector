@@ -164,10 +164,10 @@
   function text(el, value) { value = String(value ?? ""); if (el.textContent !== value) el.textContent = value; }
   function card(item) {
     const id = String(item.id), el = UI.node("article", "discover-card"); el.dataset.id = id;
-    const e = { node: el, item, id, cover: UI.node("div", "discover-cover"), check: UI.node("input"),
+    const e = { node: el, item, id, cover: UI.node("div", "discover-cover"), fallback:UI.node("span","cover-fallback"),check: UI.node("input"),
       link: UI.node("a", "discover-title-link"), author: UI.node("p", "discover-author"), tags: UI.node("div", "discover-tags"),
       count: UI.node("strong", "discover-count"), meta: UI.node("p", "discover-meta"), button: UI.node("button", "quiet") };
-    e.cover.append(UI.node("span", "cover-fallback", "▤"));
+    e.cover.append(e.fallback);
     const label = UI.node("label", "discover-select"); e.check.type = "checkbox"; label.append(e.check); e.cover.append(label);
     e.check.addEventListener("change", () => {
       if (e.check.checked) { if (selected.size >= 100) { e.check.checked = false; notice("", "한 번에 최대 100개 작품을 선택할 수 있습니다."); return; } selected.set(id, e.item); }
@@ -190,6 +190,7 @@
   function patchCard(e, item) {
     e.item = item; if (selected.has(e.id)) selected.set(e.id, item);
     text(e.link, item.title || "제목 없음"); text(e.author, item.author || "작가 정보 확인 전");
+    window.CollectorPerformance.titleCover(e.fallback,item.title);
     e.check.checked = selected.has(e.id); e.check.setAttribute("aria-label", (item.title || "작품") + " 선택");
     const genres = new Set((Array.isArray(item.genres) ? item.genres : []).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean));
     const uniqueTags = [...new Set((Array.isArray(item.tags) ? item.tags : []).filter(value => typeof value === "string").map(value => value.trim()).filter(Boolean))];
@@ -201,13 +202,14 @@
     text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + " · " + rating + (item.updatedLabel ? " · " + item.updatedLabel : ""));
     text(e.button, knownCount ? "회차 다시 확인" : "회차 확인"); e.button.disabled = checking || pending.has(e.id);
     const source = typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
-    if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;
+    if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;e.fallback.hidden=false;
       if (source) { const img = UI.node("img"); img.src = source; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.width = 160; img.height = 224;
-        img.addEventListener("error", () => img.remove(), { once: true }); e.image = img; e.cover.append(img); }
+        img.addEventListener("error", () => {img.remove();e.fallback.hidden=false;}, { once: true });img.addEventListener("load",()=>{e.fallback.hidden=true;},{once:true});e.image = img; e.cover.append(img); }
     }
   }
   function queryFor(target) {
-    return new URLSearchParams({ page: String(target), query: $("discover-query").value.trim(), genre: $("discover-genre").value,
+    const author=$("discover-search-type").value==="author",value=$("discover-query").value.trim();
+    return new URLSearchParams({ page: String(target), query:author?"":value,author:author?value:"",genre: $("discover-genre").value,
       platform: $("discover-platform").value, publication: $("discover-publication").value, sort: $("discover-sort").value });
   }
   function rememberPage(key, data, complete) {
@@ -421,6 +423,9 @@
   $("discover-form").addEventListener("submit", (event) => {
     event.preventDefault();
     load(1, { force: true });
+  });
+  $("discover-search-type").addEventListener("change",()=>{
+    $("discover-query").placeholder=$("discover-search-type").value==="author"?"작가 이름으로 검색":"제목으로 검색";
   });
   $("discover-prev").addEventListener("click", () => load(page - 1));
   $("discover-next").addEventListener("click", () => load(page + 1));

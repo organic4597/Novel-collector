@@ -29,9 +29,11 @@
       if(tagKeys.get(id)!==key){tagKeys.set(id,key);$(id).replaceChildren(...(labels.length ? labels.map(v=>UI.node("span","work-chip",prefix+v.replace(/^#/,""))) : [UI.node("span","muted",fallback)]));}
     }
     const cover = $("work-cover");
+    window.CollectorPerformance.titleCover($("work-cover-fallback"),item.title);
+    $("work-cover-fallback").hidden=!cover.hidden;
     if (typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail)) {
       if (cover.getAttribute("src") !== item.thumbnail) { cover.src = item.thumbnail; cover.hidden = false; }
-    } else { cover.removeAttribute("src"); cover.hidden = true; }
+    } else { cover.removeAttribute("src"); cover.hidden = true;$("work-cover-fallback").hidden=false; }
     const origin = origins.has(UI.status?.().source?.origin) ? UI.status().source.origin : "https://sbxh9.com";
     $("work-source").href = new URL(`/novel/${item.id}`, origin).href;
     $("work-refresh").disabled = loading;
@@ -108,7 +110,8 @@
   dialog.addEventListener("cancel",event=>{event.preventDefault();back();});
   dialog.addEventListener("close",closed);
   $("work-refresh").addEventListener("click",()=>{ if (!loading) void load(++epoch); });
-  $("work-cover").addEventListener("error",()=>{ $("work-cover").hidden=true; });
+  $("work-cover").addEventListener("error",()=>{ $("work-cover").hidden=true;$("work-cover-fallback").hidden=false; });
+  $("work-cover").addEventListener("load",()=>{ $("work-cover-fallback").hidden=true; });
   $("work-select").addEventListener("click",()=>{
     if (item) window.DiscoveryCatalog?.select(item);
     back();

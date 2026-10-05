@@ -149,6 +149,13 @@ export async function runCollection(job, hooks, signal, bookId) {
     for (let index = 0; index < chapters.length; index++) {
       const chapter = chapters[index];
       abortIfNeeded(signal);
+      if(await hooks.shouldYield?.()){
+        abortIfNeeded(signal);
+        await hooks.event("info","현재 회차 저장 완료 · 변경된 수집 순서로 대기");
+        return{title:displayTitle,bookId,total,completed,skipped,failed,failedChapters,captcha:null,
+          status:"queued",phase:"수집 순서 변경 대기",resumeCatalog:true,backoffResumeChapterId:chapter.id,
+          ...timing.estimate(remainingAttempts)};
+      }
       await hooks.report({
         currentChapter: `${chapter.number} · ${chapter.title}`,
         currentChapterId: chapter.id,

@@ -201,7 +201,7 @@ function filterJob(job) {
   return window.CollectorPerformance.filterJob(job, state.filter);
 }
 function reorderable(job){
-  return ["queued","paused"].includes(job.status)&&!job.deleting&&!(state.status.activeJobIds||[]).includes(job.id);
+  return ["running","queued","paused"].includes(job.status)&&!job.deleting&&(!(state.status.activeJobIds||[]).includes(job.id)||job.status==="running");
 }
 function waitingJobs(){return state.jobs.filter(reorderable);}
 async function reorderJob(jobId,beforeId){
@@ -210,7 +210,7 @@ async function reorderJob(jobId,beforeId){
   try{
     const result=await api("/api/queue/reorder",{method:"POST",body:JSON.stringify({jobId,beforeId})});
     if(generation!==state.generation||!state.authenticated)return;
-    state.jobs=result.jobs;toast("대기 예약 순서를 저장했습니다.");renderSummary();
+    state.jobs=result.jobs;toast("수집 순서를 저장했습니다. 수집 중인 작품은 현재 회차 저장 후 반영합니다.");renderSummary();
   }catch(error){if(generation===state.generation&&state.authenticated)errorNotice(textError(error));}
   finally{if(generation===state.generation){state.queueReorderBusy=false;renderJobs();
     if(focusId?.startsWith("queue-move-")){const control=$(focusId);if(control&&!control.disabled)control.focus({preventScroll:true});else $("jobs-list").querySelector(`[data-job-id="${jobId}"] .queue-move:not(:disabled)`)?.focus({preventScroll:true});}
@@ -377,9 +377,7 @@ function jobCard(job, queued, inHistory = false) {
   const top = node("div", "job-top");
   const identity = node("div", "job-identity");
   const ordinal =
-    job.status === "running"
-      ? "▶"
-      : queued.some(entry=>entry.id===job.id)
+    queued.some(entry=>entry.id===job.id)
         ? queued.findIndex((entry) => entry.id === job.id) + 1
         : "▤";
   const title = node("div");

@@ -31,6 +31,17 @@ test("discovery ratings and genre-tag labels use current values without rebuildi
   f.w.DiscoveryCatalog.update({...f.item(1),rating:0});assert.match(meta.textContent,/평점 0\.0 \/ 5/);
   for(const rating of [null,undefined,-1,6,"4.8"]){f.w.DiscoveryCatalog.update({...f.item(1),rating});assert.match(meta.textContent,/평점 미확인/);}
 });
+test("discovery failed covers show the current work title and author searches use the author query field",async t=>{
+  const f=await fixture(t),d=f.w.document,card=d.querySelector('[data-id="1"]');
+  card.querySelector("img").dispatchEvent(new f.w.Event("error"));
+  assert.ok(card.querySelector(".cover-fallback svg"));assert.match(card.querySelector(".cover-fallback").textContent,/작품 1/);
+  f.w.DiscoveryCatalog.update({...f.item(1),title:"새 표지 제목",thumbnail:null});assert.match(card.querySelector(".cover-fallback").textContent,/새 표지 제목/);
+  d.getElementById("discover-search-type").value="author";d.getElementById("discover-search-type").dispatchEvent(new f.w.Event("change"));
+  d.getElementById("discover-query").value="합성 작가";
+  d.getElementById("discover-form").dispatchEvent(new f.w.Event("submit",{cancelable:true}));await tick();
+  const query=new URL(f.calls.at(-1).path,"http://localhost").searchParams;
+  assert.equal(query.get("author"),"합성 작가");assert.equal(query.get("query"),"");
+});
 test("discovery manual checking and metadata updates patch existing title, controls and covers", async t => {
   const f = await fixture(t), d = f.w.document;
   const first = d.querySelector('[data-id="1"]'), cover = first.querySelector("img"), title = first.querySelector(".discover-title-link"), second = d.querySelector('[data-id="2"]');

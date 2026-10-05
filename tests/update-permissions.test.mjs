@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp,mkdir,writeFile,chmod,lstat,symlink,rm } from "node:fs/promises";
+import { mkdtemp,mkdir,writeFile,chmod,lstat,symlink,rm,cp } from "node:fs/promises";
+import {pathToFileURL} from "node:url";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
@@ -8,14 +9,17 @@ import { promisify } from "node:util";
 import { assertUpdatePermissions } from "../src/update-files.mjs";
 import { prepareInstallPermissions } from "../tools/install-runtime.mjs";
 const exec=promisify(execFile);
+const modules=new Map();
 const linux=process.platform==="linux";
 const rootUser=process.geteuid?.()===0;
 async function fixture(t){
   const root=await mkdtemp(join(tmpdir(),"update permissions "));
-  t.after(()=>rm(root,{recursive:true,force:true}));await chmod(root,0o755);return root;
+  const code=await mkdtemp(join(tmpdir(),"permission test modules "));await chmod(code,0o755);
+  await cp(new URL("../src",import.meta.url),join(code,"src"),{recursive:true});modules.set(root,code);
+  t.after(async()=>{modules.delete(root);await rm(root,{recursive:true,force:true});await rm(code,{recursive:true,force:true});});await chmod(root,0o755);return root;
 }
 async function checkAsUser(root){
-  const script=`import {assertUpdatePermissions} from ${JSON.stringify(new URL("../src/update-files.mjs",import.meta.url).href)};try{await assertUpdatePermissions(process.argv[1]);console.log('OK');}catch(e){console.log(e.code);}`;
+  const script=`import {assertUpdatePermissions} from ${JSON.stringify(pathToFileURL(join(modules.get(root),"src","update-files.mjs")).href)};try{await assertUpdatePermissions(process.argv[1]);console.log('OK');}catch(e){console.log(e.code);}`;
   return (await exec(process.execPath,["--input-type=module","-e",script,root],rootUser?{uid:65534,gid:65534}:{})).stdout.trim();
 }
 test("update preflight accepts a writable installation and skips browser cache and profile symlinks",async t=>{
@@ -37,7 +41,7 @@ for(const kind of ["private","runtime"])test(`the apply API rejects ${kind} perm
   const root=await fixture(t);await chmod(root,0o777);
   if(kind==="private"){await mkdir(join(root,"data"),{mode:0o755});await writeFile(join(root,"data","canary"),"PRIVATE_CANARY",{mode:rootUser?0o600:0o000});}
   else await mkdir(join(root,"node_modules"),{mode:rootUser?0o755:0o500});
-  const script=`import{Updates}from ${JSON.stringify(new URL("../src/updates.mjs",import.meta.url).href)};import{APP_VERSION,versionParts}from ${JSON.stringify(new URL("../src/version.mjs",import.meta.url).href)};const parts=versionParts(APP_VERSION);parts[3]++;const version=parts.join('.');let launches=0,stops=0;const updates=new Updates({rootDir:process.argv[1],launch:()=>{launches++;}});updates.cached={checkedAt:Date.now(),release:{version,download:'synthetic'}};updates.onReady=async()=>{stops++;};try{await updates.apply(version);}catch(e){console.log(JSON.stringify({status:e.status,step:e.step,errorCode:e.errorCode,launches,stops}));}`;
+  const script=`import{Updates}from ${JSON.stringify(pathToFileURL(join(modules.get(root),"src","updates.mjs")).href)};import{APP_VERSION,versionParts}from ${JSON.stringify(pathToFileURL(join(modules.get(root),"src","version.mjs")).href)};const parts=versionParts(APP_VERSION);parts[3]++;const version=parts.join('.');let launches=0,stops=0;const updates=new Updates({rootDir:process.argv[1],launch:()=>{launches++;}});updates.cached={checkedAt:Date.now(),release:{version,download:'synthetic'}};updates.onReady=async()=>{stops++;};try{await updates.apply(version);}catch(e){console.log(JSON.stringify({status:e.status,step:e.step,errorCode:e.errorCode,launches,stops}));}`;
   const env={...process.env};delete env.INVOCATION_ID;
   const {stdout}=await exec(process.execPath,["--input-type=module","-e",script,root],{env,...(rootUser?{uid:65534,gid:65534}:{})});
   assert.deepEqual(JSON.parse(stdout),{status:503,step:kind==="private"?"CHECK_BACKUP_PERMISSION":"CHECK_WRITE_PERMISSION",errorCode:kind==="private"?"PRIVATE_NOT_READABLE":"INSTALL_NOT_WRITABLE",launches:0,stops:0});

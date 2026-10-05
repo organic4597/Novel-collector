@@ -4,7 +4,6 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { stopExisting } from "./src/instance-control.mjs";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const pathFor = platform => platform === "win32" ? path.win32 : path.posix;
@@ -216,9 +215,12 @@ async function main() {
   process.chdir(ROOT);
   if(args.mode==="start"&&args.replace){
     if(existsSync(path.join(ROOT,".updates","lock.json"))||existsSync(path.join(ROOT,".updates","pending-verification.json")))throw failure("UPDATE_BUSY","업데이트 완료 후 기존 인스턴스를 교체하세요.");
-    await stopExisting(ROOT);
   }
   if(args.mode==="start")await waitForUpdate(ROOT);
+  if(args.mode==="start"&&args.replace){
+    const { stopExisting } = await import("./src/instance-control.mjs");
+    await stopExisting(ROOT);
+  }
   const { env, python } = await prepareRuntime({ setup: args.setup });
   if (args.mode === "test-images") {
     const result = await runCommand(python.executable, ["-m", "unittest", "discover", "-s", "tests", "-p", "captcha_position_test.py", "-v"], { env });

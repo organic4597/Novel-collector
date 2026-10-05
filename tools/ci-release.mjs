@@ -13,7 +13,7 @@ export function nextVersion(values){
   const versions=values.filter(value=>/^\d+\.\d+\.\d+\.\d+$/.test(value)).sort(compareVersions);
   if(!versions.length)throw Error("기준 버전이 필요합니다.");const parts=versionParts(versions.at(-1));parts[3]++;return parts.join(".");
 }
-export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path));}
+export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path)&&path!=="tests/cicd.test.mjs");}
 async function api(path){return JSON.parse((await exec("gh",["api",path],{maxBuffer:16*1024*1024})).stdout);}
 async function envValue(name,value){await appendFile(process.env.GITHUB_ENV,`${name}=${value}\n`);}
 async function prepare(){

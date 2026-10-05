@@ -12,7 +12,7 @@ test("candidate versions advance numerically without reusing an existing publish
   assert.throws(()=>nextVersion([]));
 });
 test("release files exclude automation, local rules and private state while remaining valid for the installed updater",()=>{
-  const files=releaseFiles(["run.mjs","src/server.mjs",".github/workflows/delivery.yml","tools/ci-release.mjs","tools/deploy-verified-release.mjs","AGENTS.md","PATCH-WORKFLOW.md",".ci-local/state.json","data/private.json","secrets/private.txt"]);
+  const files=releaseFiles(["run.mjs","src/server.mjs",".github/workflows/delivery.yml","tools/ci-release.mjs","tools/deploy-verified-release.mjs","tests/cicd.test.mjs","AGENTS.md","PATCH-WORKFLOW.md",".ci-local/state.json","data/private.json","secrets/private.txt"]);
   assert.deepEqual(files,["run.mjs","src/server.mjs"]);for(const path of files)assert.equal(sourcePath(path),path);
 });
 test("only a successful develop push from the correct workflow can authorize operating validation",()=>{

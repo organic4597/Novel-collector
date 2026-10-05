@@ -1,6 +1,12 @@
 #settings-view {
   --settings-gap: 18px;
 }
+.update-task-log { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+.update-log-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; padding: 6px 0; }
+.update-log-row time { color: var(--muted); font-size: 12px; }
+.update-log-row p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+.update-log-row[data-level="error"] p { color: var(--danger); }
+#update-log-panel > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 #settings-view .settings-heading {
   align-items: flex-start;
 }

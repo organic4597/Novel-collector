@@ -476,6 +476,11 @@
             <p>현재 <strong id="update-current">—</strong> · 최신 <strong id="update-latest">—</strong></p><p>저장소 <span id="update-repository"></span> · 마지막 확인 <span id="update-checked">—</span></p>
             <div class="heading-actions"><button id="update-check" class="secondary" type="button">지금 확인</button><button id="update-apply" class="primary" type="button" disabled>업데이트</button><a id="update-release-link" target="_blank" rel="noopener noreferrer">릴리스 페이지</a></div>
             <p id="update-progress" role="status" class="field-help"></p><p id="update-error" role="alert" class="error-text"></p>
+            <p class="field-help">작업 상태 <strong id="update-task-state">대기</strong> · 현재 단계 <span id="update-task-step">아직 시작하지 않음</span></p>
+            <details id="update-log-panel" open><summary>업데이트 작업 로그</summary>
+              <p id="update-log-status" class="field-help" role="status">작업 로그를 확인하면 여기에 표시합니다.</p>
+              <div id="update-log" class="update-task-log" role="log" aria-label="업데이트 작업 로그" aria-live="polite" aria-relevant="additions text"><p class="field-help">아직 기록된 업데이트 로그가 없습니다.</p></div>
+            </details>
           </section>
           <div class="page-heading settings-heading">
             <div>

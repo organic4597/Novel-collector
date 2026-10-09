@@ -636,6 +636,8 @@ export function createApp({
         "/preset-guide.js": "preset-guide.js",
         "/preset-connection.js": "preset-connection.js",
         "/updates.js": "updates.js",
+        "/release-history.js": "release-history.js",
+        "/theme.js": "theme.js",
         "/queue-ui.js": "queue-ui.js",
         "/style.css": "style.css",
         "/styles.css": "styles.css",

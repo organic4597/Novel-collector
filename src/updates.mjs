@@ -4,6 +4,7 @@ import { APP_VERSION, UPDATE_REPOSITORY, compareVersions, repositoryName,version
 import { latestRelease } from "./update-network.mjs";
 import { atomicJson,readJson,assertUpdatePermissions,safePath,exists } from "./update-files.mjs";
 import { redactDiagnostic } from "./activity-log.mjs";
+import { releaseHistory } from "./release-history.mjs";
 
 export const DAY=86400000;
 const fail=(message,status=409)=>Object.assign(new Error(message),{status});
@@ -68,4 +69,5 @@ export class Updates {
     }catch{this.child=null;await atomicJson(join(this.rootDir,".updates","job.json"),{state:"failed",message:"업데이트 실행을 준비하지 못했습니다.",version});throw fail("업데이트 실행을 준비하지 못했습니다.",503);}
   }
   close(){this.stopped=true;clearTimeout(this.timer);}
+  history(){return releaseHistory(this.currentVersion,this.repository);}
 }

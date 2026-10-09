@@ -6,6 +6,7 @@ import {resolve,join} from "node:path";
 import {pathToFileURL} from "node:url";
 import {MANAGED_SOURCE} from "../src/update-files.mjs";
 import {versionParts,compareVersions,repositoryName} from "../src/version.mjs";
+import {releaseNotesFor} from "../src/release-history.mjs";
 const exec=promisify(execFile);
 const repo=repositoryName(process.env.GITHUB_REPOSITORY);
 const git=async(...args)=>(await exec("git",args,{maxBuffer:16*1024*1024})).stdout.trim();
@@ -32,6 +33,7 @@ async function prepare(){
 async function publish(){
   const version=process.env.CANDIDATE_VERSION,commit=process.env.CANDIDATE_COMMIT;
   if(!/^\d+\.\d+\.\d+\.\d+$/.test(version||"")||await git("rev-parse","HEAD")!==commit)throw Error("검증 커밋과 버전이 일치하지 않습니다.");
+  const summary=releaseNotesFor(version);
   const paths=releaseFiles((await git("ls-files")).split("\n"));
   const out=resolve(".ci-local","release");await mkdir(out,{recursive:true});
   const base=`Novel-collector-${version}`,zip=join(out,base+".zip"),tar=join(out,base+".tar.gz");
@@ -41,7 +43,7 @@ async function publish(){
   await writeFile(sums,`${zipSha256}  ${base}.zip\n${tarSha256}  ${base}.tar.gz\n`);
   await writeFile(manifestPath,JSON.stringify({schema:1,channel:"develop-validation",version,commit,sourceSha:process.env.GITHUB_SHA,runId:Number(process.env.GITHUB_RUN_ID),zipSha256}));
   await git("tag","-a",version,"-m",`Novel Collector develop validation ${version}`);await git("push","origin",`refs/tags/${version}`);
-  const notes=`검증용 develop 게시본입니다. 운영 검증 성공 후 같은 커밋을 main·release로 승격하고 최신 정식 릴리스로 지정합니다.\n\n커밋: ${commit}\nCI: ${process.env.GITHUB_RUN_ID}`;
+  const notes=(summary?summary+"\n\n":"")+`검증용 develop 게시본입니다. 운영 검증 성공 후 같은 커밋을 main·release로 승격하고 최신 정식 릴리스로 지정합니다.\n\n커밋: ${commit}\nCI: ${process.env.GITHUB_RUN_ID}`;
   await exec("gh",["release","create",version,zip,tar,sums,manifestPath,"--repo",repo,"--verify-tag","--draft","--title",`Novel Collector ${version} develop validation`,"--notes",notes]);
   const releases=await api(`repos/${repo}/releases`),release=releases.find(value=>value.tag_name===version);
   const asset=release?.assets.find(value=>value.name===base+".zip");if(asset?.digest!=="sha256:"+zipSha256)throw Error("게시된 ZIP 체크섬이 일치하지 않습니다.");

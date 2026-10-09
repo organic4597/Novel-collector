@@ -1,66 +1,128 @@
 #settings-view {
-  --settings-gap: 18px;
+  --settings-gap: 32px;
 }
-.update-task-log { max-height: 280px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
-.update-log-row { display: grid; grid-template-columns: 80px minmax(0, 1fr); gap: 10px; padding: 6px 0; }
-.update-log-row time { color: var(--muted); font-size: 12px; }
-.update-log-row p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
-.update-log-row[data-level="error"] p { color: var(--danger); }
-#update-log-panel > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+#settings-view button {
+  min-height: var(--control-height);
+  font-size: 14px;
+}
+#update-release-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: 10px 16px;
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--accent);
+  background: var(--accent-dark);
+  text-decoration: none;
+}
+
+.update-task-log {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  padding: 20px;
+}
+.update-log-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.update-log-row + .update-log-row {
+  border-top: 1px solid var(--line);
+}
+.update-log-row time {
+  color: var(--muted);
+  font-size: 13px;
+}
+.update-log-row p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.update-log-row[data-level="error"] p {
+  color: var(--danger);
+}
+#update-log-panel > summary {
+  min-height: var(--control-height);
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 14px;
+}
 #settings-view .settings-heading {
-  align-items: flex-start;
+  align-items: flex-end;
 }
 #settings-view .settings-save-state {
-  font-size: 12px;
-  padding: 7px 12px;
-  border-radius: 8px;
-  border: 1px solid #3f644e;
-  background: #1e3328;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--accent-dark);
   color: var(--accent);
-  white-space: nowrap;
-  margin-top: 24px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 #settings-view .settings-save-state.dirty {
   color: var(--warning);
-  background: #392f21;
-  border-color: #6e5837;
+  background: var(--warning-soft);
+  border-color: var(--warning);
 }
 #settings-view .settings-section-nav {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 14px;
-  margin-bottom: 20px;
+  padding: 0;
+  margin: 0 0 32px;
 }
 #settings-view .settings-section-nav a {
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  font-size: 14px;
   color: var(--muted);
-  padding: 6px 13px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
+  padding: 10px 20px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  text-decoration: none;
+  font-weight: 600;
 }
 #settings-view .settings-section-nav a:hover {
   color: var(--accent);
-  text-decoration: none;
-  border-color: #597762;
+  background: var(--accent-dark);
+  border-color: var(--line);
 }
 #settings-view .settings-presets {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 20px;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  background: var(--surface-soft);
+  border: 0;
+  border-radius: var(--radius);
 }
 #settings-view .settings-presets > span {
-  font-size: 12px;
-  color: var(--muted);
-  margin-right: 4px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-right: auto;
 }
 #settings-view .settings-presets button {
-  font-size: 12px;
-  padding: 7px 13px;
+  min-height: var(--control-height);
+  font-size: 14px;
+  padding: 10px 18px;
+  margin: 0;
 }
 #settings-view .settings-presets .field-help {
   flex-basis: 100%;
@@ -71,6 +133,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--settings-gap);
+  align-items: start;
 }
 #settings-view .settings-form-shell {
   grid-column: 1/-1;
@@ -79,26 +142,67 @@
 }
 #settings-view .settings-card {
   min-width: 0;
-  scroll-margin-top: 20px;
-  padding: 23px;
+  scroll-margin-top: 32px;
+  padding: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
 }
 #settings-view .settings-card h2 {
-  margin-bottom: 8px;
-  font-size: 18px;
+  margin: 0 0 12px;
+  font-size: 24px;
+  line-height: 1.35;
+  letter-spacing: -0.03em;
 }
 #settings-view .settings-intro {
-  font-size: 12px;
-  margin-bottom: 22px;
+  font-size: 15px;
+  margin-bottom: 24px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 #settings-view .settings-card .field-help {
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  margin: 10px 0 20px;
+  color: var(--muted);
+}
+#settings-view .settings-card label:not(.checkbox-label) {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+#settings-view .settings-card :is(input, select, textarea) {
+  background: var(--bg);
+  border-color: var(--line);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--text);
+}
+#settings-view .settings-card :is(input, select) {
+  min-height: var(--control-height);
+}
+#settings-view .settings-card input[type="checkbox"] {
+  min-height: 0;
+}
+#settings-view .settings-card > :last-child {
+  margin-bottom: 0;
 }
 #settings-view .settings-savebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 15px;
-  padding: 13px 0 2px;
+  gap: 16px;
+  position: sticky;
+  bottom: 24px;
+  z-index: 5;
+  padding: 16px 24px;
+  margin-top: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  border-color: var(--accent);
 }
 #settings-view .settings-savebar > div {
   min-width: 0;
@@ -111,6 +215,7 @@
 #settings-view .settings-savebar button {
   flex-shrink: 0;
   margin: 0;
+  min-width: 144px;
 }
 #settings-view .password-field {
   display: flex;
@@ -122,82 +227,132 @@
   min-width: 0;
 }
 #settings-view .password-field button {
+  min-height: var(--control-height);
   margin: 0;
   flex-shrink: 0;
-  padding: 10px 12px;
-  font-size: 12px;
+  padding: 10px 14px;
+  font-size: 14px;
 }
 #settings-view .settings-card-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+#settings-view .settings-card-heading h2 {
+  margin: 0;
 }
 #settings-view .settings-card-heading button {
+  min-height: var(--control-height);
   margin: 0;
-  font-size: 11px;
-  padding: 6px 10px;
+  font-size: 14px;
+  padding: 10px 14px;
 }
 #settings-view .system-operation {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--accent);
-  padding: 11px 12px;
-  background: #213329;
-  border-radius: 8px;
-  margin: 17px 0;
+  padding: 16px 20px;
+  background: var(--accent-dark);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  margin: 24px 0;
+  overflow-wrap: anywhere;
 }
 #settings-view .system-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 0 24px;
   margin: 0;
 }
 #settings-view .system-stats > div {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 18px 0;
   min-width: 0;
-  background: #151a22;
 }
 #settings-view .system-stats dt {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--muted);
-  margin-bottom: 5px;
+  margin-bottom: 6px;
 }
 #settings-view .system-stats dd {
   margin: 0;
-  font-size: 15px;
+  font-size: 21px;
   font-weight: 650;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
+}
+#settings-view #system-backoff {
+  font-size: 14px;
+  line-height: 1.6;
+  font-weight: 500;
 }
 #settings-view .settings-transfer {
   grid-column: 1/-1;
 }
 #settings-view .settings-transfer textarea {
-  min-height: 115px;
+  min-height: 160px;
   font-family: ui-monospace, Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
+  line-height: 1.6;
 }
 #settings-view .settings-transfer input[type="file"] {
-  font-size: 12px;
-  padding: 9px;
+  min-height: var(--control-height);
+  font-size: 14px;
+  padding: 10px 14px;
+}
+#settings-view .settings-transfer input[type="file"]::file-selector-button {
+  border: 0;
+  border-radius: 8px;
+  margin-right: 12px;
+  padding: 8px 12px;
+  background: var(--accent-dark);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  min-height: var(--control-height);
 }
 #settings-view .settings-transfer-actions {
   display: flex;
-  gap: 9px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 24px;
+}
+#settings-view .settings-transfer-actions button {
+  margin: 0;
 }
 #settings-view .settings-import-summary {
-  background: #121720;
+  background: var(--accent-dark);
   border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 14px;
-  margin: 17px 0 0;
+  border-radius: var(--radius);
+  padding: 20px;
+  margin: 24px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--accent);
+}
+#settings-view .update-settings {
+  padding: 32px;
+  margin-top: 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  scroll-margin-top: 32px;
+}
+#settings-view .update-settings h2 {
+  margin: 0 0 12px;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+#settings-view .update-settings > p {
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+#settings-view .update-settings .heading-actions {
+  margin: 24px 0;
 }
 @media (max-width: 1050px) {
   #settings-view .settings-sections,
@@ -211,45 +366,48 @@
 }
 @media (max-width: 720px) {
   #settings-view {
-    --settings-gap: 14px;
+    --settings-gap: 20px;
   }
   #settings-view .settings-heading {
+    align-items: flex-start;
     gap: 12px;
   }
-  #settings-view .settings-save-state {
-    margin-top: 0;
-    font-size: 11px;
-  }
   #settings-view .settings-card {
-    padding: 18px;
+    padding: 24px 20px;
   }
   #settings-view .settings-presets {
     gap: 8px;
+    margin-bottom: 24px;
+    padding: 20px;
   }
   #settings-view .settings-section-nav {
-    gap: 7px;
+    gap: 8px;
+    margin-bottom: 24px;
   }
   #settings-view .settings-section-nav a {
-    padding: 6px 11px;
+    padding: 10px 16px;
   }
   #settings-view .settings-savebar {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
+    bottom: 16px;
+    padding: 16px;
   }
   #settings-view .settings-savebar button {
-    align-self: flex-end;
+    align-self: stretch;
   }
   #settings-view .system-stats {
-    gap: 8px;
+    gap: 0 16px;
   }
   #settings-view .system-stats > div {
-    padding: 10px;
+    padding: 16px 0;
   }
-  #settings-view .system-stats dd {
-    font-size: 13px;
+  #settings-view .update-settings {
+    padding: 24px 20px;
+    margin-top: 24px;
   }
-  #settings-view .password-field button {
-    padding: 10px;
-    font-size: 11px;
+  .update-log-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }

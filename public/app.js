@@ -200,54 +200,129 @@ function renderSummary() {
 function filterJob(job) {
   return window.CollectorPerformance.filterJob(job, state.filter);
 }
-function reorderable(job){
-  return ["running","queued","paused"].includes(job.status)&&!job.deleting&&(!(state.status.activeJobIds||[]).includes(job.id)||job.status==="running");
+function reorderable(job) {
+  return (
+    ["running", "queued", "paused"].includes(job.status) &&
+    !job.deleting &&
+    (!(state.status.activeJobIds || []).includes(job.id) ||
+      job.status === "running")
+  );
 }
-function waitingJobs(){return state.jobs.filter(reorderable);}
-async function reorderJob(jobId,beforeId){
-  if(state.queueReorderBusy||state.queueActionBusy||!state.authenticated||jobId===beforeId)return;
-  const generation=state.generation,focusId=document.activeElement?.id;state.queueReorderBusy=true;errorNotice();renderJobs();
-  try{
-    const result=await api("/api/queue/reorder",{method:"POST",body:JSON.stringify({jobId,beforeId})});
-    if(generation!==state.generation||!state.authenticated)return;
-    state.jobs=result.jobs;toast("수집 순서를 저장했습니다. 수집 중인 작품은 현재 회차 저장 후 반영합니다.");renderSummary();
-  }catch(error){if(generation===state.generation&&state.authenticated)errorNotice(textError(error));}
-  finally{if(generation===state.generation){state.queueReorderBusy=false;renderJobs();
-    if(focusId?.startsWith("queue-move-")){const control=$(focusId);if(control&&!control.disabled)control.focus({preventScroll:true});else $("jobs-list").querySelector(`[data-job-id="${jobId}"] .queue-move:not(:disabled)`)?.focus({preventScroll:true});}
-  }}
+function waitingJobs() {
+  return state.jobs.filter(reorderable);
 }
-function moveReservation(id,direction){
-  const jobs=waitingJobs(),index=jobs.findIndex(job=>job.id===id),target=index+direction;
-  if(index<0||target<0||target>=jobs.length)return;
-  void reorderJob(id,direction<0?jobs[target].id:jobs[target+1]?.id||null);
+async function reorderJob(jobId, beforeId) {
+  if (
+    state.queueReorderBusy ||
+    state.queueActionBusy ||
+    !state.authenticated ||
+    jobId === beforeId
+  )
+    return;
+  const generation = state.generation,
+    focusId = document.activeElement?.id;
+  state.queueReorderBusy = true;
+  errorNotice();
+  renderJobs();
+  try {
+    const result = await api("/api/queue/reorder", {
+      method: "POST",
+      body: JSON.stringify({ jobId, beforeId }),
+    });
+    if (generation !== state.generation || !state.authenticated) return;
+    state.jobs = result.jobs;
+    toast(
+      "수집 순서를 저장했습니다. 수집 중인 작품은 현재 회차 저장 후 반영합니다.",
+    );
+    renderSummary();
+  } catch (error) {
+    if (generation === state.generation && state.authenticated)
+      errorNotice(textError(error));
+  } finally {
+    if (generation === state.generation) {
+      state.queueReorderBusy = false;
+      renderJobs();
+      if (focusId?.startsWith("queue-move-")) {
+        const control = $(focusId);
+        if (control && !control.disabled)
+          control.focus({ preventScroll: true });
+        else
+          $("jobs-list")
+            .querySelector(
+              `[data-job-id="${jobId}"] .queue-move:not(:disabled)`,
+            )
+            ?.focus({ preventScroll: true });
+      }
+    }
+  }
 }
-function clearQueueDrag(){
-  state.draggedJob=null;for(const card of $("jobs-list").querySelectorAll(".queue-dragging,.queue-drop-target"))card.classList.remove("queue-dragging","queue-drop-target");
+function moveReservation(id, direction) {
+  const jobs = waitingJobs(),
+    index = jobs.findIndex((job) => job.id === id),
+    target = index + direction;
+  if (index < 0 || target < 0 || target >= jobs.length) return;
+  void reorderJob(
+    id,
+    direction < 0 ? jobs[target].id : jobs[target + 1]?.id || null,
+  );
 }
-$("jobs-list").addEventListener("dragstart",event=>{
-  const card=event.target.closest(".job-card[data-job-id]");
-  if(!card?.draggable||event.target.closest("a,button,input,label"))return;
-  state.draggedJob=card.dataset.jobId;event.dataTransfer?.setData("text/plain",state.draggedJob);
-  if(event.dataTransfer)event.dataTransfer.effectAllowed="move";card.classList.add("queue-dragging");
+function clearQueueDrag() {
+  state.draggedJob = null;
+  for (const card of $("jobs-list").querySelectorAll(
+    ".queue-dragging,.queue-drop-target",
+  ))
+    card.classList.remove("queue-dragging", "queue-drop-target");
+}
+$("jobs-list").addEventListener("dragstart", (event) => {
+  const card = event.target.closest(".job-card[data-job-id]");
+  if (!card?.draggable || event.target.closest("a,button,input,label")) return;
+  state.draggedJob = card.dataset.jobId;
+  event.dataTransfer?.setData("text/plain", state.draggedJob);
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+  card.classList.add("queue-dragging");
 });
-$("jobs-list").addEventListener("dragover",event=>{
-  if(!state.draggedJob||state.queueReorderBusy||state.queueActionBusy)return;
-  const card=event.target.closest(".job-card[data-job-id]");
-  if(card&&!reorderable(state.jobs.find(job=>job.id===card.dataset.jobId)||{}))return;
-  event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect="move";
-  for(const previous of $("jobs-list").querySelectorAll(".queue-drop-target"))previous.classList.remove("queue-drop-target");
-  if(card&&card.dataset.jobId!==state.draggedJob)card.classList.add("queue-drop-target");
+$("jobs-list").addEventListener("dragover", (event) => {
+  if (!state.draggedJob || state.queueReorderBusy || state.queueActionBusy)
+    return;
+  const card = event.target.closest(".job-card[data-job-id]");
+  if (
+    card &&
+    !reorderable(state.jobs.find((job) => job.id === card.dataset.jobId) || {})
+  )
+    return;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  for (const previous of $("jobs-list").querySelectorAll(".queue-drop-target"))
+    previous.classList.remove("queue-drop-target");
+  if (card && card.dataset.jobId !== state.draggedJob)
+    card.classList.add("queue-drop-target");
 });
-$("jobs-list").addEventListener("drop",event=>{
-  const jobId=state.draggedJob;if(!jobId)return;event.preventDefault();
-  const card=event.target.closest(".job-card[data-job-id]"),jobs=waitingJobs().filter(job=>job.id!==jobId);
-  if(card&&(!jobs.some(job=>job.id===card.dataset.jobId)||card.dataset.jobId===jobId)){clearQueueDrag();return;}
-  let beforeId=card?.dataset.jobId||null;
-  if(card){const box=card.getBoundingClientRect();if(event.clientY>box.top+box.height/2)beforeId=jobs[jobs.findIndex(job=>job.id===beforeId)+1]?.id||null;}
-  clearQueueDrag();void reorderJob(jobId,beforeId);
+$("jobs-list").addEventListener("drop", (event) => {
+  const jobId = state.draggedJob;
+  if (!jobId) return;
+  event.preventDefault();
+  const card = event.target.closest(".job-card[data-job-id]"),
+    jobs = waitingJobs().filter((job) => job.id !== jobId);
+  if (
+    card &&
+    (!jobs.some((job) => job.id === card.dataset.jobId) ||
+      card.dataset.jobId === jobId)
+  ) {
+    clearQueueDrag();
+    return;
+  }
+  let beforeId = card?.dataset.jobId || null;
+  if (card) {
+    const box = card.getBoundingClientRect();
+    if (event.clientY > box.top + box.height / 2)
+      beforeId =
+        jobs[jobs.findIndex((job) => job.id === beforeId) + 1]?.id || null;
+  }
+  clearQueueDrag();
+  void reorderJob(jobId, beforeId);
 });
-$("jobs-list").addEventListener("dragend",clearQueueDrag);
-document.addEventListener("collector:view",clearQueueDrag);
+$("jobs-list").addEventListener("dragend", clearQueueDrag);
+document.addEventListener("collector:view", clearQueueDrag);
 
 function renderJobs() {
   if (!["queue", "history"].includes(state.view) || document.hidden) return;
@@ -265,7 +340,7 @@ function renderJobs() {
   ]);
   if (signature === state.jobSignature) return;
   state.jobSignature = signature;
-  $("jobs-list").setAttribute("aria-busy",String(state.queueReorderBusy));
+  $("jobs-list").setAttribute("aria-busy", String(state.queueReorderBusy));
   const focusId =
     $("jobs-list").contains(document.activeElement) ||
     $("history-list").contains(document.activeElement)
@@ -334,7 +409,12 @@ function cachedCard(job, queued, history = false) {
   return patchCard(node, job);
 }
 function patchCard(card, job) {
-  card.draggable=state.view==="queue"&&reorderable(job)&&!state.queueReorderBusy&&!state.queueActionBusy&&!state.pendingActions.has(job.id);
+  card.draggable =
+    state.view === "queue" &&
+    reorderable(job) &&
+    !state.queueReorderBusy &&
+    !state.queueActionBusy &&
+    !state.pendingActions.has(job.id);
   for (const button of card.querySelectorAll(".job-actions button")) {
     if (
       button.id === `logs-${job.id}` ||
@@ -342,10 +422,18 @@ function patchCard(card, job) {
     )
       button.textContent =
         state.selectedJob === job.id ? "로그 보는 중" : "로그";
-    else if(button.dataset.queueMove){
-      const waiting=waitingJobs(),index=waiting.findIndex(entry=>entry.id===job.id),direction=Number(button.dataset.queueMove);
-      button.disabled=state.queueReorderBusy||state.queueActionBusy||state.pendingActions.has(job.id)||index<0||index+direction<0||index+direction>=waiting.length;
-    }else
+    else if (button.dataset.queueMove) {
+      const waiting = waitingJobs(),
+        index = waiting.findIndex((entry) => entry.id === job.id),
+        direction = Number(button.dataset.queueMove);
+      button.disabled =
+        state.queueReorderBusy ||
+        state.queueActionBusy ||
+        state.pendingActions.has(job.id) ||
+        index < 0 ||
+        index + direction < 0 ||
+        index + direction >= waiting.length;
+    } else
       button.disabled =
         state.pendingActions.has(job.id) || job.deleting === true;
   }
@@ -372,14 +460,13 @@ function jobCard(job, queued, inHistory = false) {
     "article",
     `job-card ${job.status === "running" ? "running" : ""}`,
   );
-  card.dataset.jobId=job.id;
+  card.dataset.jobId = job.id;
   if (job.deleting) card.setAttribute("aria-busy", "true");
   const top = node("div", "job-top");
   const identity = node("div", "job-identity");
-  const ordinal =
-    queued.some(entry=>entry.id===job.id)
-        ? queued.findIndex((entry) => entry.id === job.id) + 1
-        : "▤";
+  const ordinal = queued.some((entry) => entry.id === job.id)
+    ? queued.findIndex((entry) => entry.id === job.id) + 1
+    : "▤";
   const title = node("div");
   title.append(node("h3", "job-title", job.title || "제목 확인 대기"));
   const url = safeURL(job.url);
@@ -502,11 +589,18 @@ function jobCard(job, queued, inHistory = false) {
     openEvents(window.CollectorUI.job(job.id) || job),
   );
   actions.append(logs);
-  if(!inHistory&&reorderable(job))for(const [direction,label] of [[-1,"순서 위로"],[1,"순서 아래로"]]){
-    const move=node("button","quiet queue-move",label);move.id=`queue-move-${direction<0?"up":"down"}-${job.id}`;
-    move.dataset.queueMove=String(direction);move.setAttribute("aria-label",`${job.title||"작품"} ${label}`);
-    move.addEventListener("click",()=>moveReservation(job.id,direction));actions.append(move);
-  }
+  if (!inHistory && reorderable(job))
+    for (const [direction, label] of [
+      [-1, "순서 위로"],
+      [1, "순서 아래로"],
+    ]) {
+      const move = node("button", "quiet queue-move", label);
+      move.id = `queue-move-${direction < 0 ? "up" : "down"}-${job.id}`;
+      move.dataset.queueMove = String(direction);
+      move.setAttribute("aria-label", `${job.title || "작품"} ${label}`);
+      move.addEventListener("click", () => moveReservation(job.id, direction));
+      actions.append(move);
+    }
   for (const [action, label] of actionRules[job.status] || []) {
     if (captchaPending && ["resume", "retry"].includes(action)) continue;
     const button = node(
@@ -634,6 +728,13 @@ async function loadBooks() {
 }
 function switchView(view) {
   state.view = view;
+  const managementMenu = $("management-menu");
+  if (managementMenu?.open) {
+    const returnFocus = managementMenu.contains(document.activeElement);
+    managementMenu.open = false;
+    if (returnFocus)
+      managementMenu.querySelector("summary").focus({ preventScroll: true });
+  }
   for (const id of [
     "queue",
     "library",
@@ -642,6 +743,7 @@ function switchView(view) {
     "settings",
     "activity",
     "presets",
+    "releases",
   ])
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
@@ -751,6 +853,15 @@ $("logout-button").addEventListener("click", async () => {
 });
 for (const button of document.querySelectorAll("[data-view]"))
   button.addEventListener("click", () => switchView(button.dataset.view));
+$("management-menu")?.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  $("management-menu").open = false;
+  $("management-menu").querySelector("summary").focus({ preventScroll: true });
+});
+document.addEventListener("click", (event) => {
+  const menu = $("management-menu");
+  if (menu?.open && !menu.contains(event.target)) menu.open = false;
+});
 for (const button of document.querySelectorAll("[data-filter]"))
   button.addEventListener("click", () => {
     state.filter = button.dataset.filter;

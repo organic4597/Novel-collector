@@ -315,15 +315,15 @@
     element.dataset.coverTitle=title;element.classList.add("cover-title");element.removeAttribute("aria-hidden");
     const svg=document.createElementNS("http://www.w3.org/2000/svg","svg");
     svg.setAttribute("viewBox","0 0 160 224");svg.setAttribute("role","img");svg.setAttribute("aria-label","대체 표지: "+title);
-    const rect=document.createElementNS(svg.namespaceURI,"rect");rect.setAttribute("width","160");rect.setAttribute("height","224");rect.setAttribute("fill","#17212a");svg.append(rect);
+    const rect=document.createElementNS(svg.namespaceURI,"rect");rect.setAttribute("width","160");rect.setAttribute("height","224");rect.setAttribute("fill","var(--surface-soft)");svg.append(rect);
     const characters=Array.from(title),lines=[];for(let index=0;index<characters.length&&lines.length<6;index+=8)lines.push(characters.slice(index,index+8).join(""));
     if(characters.length>48)lines[5]=lines[5].slice(0,7)+"…";
     for(const [index,line] of lines.entries()){
       const text=document.createElementNS(svg.namespaceURI,"text");text.setAttribute("x","80");text.setAttribute("y",String(106-(lines.length-1)*10+index*20));
-      text.setAttribute("text-anchor","middle");text.setAttribute("font-family","system-ui, sans-serif");text.setAttribute("font-size","14");text.setAttribute("fill","#eceef4");text.textContent=line;svg.append(text);
+      text.setAttribute("text-anchor","middle");text.setAttribute("font-family","system-ui, sans-serif");text.setAttribute("font-size","14");text.setAttribute("fill","var(--text)");text.textContent=line;svg.append(text);
     }
     const label=document.createElementNS(svg.namespaceURI,"text");label.setAttribute("x","80");label.setAttribute("y","204");label.setAttribute("text-anchor","middle");
-    label.setAttribute("font-family","system-ui, sans-serif");label.setAttribute("font-size","10");label.setAttribute("fill","#929caf");label.textContent="대체 표지";svg.append(label);
+    label.setAttribute("font-family","system-ui, sans-serif");label.setAttribute("font-size","10");label.setAttribute("fill","var(--muted)");label.textContent="대체 표지";svg.append(label);
     element.replaceChildren(svg);
   }
   function count(value) {

@@ -1,8 +1,9 @@
 export function createUpdatesRouter({updates,activity}){
   return async({request,response,url,send,readBody})=>{
     if(!url.pathname.startsWith("/api/updates/"))return false;const name=url.pathname.slice("/api/updates/".length);
-    if(!((request.method==="GET"&&["status","log"].includes(name))||(request.method==="POST"&&["check","apply"].includes(name))))return false;
+    if(!((request.method==="GET"&&["status","log","history"].includes(name))||(request.method==="POST"&&["check","apply"].includes(name))))return false;
     if(!updates)throw Object.assign(new Error("업데이트 기능을 사용할 수 없습니다."),{status:503});
+    if(name==="history"){send(response,200,updates.history());return true;}
     if(name==="log"){
       const after=Number(url.searchParams.get("after")||0);
       if(!Number.isSafeInteger(after)||after<0)throw Object.assign(Error("로그 조회 범위를 확인하세요."),{status:400});

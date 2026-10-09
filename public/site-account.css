@@ -5,28 +5,38 @@
 #site-account-card .site-account-heading {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+#site-account-card .site-account-heading h2 {
+  margin: 0;
 }
 #site-account-card .site-account-config-state {
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--accent);
-  border: 1px solid #42634f;
-  border-radius: 8px;
-  padding: 5px 9px;
-  white-space: nowrap;
+  background: var(--accent-dark);
+  border: 1px solid var(--line);
+  padding: 10px 16px;
+  border-radius: 999px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 #site-account-card .site-account-intro {
-  font-size: 12px;
+  font-size: 15px;
   color: var(--muted);
-  line-height: 1.8;
-  max-width: 920px;
-  margin: 12px 0 17px;
+  line-height: 1.6;
+  max-width: 76ch;
+  margin: 16px 0 32px;
 }
 #site-account-card .site-account-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 18px;
+  gap: 8px 32px;
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--bg);
 }
 #site-account-card .site-account-fields > div {
   min-width: 0;
@@ -41,70 +51,99 @@
   min-width: 0;
 }
 #site-account-card .site-account-host-field button {
+  min-height: var(--control-height);
   margin: 0;
   flex-shrink: 0;
-  font-size: 11px;
-  padding: 9px 11px;
+  font-size: 14px;
+  padding: 10px 16px;
 }
 #site-account-card .site-account-enabled {
-  margin-top: 19px;
+  margin-top: 24px;
+  font-size: 14px;
 }
 #site-account-card .site-account-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 9px;
-  margin-top: 10px;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
 }
 #site-account-card .site-account-actions button {
-  font-size: 12px;
+  min-height: var(--control-height);
+  font-size: 15px;
   margin: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 #site-account-card .site-account-result {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--accent);
-  margin-top: 15px;
-  line-height: 1.8;
+  margin-top: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  padding: 16px 20px;
+  border-radius: 16px;
+  background: var(--accent-dark);
+}
+#site-account-card .site-account-result:empty {
+  display: none;
 }
 #site-account-card .site-account-result.failed {
   color: var(--warning);
+  background: var(--warning-soft);
 }
 #site-account-card .site-account-delete-confirmation {
-  margin-top: 15px;
-  padding: 15px;
-  border: 1px solid #6b4147;
-  background: #332329;
-  border-radius: 9px;
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--radius);
 }
 #site-account-card .site-account-delete-confirmation p {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--danger);
-  margin-bottom: 10px;
-  line-height: 1.8;
+  margin-bottom: 16px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
 }
 #site-account-card .site-account-delete-confirmation button {
-  font-size: 12px;
-  margin: 0 7px 0 0;
+  min-height: var(--control-height);
+  font-size: 14px;
+  margin: 0 8px 8px 0;
+  max-width: 100%;
+  white-space: normal;
 }
 @media (max-width: 720px) {
   #site-account-card .site-account-heading {
+    align-items: flex-start;
     flex-direction: column;
-    gap: 8px;
   }
   #site-account-card .site-account-config-state {
     white-space: normal;
   }
   #site-account-card .site-account-fields {
     grid-template-columns: 1fr;
-    gap: 0;
+    gap: 8px;
+    padding: 16px;
   }
   #site-account-card .site-account-actions {
     align-items: stretch;
+    gap: 8px;
   }
   #site-account-card .site-account-actions button {
     flex: 1 1 auto;
   }
   #site-account-card .site-account-delete-confirmation {
-    padding: 12px;
+    padding: 20px;
+  }
+}
+@media (max-width: 450px) {
+  #site-account-card .site-account-host-field {
+    flex-direction: column;
+  }
+  #site-account-card .site-account-host-field button {
+    align-self: flex-start;
   }
 }

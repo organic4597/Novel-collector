@@ -101,6 +101,7 @@ test("basic preset dropdown adds independent copies in the real dashboard withou
     200,
   );
   await page.goto(base);
+  await page.locator("#management-menu summary").click();
   await page.locator("#nav-presets").click();
   await page
     .locator('#preset-default option[value="sbxh9-novel-v1"]')

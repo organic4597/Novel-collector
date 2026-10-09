@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
 export async function writeChapterMetadata(store, bookId, chapterId, chapter) {
-  const { text, ...metadata } = chapter;
+  const { text, images, ...metadata } = chapter;
   const info = await stat(
     store.path("books", bookId, "chapters", chapterId, "chapter.json"),
   );
@@ -47,6 +47,7 @@ async function readMetadata(store, bookId, chapterId) {
     cached.fileMtimeMs === info.mtimeMs &&
     cached.metadata?.id === chapterId &&
     !Object.hasOwn(cached.metadata, "text") &&
+    !Object.hasOwn(cached.metadata, "images") &&
     Number.isSafeInteger(cached.metadata.size) &&
     cached.metadata.size >= 0 &&
     typeof cached.metadata.hash === "string"

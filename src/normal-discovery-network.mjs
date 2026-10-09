@@ -23,6 +23,7 @@ async function finishPublicResponse(response) {
   }
 }
 export function watchNormalDiscoveryResponses(owner, page, source) {
+  const sourceUrl=new URL(source),webtoon=/^\/(?:ing|end)\/?$/.test(sourceUrl.pathname)||sourceUrl.searchParams.get("kind")==="webtoon";
   const origin = new URL(owner.transportUrl(source)).origin;
   const inFlight = new Set();
   const pending = new Set();
@@ -35,7 +36,7 @@ export function watchNormalDiscoveryResponses(owner, page, source) {
     const url = new URL(request.url());
     return (
       url.origin === origin &&
-      url.pathname === "/api/novel-list" &&
+      url.pathname === (webtoon?"/api/works":"/api/novel-list") &&
       ["xhr", "fetch"].includes(request.resourceType?.())
     );
   };

@@ -1,4 +1,5 @@
 import { makeBookId } from "./collector.mjs";
+import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
 
 const unavailable = () =>
   Object.assign(new Error("작품 등록 서버가 종료 중입니다."), { status: 503 });
@@ -41,6 +42,7 @@ export class JobProfiles {
         ...(!previous.id ? { storedChapterCount: 0, failureCount: 0 } : {}),
         ...(!previous.title ? { title: job.title || `작품 ${source.id}` } : {}),
         url: source.url,
+        ...(job.contentType==="webtoon"?{contentType:"webtoon",presetHash:job.presetHash}:{}),
       }));
       registered.push(
         await this.store.patchJob(job.id, (current) => ({
@@ -52,6 +54,7 @@ export class JobProfiles {
     return registered;
   }
   source(value) {
+    if(isWebtoonUrl(value))return webtoonSource(value);
     makeBookId(value);
     const url = new URL(value);
     const id = url.pathname.match(/^\/novel\/(\d+)/)[1];

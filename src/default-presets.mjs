@@ -1,5 +1,6 @@
 // Starting selectors from the current rendered DOM adapters. These templates
 // contain configuration only and never activate a collection source.
+import { defaultWebtoonPreset } from "./webtoon-presets.mjs";
 const definitions = Object.freeze([
   {
     id: "sbxh9-novel-v1",
@@ -11,6 +12,8 @@ const definitions = Object.freeze([
     name: "toki32 소설 기본",
     origin: "https://toki32.com",
   },
+  {id:"sbxh9-webtoon-v3",name:"sbxh9 웹툰 기본",origin:"https://sbxh9.com",contentType:"webtoon"},
+  {id:"toki32-webtoon-v3",name:"toki32 웹툰 기본",origin:"https://toki32.com",contentType:"webtoon"},
 ]);
 const locator = (
   selector,
@@ -28,6 +31,7 @@ const row = (selector, options = {}) =>
   locator(selector, { ...options, relativeTo: "rows" });
 
 function configFor(definition) {
+  if(definition.contentType==="webtoon")return{...defaultWebtoonPreset(definition.origin),name:definition.name};
   return {
     version: 2,
     name: definition.name,
@@ -92,7 +96,7 @@ export function listDefaultPresets() {
     const config = configFor(definition);
     const pages = Object.entries(config.pages).map(([kind, page]) => ({
       kind,
-      pagePattern: page.pagePattern,
+      pagePattern: page.pagePattern||page.pagePatterns[0],
       fieldCount: Object.keys(page.fields).length,
     }));
     return {

@@ -5,6 +5,8 @@ import { readReaderDocument } from "./collector.mjs";
 import { readDiscoveryDocument } from "./discovery-document.mjs";
 import { mergeSourceMetadata } from "./source-metadata.mjs";
 import { openNormalDiscovery } from "./normal-discovery.mjs";
+import { validDiscoveryId } from "./webtoon-source.mjs";
+import { webtoonListing, webtoonPreset } from "./webtoon-runtime.mjs";
 
 async function json(path) {
   try { return JSON.parse(await readFile(path, "utf8")); }
@@ -56,7 +58,8 @@ export class DiscoveryPageCache {
     const query = this.normalizeQuery(input);
     const remote = { ...query, minEpisodes: null, maxEpisodes: null };
     const origin = new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin;
-    const key = createHash("sha256").update(`normal-v1:${origin}:${JSON.stringify(remote)}`).digest("hex");
+    const selected=query.contentType==="webtoon"?webtoonPreset(this.owner.presets,origin).presetHash:"";
+    const key = createHash("sha256").update(query.contentType==="webtoon"?`webtoon-v2:${origin}:${selected}:${JSON.stringify(remote)}`:`normal-v1:${origin}:${JSON.stringify(remote)}`).digest("hex");
     await this.owner.init();
     const path = join(this.owner.rootDir, "pages", `${key}.json`);
     let data = await json(path), cacheHit = !!data;
@@ -93,7 +96,7 @@ export class DiscoveryPageCache {
         throw new Error("목록 페이지 수가 잘못됐습니다.");
       const data = { ...parsed, savedAt: this.owner.now(), cachedAt: new Date(this.owner.now()).toISOString() };
       for (const item of data.items) {
-        if (!/^\d{1,15}$/.test(String(item.id))) throw new Error("작품 번호가 잘못됐습니다.");
+        if (!validDiscoveryId(item.id)) throw new Error("작품 번호가 잘못됐습니다.");
         await this.owner.updateWork(item.id, previous => ({ ...previous, ...item,
           ...mergeSourceMetadata(previous, item),
           episodeCount: Number.isFinite(item.episodeCount) ? item.episodeCount : previous?.episodeCount ?? null,
@@ -110,12 +113,18 @@ export class DiscoveryPageCache {
   }
   async fetchPage(query, options) {
     const page = await (await this.owner.openContext()).newPage();
-    try { return await openNormalDiscovery(this.owner, page, query, readDiscoveryDocument, readReaderDocument, options); }
+    try { return await openNormalDiscovery(this.owner, page, query, readDiscoveryDocument, readReaderDocument,
+      {...options,...(query.contentType==="webtoon"?{readPage:()=>webtoonListing(this.owner,page,query),
+        webtoonSources:webtoonPreset(this.owner.presets,new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin).presetSnapshot.pages.listing.sources}:{})}); }
     finally { await page.close(); }
   }
   async publicPage(data, query, freshness) {
+    if(query.contentType==="webtoon"){
+      const origin=new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin;
+      this.owner.webtoonPlatforms||={};this.owner.webtoonPlatforms[origin]={...this.owner.webtoonPlatforms[origin],...data.filters?.platformKeys};
+    }
     let items = await Promise.all(data.items.map(async item => {
-      if (!/^\d{1,15}$/.test(String(item.id))) throw new Error("작품 번호가 잘못됐습니다.");
+      if (!validDiscoveryId(item.id)) throw new Error("작품 번호가 잘못됐습니다.");
       const work = await json(join(this.owner.rootDir, "works", `${item.id}.json`));
       const { thumbnailUrl, ...publicItem } = { ...item, ...work };
       return { ...publicItem, thumbnail: thumbnailUrl ? `/api/discover/${item.id}/thumbnail` : null, cachedAt: data.cachedAt };

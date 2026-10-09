@@ -4,6 +4,7 @@ import { viewerOrigin as allowedViewerOrigin } from "./viewer-origins.mjs";
 const invalid = (message) => Object.assign(new Error(message), { status: 400 });
 const kinds = ["authentication", "captcha", "site_blocked", "unknown"];
 function hostId(host) {
+  if(["sbxh9.com","toki32.com"].includes(host))return host;
   return new URL(validateUrl(`https://${host}/novel/1`)).hostname;
 }
 function proofOrigin(value, host) {

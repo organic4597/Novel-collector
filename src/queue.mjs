@@ -1,5 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
 import { cleanMessage, safeId, validateUrl } from "./store.mjs";
+import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
 import { loadQueueState, pauseQueue, startQueue } from "./queue-controls.mjs";
 import { suspendRequests } from "./queue-backoff.mjs";
 import {
@@ -18,7 +19,7 @@ const TERMINAL = new Set([
 const conflict = (message) =>
   Object.assign(new Error(message), { status: 409 });
 const canonicalBookId = (url) =>
-  `${url.hostname.replace(/\./g, "_")}-${url.pathname.split("/")[2]}`;
+  isWebtoonUrl(url.href)?webtoonSource(url.href).id:`${url.hostname.replace(/\./g, "_")}-${url.pathname.split("/")[2]}`;
 const canonicalChapterId = (url) =>
   createHash("sha256").update(url.href).digest("hex").slice(0, 24);
 export class Scheduler {

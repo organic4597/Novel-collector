@@ -1,7 +1,9 @@
 import { validateThumbnailUrl } from "./thumbnail-cache.mjs";
 import { canonicalWorkInput } from "./source-links.mjs";
+import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
 
 export function normalizeWorkSource(value) {
+  if(isWebtoonUrl(value))return webtoonSource(value);
   const bad = (message) => Object.assign(new Error(message), { status: 400 });
   let url;
   try {
@@ -62,6 +64,8 @@ export function sanitizeSourceMetadata(metadata) {
     publicationRaw: text(metadata.publicationRaw),
     synopsis: text(metadata.synopsis, 50000),
     thumbnailUrl,
+    ...(metadata.contentType==="webtoon"?{contentType:"webtoon"}:{}),
+    ...(Array.isArray(metadata.authors)?{authors:labels(metadata.authors),author:labels(metadata.authors).join(", ")}:{}),
   };
   const count = metadata.expectedChapterCount ?? metadata.expectedChapters;
   if (Object.hasOwn(metadata, "rating"))
@@ -89,6 +93,7 @@ export function mergeSourceMetadata(previous = {}, incoming = {}) {
     if (!next[key]) next[key] = known[key];
   for (const key of ["genres", "tags"])
     if (!next[key].length) next[key] = known[key];
+  if(known.authors?.length&&!next.authors?.length)next.authors=known.authors;
   if (next.publication === "unknown") next.publication = known.publication;
   return { ...known, ...next };
 }

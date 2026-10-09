@@ -68,7 +68,69 @@
 
 대시보드 **불러오기**로 세 페이지와 고정 항목을 확인·수정할 수 있습니다. 고급 영역에서는 설정 JSON 붙여넣기·파일 가져오기·복사를 사용할 수 있습니다. 이전 버전의 목록/소개/목차/본문 단일 설정은 불러올 때 세 페이지 그룹으로 변환하고, 이전 목차의 제목·링크는 회차 제목·본문 링크로 구분합니다.
 
-## JSON 형식 (버전 2)
+## 웹툰 선택 도구와 버전 3 연결
+
+신규 웹툰 프리셋은 **소설·웹툰 프리셋 실행 연결 규격안**의 v3 형식으로 작성합니다. 서버 검증·API·공통 평가기는 별도 담당 작업이며, 화면은 선택자 작성·저장과 서버 원본 확인·적용 요청을 서로 다른 동작으로 연결합니다. 저장 성공은 원본 검증이나 수집 적용 성공을 뜻하지 않습니다.
+
+- **수집할 작품 → 웹툰**을 선택하면 목록·작품 정보와 회차 목록·회차 본문을 지정할 수 있습니다. `/ing`, `/end`, `/webtoon/{workId}`, `/webtoon/{workId}/{episodeId}`와 문자·숫자·밑줄·하이픈 ID를 지원합니다. 실제 원본의 한글 슬러그는 URL 인코딩을 보존하며 경로 구분자를 포함한 ID는 거부합니다.
+- 원본 페이지에서는 **본문 루트**를 먼저 고정하고 그 안의 **본문 이미지**를 고릅니다. 이미지 한 장의 로딩 상태·고유 ID·클래스 때문에 다른 이미지가 빠지지 않도록 기본 선택자는 루트 안의 `img`입니다. 광고가 들어 있지 않은 루트를 선택하세요.
+- 웹툰 이미지는 `attribute: imageUrl`, `multiple: true`, `relativeTo: root`로 저장합니다. `imageUrl`은 현재 표시된 `currentSrc`, 지연 로딩 `data-src`, `src` 순으로 읽습니다. URL의 `.css` 같은 확장자는 이미지 형식 판정에 쓰지 않습니다.
+- 초록 강조는 최대 20개, 값 미리보기는 최대 5개입니다. 이는 선택 도구의 화면 부하 제한이며 실제 수집 이미지 수 제한이 아닙니다. 원문·이미지 URL·쿠키·미리보기 값은 프리셋 JSON에 저장하지 않습니다.
+- 목록 주소와 목차 순서에서 `sources.ongoing`, `sources.completed`, 선택적인 `sources.search`, `catalogOrder`를 지정합니다. 페이지 패턴은 원본 선택 도구에서 한 줄에 하나씩 작성하여 `pagePatterns` 배열로 보관합니다.
+- 작가는 `authors`, 회차 원문 표시는 `chapterLabel`, 시즌은 `seasonLabel`·`seasonNumber`로 지정합니다. 목록·상세의 다음 페이지/더 보기 버튼은 각각 `actions.nextPage`·`actions.loadMore`로 저장하며 실행 JavaScript는 받지 않습니다.
+- 저장한 프리셋의 유형은 편집 중 바뀌지 않습니다. 다른 유형이나 다른 원본 사이트를 지정하려면 **새 프리셋**을 사용합니다. 기존 v1/v2 소설 프리셋은 읽기·명시적 수정 흐름을 유지하며 자동으로 v3로 덮어쓰거나 활성화하지 않습니다.
+- 기본 프리셋 드롭다운은 서버가 제공한 항목을 소설/웹툰 유형별로 보여 줍니다. 해당 유형의 템플릿이 아직 없으면 원본에서 직접 지정할 수 있습니다.
+
+다음은 선택자 전달 형식 예시입니다. 실제 실행 필수 항목의 검증과 활성 연결은 서버 담당 모듈에서 별도로 수행합니다.
+
+```json
+{
+  "version": 3,
+  "contentType": "webtoon",
+  "name": "웹툰 선택자",
+  "origin": "https://sbxh9.com",
+  "catalogOrder": "newest-first",
+  "pages": {
+    "listing": {
+      "pagePatterns": ["/ing", "/end"],
+      "sources": {"ongoing": "/ing", "completed": "/end"},
+      "fields": {}
+    },
+    "detail": {"pagePatterns": ["/webtoon/{workId}"], "fields": {}},
+    "reader": {
+      "pagePatterns": ["/webtoon/{workId}/{episodeId}"],
+      "fields": {
+        "root": {"selector": ".vw-imgs", "shadowPath": [], "attribute": "text", "multiple": false},
+        "images": {"selector": "img", "shadowPath": [], "attribute": "imageUrl", "multiple": true, "relativeTo": "root"}
+      }
+    }
+  }
+}
+```
+
+원본에서 서버 저장으로 돌아오는 연결은 origin·콘텐츠 유형·형식 버전·연결 만료·관리자 로그인 상태를 확인합니다. 다른 유형의 오래된 브라우저 임시 설정을 재사용하지 않으며, 로그아웃 뒤 늦게 도착한 응답도 저장 상태를 복원하지 않습니다.
+
+### 저장·원본 확인·적용
+
+서버가 연결 상태 API를 제공하면 저장한 프리셋을 불러왔을 때 **원본 확인 후 수집에 적용** 영역이 나타납니다. 기존 서버가 이 API를 아직 지원하지 않으면 기존 저장·선택 기능을 유지하고 새 영역은 표시하지 않습니다.
+
+1. 목록·작품 정보·본문의 실제 HTTPS 주소를 각각 입력하고 확인 버튼을 누릅니다. 프리셋과 다른 origin이나 인증값이 들어 있는 주소는 요청하지 않습니다.
+2. 확인 결과는 항목별 매칭 개수만 표시합니다. 원문·이미지 응답은 화면이나 로그로 가져오지 않습니다. 확인만으로 활성 연결이 바뀌지 않습니다.
+3. **수집에 적용**은 별도 요청이며 서버가 최신 설정의 세 페이지 검증을 최종 확인합니다. 기본 연결을 바꾸더라도 실행 중인 예약의 설정 사본은 그대로 유지하는 것이 서버 계약입니다.
+4. 편집한 내용이 아직 저장되지 않았으면 원본 확인·적용 버튼을 잠급니다. 기존에 저장된 다른 설정을 실수로 적용하는 것을 방지합니다.
+5. 적용된 프리셋은 먼저 **적용 해제**한 뒤 삭제할 수 있습니다. 편집·탭 이동·로그아웃 이후의 늦은 응답은 이전 화면 상태를 복원하지 않습니다.
+
+UI 연결 API는 `GET /api/extraction-presets/bindings`, `POST /api/extraction-presets/:id/validate`(본문: `pageKind`, `url`), `PUT /api/extraction-presets/:id/binding`, `DELETE /api/extraction-presets/:id/binding`(연결 변경 본문: 빈 객체)입니다. 실제 원본 접근·필수 필드·저장·활성 연결 검증은 서버 모듈에서 수행합니다.
+
+검증 명령:
+
+```sh
+node --test tests/element-picker.test.mjs tests/element-picker-webtoon.test.mjs tests/preset-guide-v3.test.mjs tests/ui-extraction-presets.test.mjs tests/ui-preset-webtoon.test.mjs tests/preset-v3-browser.test.mjs
+```
+
+마지막 브라우저 왕복 시험에는 v3를 지원하는 서버 모듈과 Chromium이 필요합니다. 원본 사이트에 대한 실수집·활성 연결·CAPTCHA 처리를 시험하는 명령이 아닙니다.
+
+## 기존 소설 JSON 형식 (버전 2)
 
 ```json
 {
@@ -103,6 +165,21 @@
 
 ## API와 검증
 
+### 버전 3 실행 연결 API
+
+버전 3은 `contentType: novel | webtoon`과 세 페이지의 `pagePatterns`, `fields`, 선택적인 `sources`·`actions`를 사용합니다. 기존 버전 1·2 설정은 원본 레코드를 변경하지 않고 실행 규격으로 변환합니다. 웹툰 본문은 단일 `root` 안의 `images`에 `attribute: imageUrl`, `multiple: true`, `relativeTo: root`를 지정합니다.
+
+- `POST /api/extraction-presets/:id/validate`: `{pageKind, url}`로 원본 한 페이지를 검증합니다. 결과는 설정 hash와 매칭 개수이며 미리보기 원문·이미지 주소·인증값을 저장하지 않습니다.
+- `GET /api/extraction-presets/bindings`: 콘텐츠 유형·origin별 기본 연결과 검증 상태를 조회합니다.
+- `PUT /api/extraction-presets/:id/binding`: 빈 객체로 기본 연결을 적용합니다. 필수 설정과 세 페이지의 최신 설정 hash 검증이 모두 필요합니다.
+- `DELETE /api/extraction-presets/:id/binding`: 빈 객체로 기본 연결을 해제합니다. 기본 연결 중인 프리셋은 바로 삭제할 수 없습니다.
+
+연결 설정과 검증 기록은 각각 `data/preset-bindings.json`, `data/preset-validation.json`에 보관합니다. 연결된 선택자를 편집한 뒤에는 새 예약에 사용하기 전 다시 검증해야 합니다. 예약 생성 경계에서는 `ExtractionPresets.snapshot`의 `presetId`, `presetSnapshot`, `presetHash`, `contentType`을 고정해 전달합니다.
+
+공통 실행 경계는 `compilePreset`, `validateRunnablePreset`, `matchesPresetPage`, `evaluatePresetPage`, `clickPresetAction`입니다. DOM 평가기는 열린 Shadow DOM과 반복 부모를 구분하며, 같은 이미지 URL이 여러 DOM 위치에 있어도 순서를 유지합니다. 실제 목차 이동 완료와 이미지 바이트 저장·완전성은 호출하는 수집기가 확인해야 합니다.
+
+이 API는 실행 연결의 공통 기반입니다. 기존 화면의 세 페이지 편집기는 버전 2 경계를 사용하고 기존 소설 수집 경로는 별도 연동 전까지 내장 파서를 유지합니다. 저장이나 기본 연결 기록만으로 예약·수집 호출 지점의 연동이 완료되었다고 판정하지 않습니다.
+
 - `GET/POST /api/extraction-presets`: 요약 목록 / 새 설정 저장
 - `GET/PUT/DELETE /api/extraction-presets/:id`: 불러오기 / 수정 저장 / 삭제
 
@@ -111,3 +188,11 @@
 ```sh
 node --test tests/extraction-presets.test.mjs tests/element-picker.test.mjs tests/preset-native-browser.test.mjs tests/ui-extraction-presets.test.mjs
 ```
+
+## 개발 중인 실행 연결
+
+웹툰 작품 찾기·예약은 타입과 원천을 구분합니다. 적용한 사용자 프리셋이 있으면 최신 원본 검증을 통과한 설정을 사용하며, 없으면 현재 확인한 일반 DOM 구조의 웹툰 기본 연결을 사용합니다. 기본 프리셋 목록에도 소설·웹툰 템플릿을 별도로 제공합니다. 복사해서 저장한 프리셋은 자동으로 적용되지 않습니다.
+
+웹툰 예약에는 서버가 확정한 `presetSnapshot`·`presetHash`가 들어갑니다. 클라이언트가 임의의 사본·해시를 제출하는 것은 거부합니다. 선택한 연결의 실패를 다른 파서로 숨기지 않으며, 전체 회차 수와 목차가 일치해야 수집을 시작합니다.
+
+웹툰 이미지 원천 URL·서명 query는 응답 처리 동안만 사용합니다. 영구 회차 기록에는 이미지 순서·파일명·실제 형식·바이트·SHA256·너비·높이와 완전성을 저장합니다. 소설의 기존 저장 ID와 TXT·EPUB 형식은 유지합니다.

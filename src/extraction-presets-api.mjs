@@ -1,10 +1,20 @@
 import { safeId } from "./store.mjs";
-export function createExtractionPresetsRouter({ presets }) {
+import {validatePresetSource} from "./preset-runtime.mjs";
+export function createExtractionPresetsRouter({ presets,validateSource=validatePresetSource }) {
   return async ({ request, response, url, send, readBody }) => {
     const parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] !== "api" || parts[1] !== "extraction-presets") return false;
     if (!presets) throw Object.assign(new Error("추출 프리셋을 사용할 수 없습니다."), { status: 503 });
     const method = request.method;
+    if(parts.length===3&&parts[2]==="bindings"&&method==="GET"){send(response,200,presets.listBindings());return true;}
+    if(parts.length===4){
+      const id=safeId(parts[2]);
+      if(parts[3]==="validate"&&method==="POST"){send(response,200,await validateSource(presets,id,await readBody(request)));return true;}
+      if(parts[3]==="binding"&&["PUT","DELETE"].includes(method)){
+        const input=await readBody(request);if(!input||typeof input!=="object"||Array.isArray(input)||Object.keys(input).length)throw Object.assign(Error("기본 연결 변경에는 추가 입력이 필요하지 않습니다."),{status:400});
+        send(response,200,method==="PUT"?await presets.bind(id):await presets.unbind(id));return true;
+      }
+    }
     if (parts.length === 3 && parts[2] === "defaults") {
       if (url.search) throw Object.assign(new Error("기본 프리셋 요청에는 쿼리를 사용하지 않습니다."), { status: 400 });
       if (method === "GET") { send(response, 200, presets.defaults()); return true; }

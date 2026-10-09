@@ -42,6 +42,10 @@
   }
   sortLabel.append(sort);
   document.querySelector(".library-filters").append(sortLabel);
+  const typeLabel=node("label","","작품 유형"),contentType=node("select");contentType.id="library-content-type";
+  for(const [value,label]of [["all","전체"],["novel","소설"],["webtoon","웹툰"]]){const option=node("option","",label);option.value=value;contentType.append(option);}
+  typeLabel.append(contentType);document.querySelector(".library-filters").prepend(typeLabel);
+  contentType.addEventListener("change",()=>{state.page=1;selected.clear();render();});
   const pageSize = () => UI.preferences().libraryPageSize;
   function pagedBooks() {
     const filtered = visibleBooks();
@@ -118,7 +122,12 @@
         data.title || chapter.title || `${data.number ?? ""}화`;
       $("reader-meta").textContent =
         `${data.number === undefined ? "" : `${data.number}화 · `}${count((data.text || "").length)}자`;
-      $("reader-text").textContent = data.text || "저장된 본문이 비어 있습니다.";
+      if(data.contentType==="webtoon"){
+        $("reader-meta").textContent=`${data.chapterLabel||data.number+"화"} · ${count(data.savedImages)}장 저장`;
+        const prefix=`/api/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(id)}`;
+        const link=node("a","export-link","회차 CBZ 받기");link.href=prefix+"/cbz";link.setAttribute("download","");
+        $("reader-text").replaceChildren(link,...(data.images||[]).map((image,index)=>{const img=node("img","webtoon-reader-image");img.src=prefix+"/images/"+(index+1);img.alt=(index+1)+"번째 본문 이미지";img.loading="lazy";img.width=image.width;img.height=image.height;return img;}));
+      }else $("reader-text").textContent = data.text || "저장된 본문이 비어 있습니다.";
       document.querySelector(".reader-body").scrollTop = 0;
     } catch (error) {
       if (state.chapterId === id && state.selectedBook === bookId) {
@@ -134,7 +143,7 @@
     return books
       .filter(
         (book) =>
-          (!query ||
+          (contentType.value==="all"||(book.contentType||"novel")===contentType.value)&&(!query ||
             `${book.title || ""} ${book.author || ""}`.toLocaleLowerCase().includes(query)) &&
           (!genre || (Array.isArray(book.genres) ? book.genres : []).includes(genre)),
       )
@@ -296,6 +305,8 @@
     } else cardEntries.delete(id);
     cardEntries.set(id, entry);
     entry.book = book;
+    entry.download.href="/api/books/"+encodeURIComponent(id)+"/export/"+(book.contentType==="webtoon"?"zip":"txt");
+    text(entry.download,book.contentType==="webtoon"?"작품 ZIP 받기":"TXT 받기");
     const profileState = metadataState(book),
       stored = storedChapters(book),
       expected = book.expectedChapterCount;

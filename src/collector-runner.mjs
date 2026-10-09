@@ -27,12 +27,14 @@ const delay = (ms, signal) =>
   });
 
 export async function runCollection(job, hooks, signal, bookId) {
+  const webtoon=job.contentType==="webtoon";
   if (this.collectionRun)
     throw new Error("이 브라우저에서 수집 작업이 이미 진행 중입니다.");
   const operation = { pooled: !!this.contextPool };
   this.collectionRun = operation;
-  let context;
+  let context,webtoonPage;
   const onAbort = () => {
+    if(webtoon)void webtoonPage?.close().catch(()=>{});
     void this.close();
   };
   try {
@@ -43,7 +45,7 @@ export async function runCollection(job, hooks, signal, bookId) {
       mainHost = null,
       connect = null;
     if (operation.pooled) {
-      const target = new URL(this.viewerOrigins?.resolve(job.url) || job.url);
+      const target = new URL(webtoon?job.url:this.viewerOrigins?.resolve(job.url) || job.url);
       if (
         ![1, 2].includes(this.slotId) ||
         target.protocol !== "https:" ||
@@ -78,8 +80,9 @@ export async function runCollection(job, hooks, signal, bookId) {
     this.context = context;
     this.availability = { available: true, lastError: null };
     abortIfNeeded(signal);
-    await this.installNetworkGuard(context, { allowedMainHost: mainHost });
+    await this.installNetworkGuard(context, { allowedMainHost: mainHost,allowImages:webtoon });
     if (!page) page = await context.newPage();
+    if(webtoon)webtoonPage=page;
     abortIfNeeded(signal);
     const catalog = await this.collectionPlan(page, job, hooks, signal, bookId);
     abortIfNeeded(signal);
@@ -87,7 +90,7 @@ export async function runCollection(job, hooks, signal, bookId) {
     const activeJob = { ...job, title: displayTitle, bookId };
     const { chapters, allChapters, ...metadata } = catalog;
     const sourceUrl = new URL(job.url);
-    sourceUrl.pathname = `/novel/${sourceUrl.pathname.match(/^\/novel\/(\d+)/)[1]}`;
+    sourceUrl.pathname = webtoon?sourceUrl.pathname.split("/").slice(0,3).join("/"):`/novel/${sourceUrl.pathname.match(/^\/novel\/(\d+)/)[1]}`;
     sourceUrl.search = "";
     sourceUrl.hash = "";
     const fullCatalog = {
@@ -126,12 +129,9 @@ export async function runCollection(job, hooks, signal, bookId) {
     );
     const cache = new Set();
     for (const [index, chapter] of chapters.entries()) {
-      const saved =
-        (!job.overwrite && !job.retryOnlyFailed) ||
-        (index < resumeIndex && !previousFailures.has(chapter.id))
-          ? await this.store.readChapter(bookId, chapter.id)
-          : null;
-      if (saved?.text) cache.add(chapter.id);
+      const reusable=(!job.overwrite && !job.retryOnlyFailed)||(index<resumeIndex&&!previousFailures.has(chapter.id));
+      const saved=reusable?(webtoon?await this.storedChapter(bookId,chapter,true,job.presetHash):!!(await this.store.readChapter(bookId,chapter.id))?.text):false;
+      if(saved)cache.add(chapter.id);
     }
     let remainingAttempts = total - cache.size,
       blockedReason = null;
@@ -210,13 +210,14 @@ export async function runCollection(job, hooks, signal, bookId) {
           await connect();
           this.context = context;
           abortIfNeeded(signal);
-          await this.installNetworkGuard(context, { allowedMainHost: mainHost });
+           await this.installNetworkGuard(context, { allowedMainHost: mainHost,allowImages:webtoon });
           await hooks.event("info", "12시간 브라우저 연결 갱신 완료");
         }
         const attemptStart = this.clock();
         let sourceFailed = true;
         try {
-          const text = await this.chapterText(page, chapter, signal, {
+          const imageChapter=webtoon?await this.chapterImages(page,activeJob,chapter,signal,progress=>hooks.report({phase:"웹툰 이미지 저장 중",...progress})):null;
+          const text = webtoon?null:await this.chapterText(page, chapter, signal, {
             onProgress: async (progress) => {
               abortIfNeeded(signal);
               const elapsed = Math.max(0, this.clock() - attemptStart);
@@ -230,11 +231,12 @@ export async function runCollection(job, hooks, signal, bookId) {
             },
           });
           abortIfNeeded(signal);
-          if (Buffer.byteLength(text, "utf8") > 2 * 1024 * 1024)
+          if (!webtoon&&Buffer.byteLength(text, "utf8") > 2 * 1024 * 1024)
             throw new Error("회차 본문 크기가 제한을 초과했습니다.");
           sourceFailed = false;
           await hooks.requestSuccess?.();
-          await this.store.writeChapter(bookId, chapter.id, {
+          if(webtoon)await this.store.writeWebtoonChapter(bookId,chapter.id,{...chapter,...imageChapter});
+          else await this.store.writeChapter(bookId, chapter.id, {
             ...chapter,
             text,
           });
@@ -242,7 +244,7 @@ export async function runCollection(job, hooks, signal, bookId) {
           await this.store.clearFailure(bookId, chapter.id);
           await hooks.event(
             "info",
-            `${chapter.number}화 저장 완료 · ${text.length.toLocaleString("ko-KR")}자`,
+            webtoon?`${chapter.number}화 저장 완료 · ${imageChapter.savedImages}장`:`${chapter.number}화 저장 완료 · ${text.length.toLocaleString("ko-KR")}자`,
           );
         } catch (error) {
           abortIfNeeded(signal);
@@ -340,6 +342,7 @@ export async function runCollection(job, hooks, signal, bookId) {
   } finally {
     signal?.removeEventListener("abort", onAbort);
     if (this.collectionRun === operation) this.collectionRun = null;
+    if(webtoon&&signal?.aborted&&this.contextLease){await this.contextLease.release({discard:true});this.contextLease=null;this.context=null;}
     await this.close();
   }
 }

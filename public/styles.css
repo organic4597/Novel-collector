@@ -1777,3 +1777,6 @@ html.work-popup-open { overflow:hidden; }
 .activity-summary::before { content:"▸"; flex:none; color:var(--muted); }details[open]>.activity-summary::before { content:"▾"; }
 @media(max-width:700px){.activity-summary{gap:6px}.activity-summary .activity-scope{display:none}.activity-summary time{max-width:70px;overflow:hidden}}
 @media(max-width:700px){.update-notice{flex-wrap:wrap}.update-settings .heading-actions{flex-wrap:wrap}}
+.webtoon-reader-image { display: block; width: 100%; height: auto; margin: 0; }
+#discover-form select, #library-content-type { min-height: 44px; }
+#reader-text > .export-link { display: inline-flex; min-height: 44px; align-items: center; }

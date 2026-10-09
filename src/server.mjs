@@ -17,6 +17,8 @@ import { createUpdatesRouter } from "./updates-api.mjs";
 import { atomicJson } from "./update-files.mjs";
 import { dashboardRoute,clientEvents } from "./dashboard-audit.mjs";
 import { InstanceControl } from "./instance-control.mjs";
+import { isWebtoonUrl, webtoonSource, validDiscoveryId } from "./webtoon-source.mjs";
+import { webtoonPreset } from "./webtoon-runtime.mjs";
 import { LibraryDownloads } from "./library-downloads.mjs";
 import { createFeatureRouter, publicBook } from "./features-api.mjs";
 import { BackoffController } from "./request-backoff.mjs";
@@ -144,6 +146,12 @@ export function createApp({
     credentials ?? new MemoryCredentials({ password: adminPassword });
   const jobProfiles =
     profiles ?? (metadata ? new JobProfiles({ store, metadata }) : null);
+  const prepareJob=input=>{
+    if(input?.presetSnapshot||input?.presetHash)throw HTTP_ERROR("예약 프리셋은 서버에서 확정합니다. presetId만 선택하세요.",400);
+    if(!isWebtoonUrl(input?.url))return input;
+    const source=webtoonSource(input.url);
+    return{...input,...webtoonPreset(extractionPresets,new URL(source.url).origin,input.presetId||null)};
+  };
   const featureRouter = createFeatureRouter({
     store,
     scheduler,
@@ -400,7 +408,9 @@ export function createApp({
             browserAgents: scheduler.browserAgents?.() ?? [],
           });
         if (url.pathname === "/api/jobs/batch" && method === "POST") {
-          const result = await store.createJobs((await body(request)).jobs);
+          const input=await body(request);
+          if(!Array.isArray(input.jobs))throw HTTP_ERROR("예약 목록을 지정하세요.",400);
+          const result = await store.createJobs(input.jobs.map(prepareJob));
           const jobs = jobProfiles
             ? await jobProfiles.registerJobs(result.jobs)
             : result.jobs;
@@ -439,7 +449,7 @@ export function createApp({
           );
         }
         if (parts[1] === "discover" && parts.length === 4) {
-          if (!/^\d{1,20}$/.test(parts[2]))
+          if (!validDiscoveryId(parts[2]))
             throw HTTP_ERROR("잘못된 작품 ID입니다.", 400);
           if (!discovery)
             throw HTTP_ERROR("작품 목록을 사용할 수 없습니다.", 503);
@@ -504,7 +514,7 @@ export function createApp({
           if (method === "GET")
             return send(response, 200, await dashboardJobs());
           if (method === "POST") {
-            const job = await store.createJob(await body(request));
+            const job = await store.createJob(prepareJob(await body(request)));
             const registered = jobProfiles
               ? (await jobProfiles.registerJobs([job]))[0]
               : job;
@@ -757,6 +767,7 @@ export async function startServer({
   });
   const { Discovery } = await import("./discovery.mjs");
   const discovery = new Discovery({
+    presets: extractionPresets,
     rootDir: join(rootDir, "data", "discovery"),
     browserPath: process.env.BROWSER_PATH,
     profileDir: join(rootDir, "profile", "discovery"),

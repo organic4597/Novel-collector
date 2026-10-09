@@ -35,11 +35,11 @@ test("built-in summaries have stable identities and do not populate or replace s
   const defaults = presets.defaults();
   assert.deepEqual(
     defaults.map((preset) => preset.id),
-    ["sbxh9-novel-v1", "toki32-novel-v1"],
+    ["sbxh9-novel-v1", "toki32-novel-v1", "sbxh9-webtoon-v3", "toki32-webtoon-v3"],
   );
   assert.deepEqual(
     defaults.map((preset) => preset.origin),
-    ["https://sbxh9.com", "https://toki32.com"],
+    ["https://sbxh9.com", "https://toki32.com", "https://sbxh9.com", "https://toki32.com"],
   );
   assert.equal(
     defaults.every(
@@ -182,7 +182,7 @@ test("defaults API requires auth, creates a copy only after an explicit same-ori
   const cookie = login.headers.get("set-cookie").split(";")[0];
   const list = await fetch(path, { headers: { cookie } });
   assert.equal(list.status, 200);
-  assert.equal((await list.json()).length, 2);
+  assert.equal((await list.json()).length, 4);
   assert.equal(presets.list().length, 0);
   const post = (body, source = origin) =>
     fetch(path, {
@@ -232,7 +232,7 @@ test("defaults API requires auth, creates a copy only after an explicit same-ori
     200,
   );
   assert.equal(presets.list().length, 0);
-  assert.equal(presets.defaults().length, 2);
+  assert.equal(presets.defaults().length, 4);
   assert.equal(
     (
       await fetch(path + "?origin=https://other.example", {

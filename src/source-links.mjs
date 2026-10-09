@@ -9,7 +9,7 @@ export function canonicalWorkInput(value) {
       status: 400,
     });
   }
-  if (["sbxh9.com", "toki32.com"].includes(url.hostname))
+  if (["sbxh9.com", "toki32.com"].includes(url.hostname) && /^\/novel\//.test(url.pathname))
     url.hostname = "newtoki1.org";
   return url.href;
 }

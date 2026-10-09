@@ -12,6 +12,8 @@ import { resolve, join, basename } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { setTimeout as wait } from "node:timers/promises";
 import { canonicalWorkInput } from "./source-links.mjs";
+import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
+import { validateRunnablePreset, presetHash } from "./preset-runtime.mjs";
 import {
   listChapterMetadata,
   writeChapterMetadata,
@@ -39,6 +41,7 @@ export function safeId(value) {
   return value;
 }
 export function validateUrl(value) {
+  if(isWebtoonUrl(value))return webtoonSource(value).chapterUrl;
   let url;
   try {
     url = new URL(value);
@@ -77,11 +80,14 @@ export function validateJob(input) {
   if (!input || typeof input !== "object" || Array.isArray(input))
     throw Object.assign(new Error("작품 설정이 필요합니다."), { status: 400 });
   const url = validateUrl(canonicalWorkInput(input.url));
+  const webtoon=isWebtoonUrl(url);
+  if(input.contentType!==undefined&&input.contentType!==(webtoon?"webtoon":"novel"))
+    throw Object.assign(Error("작품 주소와 콘텐츠 유형이 다릅니다."),{status:400});
   const executor = input.executor ?? "server",
-    format = input.format ?? "txt";
+    format = input.format ?? (webtoon?"cbz":"txt");
   if (
     !["server", "browser"].includes(executor) ||
-    !["txt", "epub"].includes(format)
+    !(webtoon?["cbz"]:["txt", "epub"]).includes(format) || (webtoon&&executor!=="server")
   )
     throw Object.assign(new Error("지원하지 않는 수집 방식 또는 형식입니다."), {
       status: 400,
@@ -140,6 +146,8 @@ export function validateJob(input) {
   }
   return {
     url,
+    ...(webtoon?{contentType:"webtoon"}:{}),
+    ...(input.presetSnapshot?validatedSnapshot(input,url,webtoon):{}),
     title: input.title?.trim() ?? "",
     executor,
     format,
@@ -150,6 +158,12 @@ export function validateJob(input) {
     retryOnlyFailed: input.retryOnlyFailed ?? false,
     retryChapterIds,
   };
+}
+function validatedSnapshot(input,url,webtoon){
+  const config=validateRunnablePreset(input.presetSnapshot);
+  if(config.origin!==new URL(url).origin||config.contentType!==(webtoon?"webtoon":"novel")||input.presetHash!==presetHash(config))
+    throw Object.assign(Error("예약 프리셋의 유형·원천·해시를 확인하세요."),{status:400});
+  return {presetSnapshot:config,presetHash:input.presetHash,...(input.presetId?{presetId:safeId(input.presetId)}:{})};
 }
 export function cleanMessage(value) {
   return String(value ?? "")
@@ -294,7 +308,7 @@ export class FolderStore {
     return this.locked("job-creation", async () => {
       const workKey = (value) => {
         const url = new URL(value);
-        return `${url.hostname}/${url.pathname.split("/")[2]}`;
+        return `${url.hostname}/${url.pathname.split("/")[1]}/${url.pathname.split("/")[2]}`;
       };
       const active = new Set(
         (await this.listJobs())
@@ -534,6 +548,8 @@ export class FolderStore {
         number: chapter.number,
         title: chapter.title.slice(0, 1000),
         url: validateUrl(chapter.url),
+        ...(data.contentType==="webtoon"?{sourceOrdinal:chapter.sourceOrdinal,chapterLabel:chapter.chapterLabel,
+          seasonLabel:chapter.seasonLabel,seasonNumber:chapter.seasonNumber}:{}),
         ...(chapter.notReady === true ? { notReady: true } : {}),
       };
     });
@@ -665,6 +681,15 @@ export class FolderStore {
       size: Buffer.byteLength(text),
       updatedAt: new Date().toISOString(),
     };
+    return this.saveChapter(bookId,chapterId,chapter);
+  }
+  async writeWebtoonChapter(bookId,chapterId,chapter){
+    safeId(bookId);safeId(chapterId);
+    if(!chapter.complete||chapter.contentType!=="webtoon"||!chapter.images?.length||chapter.images.length!==chapter.expectedImages)
+      throw Object.assign(Error("불완전한 웹툰 회차는 저장 완료로 표시할 수 없습니다."),{status:400});
+    return this.saveChapter(bookId,chapterId,{...chapter,id:chapterId,url:validateUrl(chapter.url),updatedAt:new Date().toISOString()});
+  }
+  async saveChapter(bookId,chapterId,chapter){
     return this.locked("chapter:" + bookId + ":" + chapterId, async () => {
       const path = this.path(
         "books",

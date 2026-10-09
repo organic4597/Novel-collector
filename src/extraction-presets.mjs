@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { isIP } from "node:net";
-import { isPublicAddress } from "./collector.mjs";
+import { isPublicAddress } from "./public-address.mjs";
 import { listDefaultPresets, defaultPresetConfig } from "./default-presets.mjs";
+import {validatePresetV3,compilePreset,validateRunnablePreset,presetHash,matchesPresetPage,evaluatePresetPage} from "./preset-runtime.mjs";
 
 export const PRESET_FIELDS = Object.freeze({
   listing: ["items", "title", "author", "genres", "tags", "platform", "episodeCount", "publication", "thumbnail", "url", "updatedLabel", "nextPageButton"],
@@ -29,6 +30,7 @@ function selector(value) {
   return value.trim();
 }
 export function validatePreset(input) {
+  if(input?.version===3)return validatePresetV3(input);
   if(input?.version===2)return validateGroup(input);
   exact(input, ["version", "name", "origin", "pagePattern", "kind", "fields"], "프리셋");
   let bytes;
@@ -99,6 +101,7 @@ function validateGroup(input){
   return{version:2,name:common.name,origin:common.origin,pages};
 }
 export function groupPreset(input){
+  if(input.version===3)return validatePreset(input);
   if(input.version===2)return validatePreset(input);
   const old=validatePreset(input),pages=Object.fromEntries(Object.entries(patterns).map(([kind,pagePattern])=>[kind,{pagePattern,fields:{}}]));
   const kind=old.kind==="catalog"?"detail":old.kind;
@@ -112,24 +115,28 @@ export class ExtractionPresets {
   constructor({ store, maxPresets = 100 }) {
     this.store = store; this.path = store.path("extraction-presets.json");
     if (!Number.isSafeInteger(maxPresets) || maxPresets < 1) throw bad("프리셋 저장 개수 설정을 확인하세요.");
-    this.maxPresets = Math.min(100, maxPresets); this.records = new Map(); this.control = Promise.resolve();
+    this.maxPresets = Math.min(100, maxPresets); this.records = new Map(); this.control = Promise.resolve();this.bindings=new Map();this.bindingPath=store.path("preset-bindings.json");this.validationPath=store.path("preset-validation.json");this.validations=new Map();
   }
   async load() {
+    for(const path of [this.bindingPath,this.validationPath])try{if((await stat(path)).size>2*1024*1024)throw Object.assign(Error("프리셋 연결 기록이 너무 큽니다."),{status:503});}catch(error){if(error.code!=="ENOENT")throw error;}
     try { if ((await stat(this.path)).size > 2 * 1024 * 1024) throw Error(); } catch (e) { if (e.code !== "ENOENT") throw Object.assign(new Error("프리셋 저장소를 읽지 못했습니다."), { status: 503 }); }
     const data = await this.store.json(this.path);
-    if (!data) return this;
     try {
-      if (data.version !== 1 || !Array.isArray(data.presets) || data.presets.length > this.maxPresets) throw Error();
-      for (const record of data.presets) {
+      if (data&&(data.version !== 1 || !Array.isArray(data.presets) || data.presets.length > this.maxPresets)) throw Error();
+      for (const record of data?.presets||[]) {
         if (!/^[a-f0-9-]{36}$/.test(record.id) || this.records.has(record.id) || !Number.isFinite(Date.parse(record.createdAt)) || !Number.isFinite(Date.parse(record.updatedAt))) throw Error();
         this.records.set(record.id, { id: record.id, config: validatePreset(record.config), createdAt: record.createdAt, updatedAt: record.updatedAt });
       }
+      const bound=await this.store.json(this.bindingPath);if(bound&&(bound.version!==1||!Array.isArray(bound.bindings)||bound.bindings.length>100))throw Error();
+      for(const item of bound?.bindings||[]){const config=validateRunnablePreset(this.get(item.presetId).config);if(config.origin!==item.origin||config.contentType!==item.contentType)throw Error();this.bindings.set(item.contentType+":"+item.origin,{origin:item.origin,contentType:item.contentType,presetId:item.presetId});}
+      const checked=await this.store.json(this.validationPath);if(checked&&(checked.version!==1||!Array.isArray(checked.validations)||checked.validations.length>100))throw Error();
+      for(const item of checked?.validations||[])if(this.records.has(item.presetId)){if(!/^[a-f0-9]{64}$/.test(item.presetHash)||!item.pages||Object.keys(item.pages).some(key=>!["listing","detail","reader"].includes(key)||!Number.isFinite(Date.parse(item.pages[key]))))throw Error();this.validations.set(item.presetId,item);}
     } catch { throw Object.assign(new Error("저장된 프리셋 형식이 올바르지 않습니다."), { status: 503 }); }
     return this;
   }
   list() {
-    return [...this.records.values()].map(r => r.config.version===2?({id:r.id,name:r.config.name,origin:r.config.origin,
-      pages:Object.entries(r.config.pages).map(([kind,p])=>({kind,pagePattern:p.pagePattern,fieldCount:Object.keys(p.fields).length})),
+    return [...this.records.values()].map(r => r.config.version>=2?({id:r.id,name:r.config.name,origin:r.config.origin,...(r.config.version===3?{contentType:r.config.contentType}:{}),
+      pages:Object.entries(r.config.pages).map(([kind,p])=>({kind,pagePattern:p.pagePattern||p.pagePatterns[0],...(p.pagePatterns?{pagePatterns:p.pagePatterns}:{}),fieldCount:Object.keys(p.fields).length})),
       fieldCount:Object.values(r.config.pages).reduce((n,p)=>n+Object.keys(p.fields).length,0),updatedAt:r.updatedAt}):({ id: r.id, name: r.config.name, origin: r.config.origin,
       kind: r.config.kind, pagePattern: r.config.pagePattern, fieldCount: Object.keys(r.config.fields).length, updatedAt: r.updatedAt }));
   }
@@ -163,6 +170,9 @@ export class ExtractionPresets {
   }
   async #saveRecord(config, id = null) {
       if (id && !this.records.has(id)) this.get(id);
+      if(id&&[...this.bindings.values()].some(value=>value.presetId===id)){
+        const compiled=validateRunnablePreset(config);for(const value of this.bindings.values())if(value.presetId===id&&(value.origin!==compiled.origin||value.contentType!==compiled.contentType))throw Object.assign(Error("연결된 프리셋의 원천·유형은 연결 해제 후 변경하세요."),{status:409});
+      }
       if (!id && this.records.size >= this.maxPresets) throw Object.assign(new Error("프리셋은 최대 100개 저장할 수 있습니다."), { status: 409 });
       const now = new Date().toISOString();
       const record = { id: id || randomUUID(), config, createdAt: id ? this.records.get(id).createdAt : now, updatedAt: now };
@@ -170,6 +180,31 @@ export class ExtractionPresets {
       return structuredClone(record);
   }
   remove(id) {
-    return this.serialized(async () => { this.get(id); const next = new Map(this.records); next.delete(id); await this.persist(next); return { deleted: true }; });
+    return this.serialized(async () => { this.get(id);if([...this.bindings.values()].some(item=>item.presetId===id))throw Object.assign(Error("기본 연결을 해제한 뒤 프리셋을 삭제하세요."),{status:409});const next = new Map(this.records); next.delete(id); await this.persist(next); return { deleted: true }; });
+  }
+  sourceValidated(id){const checked=this.validations.get(id);return checked?.presetHash===presetHash(this.get(id).config)&&["listing","detail","reader"].every(kind=>checked.pages[kind]);}
+  listBindings(){return{version:1,bindings:[...this.bindings.values()].map(value=>({...value,presetHash:presetHash(this.get(value.presetId).config),validated:!!this.sourceValidated(value.presetId)}))};}
+  bind(id){return this.serialized(async()=>{const config=validateRunnablePreset(this.get(id).config);if(!this.sourceValidated(id))throw Object.assign(Error("세 페이지의 원본 검증을 완료한 뒤 적용하세요."),{status:409});const next=new Map(this.bindings),key=config.contentType+":"+config.origin;next.set(key,{origin:config.origin,contentType:config.contentType,presetId:id});await this.store.atomic(this.bindingPath,{version:1,bindings:[...next.values()]});this.bindings=next;return this.listBindings();});}
+  unbind(id){return this.serialized(async()=>{this.get(id);const next=new Map([...this.bindings].filter(([,value])=>value.presetId!==id));await this.store.atomic(this.bindingPath,{version:1,bindings:[...next.values()]});this.bindings=next;return this.listBindings();});}
+  snapshot({origin,contentType="novel",presetId=null}){
+    if(!["novel","webtoon"].includes(contentType))throw bad("콘텐츠 유형을 확인하세요.");
+    let normalized;try{normalized=new URL(origin).origin;}catch{throw bad("예약 원천 주소를 확인하세요.");}const id=presetId||this.bindings.get(contentType+":"+normalized)?.presetId;
+    if(!id)return null;if(!this.sourceValidated(id))throw Object.assign(Error("프리셋의 최신 설정을 원본에서 다시 검증하세요."),{status:409});const presetSnapshot=validateRunnablePreset(this.get(id).config);
+    if(presetSnapshot.origin!==normalized||presetSnapshot.contentType!==contentType)throw bad("프리셋 원천과 콘텐츠 유형이 예약과 다릅니다.");
+    return{presetId:id,presetSnapshot:structuredClone(presetSnapshot),presetHash:presetHash(presetSnapshot),contentType};
+  }
+  async validatePage(id,{pageKind,url},page){
+    const config=compilePreset(this.get(id).config);if(!Object.hasOwn(config.pages,pageKind)||!matchesPresetPage(config,pageKind,url))throw bad("검증 페이지가 프리셋 경로와 다릅니다.");
+    if(page.url()!==url||!matchesPresetPage(config,pageKind,page.url()))throw bad("검증 페이지의 실제 주소가 다릅니다.");
+    const required=pageKind==="listing"?["items","title","url"]:pageKind==="detail"?["title","rows","chapterUrl"]:["root",config.contentType==="webtoon"?"images":"text"];
+    for(const key of required)if(!config.pages[pageKind].fields[key])throw bad(`검증 필수 항목이 없습니다: ${key}`);
+    let result;try{result=await page.evaluate(evaluatePresetPage,config.pages[pageKind]);}catch(error){throw Object.assign(Error(/PRESET_SELECTOR_INVALID|PRESET_URL_INVALID/.test(error.message)?"프리셋 선택자·링크 형식을 확인하세요.":"원본에서 필수 추출 영역을 확인하지 못했습니다."),{status:409});}const hash=presetHash(config);
+    for(const key of required)if(!result.matches[key])throw Object.assign(Error(`원본에서 필수 항목을 찾지 못했습니다: ${key}`),{status:409});
+    await this.serialized(async()=>{
+      if(presetHash(this.get(id).config)!==hash)throw Object.assign(Error("검증 중 설정이 변경됐습니다. 다시 검증하세요."),{status:409});
+      const next=new Map(this.validations),previous=next.get(id),pages=previous?.presetHash===hash?{...previous.pages}:{};pages[pageKind]=new Date().toISOString();next.set(id,{presetId:id,presetHash:hash,pages});
+      await this.store.atomic(this.validationPath,{version:1,validations:[...next.values()].filter(value=>this.records.has(value.presetId))});this.validations=next;
+    });
+    return{valid:true,pageKind,presetHash:hash,matches:result.matches};
   }
 }

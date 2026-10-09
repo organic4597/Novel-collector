@@ -8,7 +8,7 @@
   let savedScroll = { x:0, y:0 };
   let item = null, epoch = 0, loading = false, submitting = false, timer = null, finishWait = null;
   function cancelWait() { clearTimeout(timer); finishWait?.(); finishWait=null; }
-  const valid = id => /^\d{1,15}$/.test(String(id));
+  const valid = id => /^(?:\d{1,15}|webtoon-[a-f0-9]{32})$/.test(String(id));
   const current = own => own === epoch && UI.authenticated() && dialog.open && !document.hidden;
   function show(work) {
     if (!work || !valid(work.id)) return;
@@ -31,11 +31,18 @@
     const cover = $("work-cover");
     window.CollectorPerformance.titleCover($("work-cover-fallback"),item.title);
     $("work-cover-fallback").hidden=!cover.hidden;
-    if (typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail)) {
+    if (typeof item.thumbnail === "string" && /^\/api\/discover\/(?:\d{1,15}|webtoon-[a-f0-9]{32})\/thumbnail$/.test(item.thumbnail)) {
       if (cover.getAttribute("src") !== item.thumbnail) { cover.src = item.thumbnail; cover.hidden = false; }
     } else { cover.removeAttribute("src"); cover.hidden = true;$("work-cover-fallback").hidden=false; }
     const origin = origins.has(UI.status?.().source?.origin) ? UI.status().source.origin : "https://sbxh9.com";
-    $("work-source").href = new URL(`/novel/${item.id}`, origin).href;
+    const webtoon=item.contentType==="webtoon"||String(item.id).startsWith("webtoon-");
+    $("work-source").hidden=webtoon&&!item.url;
+    if(webtoon&&item.url){const source=new URL(item.url);if(origins.has(source.origin)&&/^\/webtoon\/[^/]+\/?$/.test(source.pathname))$("work-source").href=source.href;else $("work-source").hidden=true;}
+    else if(!webtoon)$("work-source").href = new URL(`/novel/${item.id}`, origin).href;
+    if($("work-format").dataset.type!==(webtoon?"webtoon":"novel")){
+      $("work-format").dataset.type=webtoon?"webtoon":"novel";
+      $("work-format").replaceChildren(...(webtoon?[["cbz","회차 CBZ · 작품 ZIP"]]:[["txt","TXT"],["epub","EPUB"]]).map(([value,label])=>{const node=UI.node("option","",label);node.value=value;return node;}));
+    }
     $("work-refresh").disabled = loading;
     $("work-add").disabled = submitting;
     $("work-select").disabled = loading || submitting;
@@ -121,7 +128,8 @@
     submitting=true;show(item);
     const own=epoch,generation=UI.generation();
     try {
-      const result=await UI.batch([{url:`https://newtoki1.org/novel/${item.id}`,title:item.title || "",
+      const result=await UI.batch([{url:item.contentType==="webtoon"?item.url:`https://newtoki1.org/novel/${item.id}`,title:item.title || "",
+        ...(item.contentType==="webtoon"?{contentType:"webtoon"}:{}),
         format:$("work-format").value,executor:"server",startAt:null,startEpisode:null,endEpisode:null,overwrite:false}]);
       if (own!==epoch || generation!==UI.generation())return;
       UI.toast(result.jobs?.length ? "작품을 수집 대기열에 등록했습니다." : "이미 등록된 작품입니다.");
@@ -143,7 +151,7 @@
     if(dialog.open && UI.view()!=="discover")back();
   });
   document.addEventListener("collector:mutated",event=>{
-    const id=(event.detail?.path || "").match(/^\/api\/discover\/(\d{1,15})\/(overview|refresh)$/)?.[1];
+    const id=(event.detail?.path || "").match(/^\/api\/discover\/(\d{1,15}|webtoon-[a-f0-9]{32})\/(overview|refresh)$/)?.[1];
     if(id && cache.has(id))cache.set(id,{...cache.get(id),dirty:true});
   });
   document.addEventListener("visibilitychange",()=>{

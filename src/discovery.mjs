@@ -31,6 +31,8 @@ import {
 import { SourceRequestGate } from "./source-request-gate.mjs";
 import { readWorkMetadata } from "./collection-metadata.mjs";
 import { DiscoveryPageCache, catalogFreshness } from "./discovery-page-cache.mjs";
+import { isWebtoonUrl, validDiscoveryId } from "./webtoon-source.mjs";
+import { webtoonMetadata, webtoonPreset } from "./webtoon-runtime.mjs";
 
 const PAGE_TTL = 30 * 60 * 1000,
   NEGATIVE_TTL = 6 * 60 * 60 * 1000;
@@ -53,13 +55,14 @@ function publicWork(work) {
   };
 }
 const validId = (value) => {
-  if (!/^\d{1,15}$/.test(String(value)))
+  if (!validDiscoveryId(value))
     throw badInput("작품 번호가 잘못됐습니다.");
   return String(value);
 };
 const attention = (message) =>
   Object.assign(new Error(message), { code: "NEEDS_ATTENTION" });
 export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
+  if(input.contentType!==undefined&&!["novel","webtoon"].includes(input.contentType))throw badInput("콘텐츠 유형을 확인하세요.");
   const integer = (value, fallback, max) => {
     const n = value === undefined || value === "" ? fallback : Number(value);
     if (!Number.isSafeInteger(n) || n < 1 || n > max)
@@ -80,7 +83,7 @@ export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
     genre = text(input.genre, 40),
     platform = text(input.platform, 40),
     author = text(input.author, 100);
-  const publication = input.publication || "all",
+  const publication = input.publication || (input.contentType==="webtoon"?"ongoing":"all"),
     sort = input.sort || "updated";
   if (!["all", "ongoing", "completed"].includes(publication) || !SORT.has(sort))
     throw badInput("필터 선택이 잘못됐습니다.");
@@ -95,6 +98,7 @@ export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
   if (minEpisodes !== null && maxEpisodes !== null && minEpisodes > maxEpisodes)
     throw badInput("회차 범위가 잘못됐습니다.");
   return {
+    ...(input.contentType==="webtoon"?{contentType:"webtoon"}:{}),
     page: integer(input.page, 1, pageLimit),
     query,
     genre,
@@ -134,6 +138,7 @@ export class Discovery {
     attention = null,
     viewerOrigins = null,
     publicMetadata = true,
+    presets = null,
   }) {
     this.rootDir = rootDir;
     this.browserPath = browserPath;
@@ -157,6 +162,7 @@ export class Discovery {
     this.onRequestFailure = onRequestFailure;
     this.viewerOrigins = viewerOrigins;
     this.publicMetadata = publicMetadata;
+    this.presets = presets;
     this.pageCache = new DiscoveryPageCache(this, normalizeDiscoveryQuery, PAGE_TTL);
     this.sourceGate = new SourceRequestGate({
       owner: this,
@@ -177,6 +183,7 @@ export class Discovery {
   }
   transportUrl(value) {
     const source = normalizeDiscoveryUrl(value);
+    if(isWebtoonUrl(value)||/^\/(?:ing|end)\/?$/.test(source.pathname))return source.href;
     if (this.viewerOrigins)
       return (
         this.viewerOrigins.resolveWork?.(source.href) ||
@@ -394,7 +401,7 @@ export class Discovery {
         await this.navigate(page, source);
         // Read the introductory page only. No chapter body, full catalog walk,
         // load-more button, login or CAPTCHA solver is part of this operation.
-        const metadata = await page.evaluate(readWorkMetadata);
+        const metadata = isWebtoonUrl(work.url)?await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin).presetSnapshot):await page.evaluate(readWorkMetadata);
         const detail = await this.updateWork(id, latest => ({ ...latest,
           ...mergeSourceMetadata(latest, metadata),
           episodeCount: Number.isSafeInteger(metadata.expectedChapterCount) ? metadata.expectedChapterCount : latest?.episodeCount ?? null,
@@ -425,6 +432,7 @@ export class Discovery {
     // Dashboard pages are independent of the source site's page size. Keep
     // source-page caches intact and join only the pages covering this range.
     const query = normalizeDiscoveryQuery(input, 25000);
+    if(query.contentType==="webtoon"&&(query.query||query.author)&&(query.genre||query.platform))return this.filteredWebtoonSearch(query,{onProgress});
     const key = `paged-list:${JSON.stringify(query)}`;
     let observers = this.listObservers.get(key);
     if (!this.pending.has(key)) {
@@ -519,6 +527,28 @@ export class Discovery {
   sourceList(input = {}, options = {}) {
     return this.pageCache.list(input, options);
   }
+  filteredWebtoonSearch(query,{onProgress}={}){
+    const origin=new URL(this.transportUrl("https://newtoki1.org/novel")).origin,selected=webtoonPreset(this.presets,origin);
+    return this.dedupe("webtoon-search:"+selected.presetHash+":"+JSON.stringify(query),async()=>{
+      const normal=await this.sourceList({contentType:"webtoon",page:1,publication:query.publication});
+      const remote={...query,genre:"",platform:"",minEpisodes:undefined,maxEpisodes:undefined,page:1};
+      const first=await this.sourceList(remote),pages=[first],items=[],ids=new Set();
+      for(let page=1;page<=first.maxPage;page++){
+        const data=page===1?first:await this.sourceList({...remote,page});if(page>1)pages.push(data);
+        for(const item of data.items){const platform=this.webtoonPlatforms?.[origin]?.[item.platform]||item.platform;
+          if(ids.has(item.id))throw Object.assign(Error("검색 결과가 변경됐습니다. 다시 검색하세요."),{status:409});ids.add(item.id);
+          const counted=query.minEpisodes===null&&query.maxEpisodes===null||item.episodeCount!=null;
+          if((!query.genre||query.genre.split("/").some(genre=>item.genres?.includes(genre)))&&(!query.platform||platform===query.platform)&&counted&&
+            (query.minEpisodes===null||item.episodeCount>=query.minEpisodes)&&(query.maxEpisodes===null||item.episodeCount<=query.maxEpisodes))items.push({...item,platform});}
+      }
+      const maximum=Math.max(1,Math.ceil(items.length/DISCOVERY_PAGE_SIZE));if(query.page>maximum)throw badInput("목록의 마지막 페이지를 초과했습니다.");
+      const result={items:items.slice((query.page-1)*DISCOVERY_PAGE_SIZE,query.page*DISCOVERY_PAGE_SIZE),page:query.page,maxPage:maximum,total:items.length,
+        pageSize:DISCOVERY_PAGE_SIZE,loadedCount:Math.min(DISCOVERY_PAGE_SIZE,Math.max(0,items.length-(query.page-1)*DISCOVERY_PAGE_SIZE)),
+        cacheHit:pages.every(page=>page.cacheHit),...catalogFreshness(pages),cachedAt:first.cachedAt,
+        filters:{...normal.filters,...query,episodeScope:query.minEpisodes!==null||query.maxEpisodes!==null?"known-only":"all"}};
+      result.unknownEpisodeCount=result.items.filter(item=>item.episodeCount==null).length;await onProgress?.(result);return result;
+    });
+  }
   detail(value) {
     const id = validId(value);
     return this.dedupe(`detail:${id}`, () =>
@@ -551,6 +581,12 @@ export class Discovery {
             url.search = "";
             if (number > 1) url.searchParams.set("epage", String(number));
             await this.navigate(page, url.href);
+            if(isWebtoonUrl(work.url)){
+              const metadata=await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin).presetSnapshot);
+              const detail=await this.updateWork(id,latest=>({...latest,...mergeSourceMetadata(latest,metadata),episodeCount:metadata.expectedChapterCount??null,
+                detailCachedAt:new Date(this.now()).toISOString(),overviewCachedAt:new Date(this.now()).toISOString()}));
+              return publicWork(detail);
+            }
             const data = await page.evaluate(readCatalogDocument);
             if (data.normalCatalog) {
               const metadata = await page.evaluate(readWorkMetadata);

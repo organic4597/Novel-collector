@@ -1,7 +1,7 @@
 import { watchNormalDiscoveryResponses } from "./normal-discovery-network.mjs";
 // Ordinary public controls only; no website API or private session state.
 export function readNormalListState(doc = document) {
-  const list = doc.querySelector("ul.novel-list, .search-results-grid");
+  const list = doc.querySelector("ul.novel-list, .search-results-grid, .work-card-grid");
   const pager = doc.querySelector(".pager-window--desktop");
   const active = pager
     ?.querySelector(".pager-num.is-active")
@@ -14,7 +14,7 @@ export function readNormalListState(doc = document) {
     (row) => ({
       label: row.querySelector(".label")?.textContent.trim(),
       active: [...row.querySelectorAll(".chips .active")].map((node) =>
-        node.textContent.replace(/^[✓✕]\s*/, "").trim(),
+        node.textContent.replace(/^[✓✕]\s*/, "").trim()||node.querySelector("img[alt]")?.getAttribute("alt")||node.getAttribute("aria-label")||node.getAttribute("title")||"",
       ),
     }),
   );
@@ -63,7 +63,7 @@ export function clickNormalListControl(control, doc = document) {
     node.textContent
       .replace(/^[✓✕]\s*/, "")
       .replace(/\s+/g, " ")
-      .trim();
+      .trim()||node.querySelector("img[alt]")?.getAttribute("alt")||node.getAttribute("aria-label")||node.getAttribute("title")||"";
   const pager = doc.querySelector(".pager-window--desktop");
   let node;
   let expectedPage = null;
@@ -150,7 +150,7 @@ export function normalSearchUrl(query) {
     );
   const url = new URL("https://newtoki1.org/search");
   url.searchParams.set("q", query.query || query.author);
-  url.searchParams.set("kind", "novel");
+  url.searchParams.set("kind", query.contentType||"novel");
   url.searchParams.set("field", query.author ? "author" : "title");
   url.searchParams.set("match", "contains");
   if (query.publication !== "all")
@@ -167,14 +167,15 @@ export async function openNormalDiscovery(
   query,
   readDocument,
   readReader,
-  { knownMaxPage = null, knownTotal = null } = {},
+  { knownMaxPage = null, knownTotal = null, readPage = () => page.evaluate(readDocument), webtoonSources = null } = {},
 ) {
   const search = !!(query.query || query.author);
-  if (!search && query.publication === "ongoing")
+  if (!search && query.publication === "ongoing" && query.contentType!=="webtoon")
     throw failure(
       "새 사이트의 전체 작품 목록에서는 연재 중 필터를 제공하지 않습니다. 제목·작가 검색에서 연재 상태를 선택해 주세요.",
     );
-  const base =
+  const base = query.contentType==="webtoon"?
+    new URL(owner.transportUrl("https://newtoki1.org/novel")).origin+(query.publication==="completed"?webtoonSources?.completed||"/end":webtoonSources?.ongoing||"/ing"):
     query.publication === "completed"
       ? "https://newtoki1.org/novel-end"
       : "https://newtoki1.org/novel";
@@ -188,7 +189,7 @@ export async function openNormalDiscovery(
       throw failure(
         "제목·작가 검색 결과의 장르·플랫폼은 작품 정보에서 확인해 주세요.",
       );
-    return page.evaluate(readDocument);
+    return readPage();
   }
   const responses = watchNormalDiscoveryResponses(owner, page, base);
   const currentUrl = () => {
@@ -302,7 +303,7 @@ export async function openNormalDiscovery(
     );
   }
   try {
-    const initial = await page.evaluate(readDocument);
+    const initial = await readPage();
     // DOM-only fixtures and saved legacy catalog adapters keep their historical
     // tests. The live path always starts on an allowed normal frontend.
     if (!initial.normalCatalog) return initial;
@@ -311,7 +312,7 @@ export async function openNormalDiscovery(
     if (query.platform)
       await change({ kind: "platform", value: query.platform });
     await change({ kind: "sort", value: SORT_LABELS[query.sort] });
-    let data = await page.evaluate(readDocument);
+    let data = await readPage();
     let maximum = data.maxPage;
     if (data.paginationUnresolved) {
       if (Number.isSafeInteger(knownMaxPage) && knownMaxPage >= maximum &&
@@ -333,7 +334,7 @@ export async function openNormalDiscovery(
       if (moves > 100) throw failure("목록 페이지 이동을 완료하지 못했습니다.");
       await change({ kind: "page", value: query.page });
     }
-    data = await page.evaluate(readDocument);
+    data = await readPage();
     return { ...data, maxPage: maximum, paginationUnresolved: false };
   } finally {
     responses.close();

@@ -58,6 +58,15 @@
     el.value = value;
     return el;
   }
+  function sourceFilterOptions(data){
+    for(const [id,key,label]of [["discover-genre","genres","전체 장르"],["discover-platform","platforms","전체 플랫폼"]]){
+      const choices=data.filters?.[key];if(!Array.isArray(choices)||!choices.length)continue;
+      const select=$(id),value=select.value,values=[...new Set(choices.filter(value=>typeof value==="string"&&value.trim()))];
+      if(value&&!values.includes(value))values.push(value);
+      const signature=JSON.stringify(values);if(select.dataset.sourceChoices!==signature){select.replaceChildren(option("",label),...values.map(value=>option(value,value)));select.dataset.sourceChoices=signature;}
+      select.value=value;
+    }
+  }
   function notice(message = "", error = "") {
     $("discover-message").textContent = message;
     $("discover-error").textContent = error;
@@ -201,7 +210,7 @@
     const rating = Number.isFinite(item.rating) && item.rating >= 0 && item.rating <= 5 ? "평점 " + item.rating.toFixed(1) + " / 5" : "평점 미확인";
     text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + " · " + rating + (item.updatedLabel ? " · " + item.updatedLabel : ""));
     text(e.button, knownCount ? "회차 다시 확인" : "회차 확인"); e.button.disabled = checking || pending.has(e.id);
-    const source = typeof item.thumbnail === "string" && /^\/api\/discover\/\d{1,15}\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
+    const source = typeof item.thumbnail === "string" && /^\/api\/discover\/(?:\d{1,15}|webtoon-[a-f0-9]{32})\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
     if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;e.fallback.hidden=false;
       if (source) { const img = UI.node("img"); img.src = source; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.width = 160; img.height = 224;
         img.addEventListener("error", () => {img.remove();e.fallback.hidden=false;}, { once: true });img.addEventListener("load",()=>{e.fallback.hidden=true;},{once:true});e.image = img; e.cover.append(img); }
@@ -209,7 +218,7 @@
   }
   function queryFor(target) {
     const author=$("discover-search-type").value==="author",value=$("discover-query").value.trim();
-    return new URLSearchParams({ page: String(target), query:author?"":value,author:author?value:"",genre: $("discover-genre").value,
+    return new URLSearchParams({ ...($("discover-content-type")?.value==="webtoon"?{contentType:"webtoon"}:{}),page: String(target), query:author?"":value,author:author?value:"",genre: $("discover-genre").value,
       platform: $("discover-platform").value, publication: $("discover-publication").value, sort: $("discover-sort").value });
   }
   function rememberPage(key, data, complete) {
@@ -236,6 +245,7 @@
     const previous = { items, page, maxPage, pageIncomplete };
     active = true; sourceAutoPaused = false; stopAuto();
     if (cached) {
+      sourceFilterOptions(cached.data);
       pageSnapshots.delete(key); pageSnapshots.set(key, cached);
       items = cached.data.items; page = cached.data.page || target; maxPage = cached.data.maxPage || 1;
       pageIncomplete = !cached.complete; loadedCount = cached.data.loadedCount ?? items.length; loadingCount = 40;
@@ -258,6 +268,7 @@
     if (changingPage && !cached && UI.view() === "discover") $("discover-list").firstElementChild?.scrollIntoView({ block: "start", behavior: "instant" });
     const apply = (data, complete = false) => {
       if (!current()) return;
+      sourceFilterOptions(data);
       const received = Array.isArray(data.items) ? data.items : [];
       if (!request.background || complete) {
         items = received.map(item => data.stale && known.has(String(item.id)) ? { ...item, ...known.get(String(item.id)) } : item);
@@ -427,6 +438,25 @@
   $("discover-search-type").addEventListener("change",()=>{
     $("discover-query").placeholder=$("discover-search-type").value==="author"?"작가 이름으로 검색":"제목으로 검색";
   });
+  function searchSortOptions(){
+    const webtoon=$("discover-content-type")?.value==="webtoon",search=!!$("discover-query").value.trim();
+    const current=$("discover-sort").value;
+    const values=[["updated","최신순"],["new","신작순"],["bookmarks","북마크순"],["views","조회순"],["rating","평점순"],["episodes","화수순"]]
+      .filter(([value])=>!webtoon||!search||!["new","rating"].includes(value));
+    $("discover-sort").replaceChildren(...values.map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
+    $("discover-sort").value=values.some(([value])=>value===current)?current:"updated";
+  }
+  $("discover-query").addEventListener("input",searchSortOptions);
+  $("discover-content-type")?.addEventListener("change",()=>{
+    version++;dataEpoch++;pendingLoad?.controller.abort();pendingLoad=null;stopAuto();selected.clear();known.clear();attempted.clear();items=[];
+    page=1;maxPage=1;loading=false;pageIncomplete=false;
+    const webtoon=$("discover-content-type").value==="webtoon";
+    searchSortOptions();
+    $("discover-publication").replaceChildren(...(webtoon?[["ongoing","연재 중"],["completed","완결"]]:[["all","전체"],["ongoing","연재 중"],["completed","완결"]]).map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
+    $("discover-format").replaceChildren(...(webtoon?[["cbz","회차 CBZ · 작품 ZIP"]]:[["txt","TXT"],["epub","EPUB"]]).map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
+    for(const [id,label]of [["discover-genre","전체 장르"],["discover-platform","전체 플랫폼"]]){$(id).replaceChildren(option("",label));delete $(id).dataset.sourceChoices;}
+    load(1,{force:true});
+  });
   $("discover-prev").addEventListener("click", () => load(page - 1));
   $("discover-next").addEventListener("click", () => load(page + 1));
   for (const id of ["discover-min", "discover-max", "discover-unknown"])
@@ -483,7 +513,8 @@
       const jobs = [...selected.values()].map((item) => ({
         url: item.url,
         title: item.title,
-        format: $("discover-format").value,
+        format: item.contentType==="webtoon"?"cbz":$("discover-format").value,
+        ...(item.contentType==="webtoon"?{contentType:"webtoon"}:{}),
         executor: "server",
         startAt: null,
         startEpisode: null,
@@ -552,7 +583,7 @@
   });
 
   document.addEventListener("collector:mutated", event => {
-    if (!/^\/api\/discover\/\d+\/(overview|refresh)$/.test(event.detail?.path || "")) return;
+    if (!/^\/api\/discover\/(?:\d+|webtoon-[a-f0-9]{32})\/(overview|refresh)$/.test(event.detail?.path || "")) return;
     dataEpoch++; for (const entry of pageSnapshots.values()) entry.dirty = true;
   });
   $("add-batch-button").addEventListener("click", () => {

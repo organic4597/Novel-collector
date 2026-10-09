@@ -1,13 +1,15 @@
 import { createReadStream } from "node:fs";
 import { safeId } from "./store.mjs";
 import { SystemInfo } from "./system-info.mjs";
+import { readFile } from "node:fs/promises";
+import { webtoonImageInfo } from "./webtoon-images.mjs";
 const fail = (message, status) => Object.assign(new Error(message), { status });
 export function streamDownload(request, response, file) {
   const headers = {
     "Content-Type": file.mimeType,
     "Cache-Control": "private, no-cache",
     "X-Content-Type-Options": "nosniff",
-    "Content-Disposition": `attachment; filename="download.${file.mimeType === "application/zip" ? "zip" : "txt"}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
+    "Content-Disposition": `attachment; filename="download.${file.mimeType === "application/zip" ? "zip" : file.mimeType === "application/vnd.comicbook+zip" ? "cbz" : "txt"}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
   };
   if (file.etag) headers.ETag = file.etag;
   response.writeHead(200, headers);
@@ -120,6 +122,25 @@ export function createFeatureRouter({
       const id = safeId(parts[2]),
         book = await store.getBook(id);
       if (!book) throw fail("작품을 찾을 수 없습니다.", 404);
+      if(parts[3]==="export"&&parts[4]==="zip"&&parts.length===5&&["GET","HEAD"].includes(method)){
+        if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
+        streamDownload(request,response,await downloads.bookZip(id));return true;
+      }
+      if(parts[3]==="chapters"&&parts[4]&&book.contentType==="webtoon"&&["GET","HEAD"].includes(method)){
+        const chapter=await store.readChapter(id,safeId(parts[4]));if(!chapter)throw fail("웹툰 회차를 찾을 수 없습니다.",404);
+        if(parts.length===6&&parts[5]==="cbz"){
+          if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
+          streamDownload(request,response,await downloads.chapterCbz(id,parts[4]));return true;
+        }
+        if(parts.length===7&&parts[5]==="images"&&/^\d{1,4}$/.test(parts[6])){
+          const image=chapter.complete&&chapter.images?.[Number(parts[6])-1];
+          if(!image||!/^\d{4}-[a-f0-9]{16}\.(png|jpg|gif|webp)$/.test(image.filename))throw fail("저장된 웹툰 이미지가 없습니다.",404);
+          const bytes=await readFile(store.path("books",id,"chapters",chapter.id,image.filename)),info=webtoonImageInfo(bytes);
+          if(info.sha256!==image.sha256)throw fail("웹툰 이미지 해시가 일치하지 않습니다.",409);
+          response.writeHead(200,{"Content-Type":info.mimeType,"Cache-Control":"private, no-cache","X-Content-Type-Options":"nosniff"});
+          response.end(method==="HEAD"?undefined:bytes);return true;
+        }
+      }
       if (
         parts[3] === "export" &&
         parts[4] === "txt" &&
@@ -163,7 +184,8 @@ export function createFeatureRouter({
           {
             url: book.url,
             title: book.title,
-            format: settings?.get().defaultFormat ?? "txt",
+            format: book.contentType==="webtoon"?"cbz":settings?.get().defaultFormat ?? "txt",
+            ...(book.contentType==="webtoon"?{contentType:"webtoon",presetSnapshot:book.presetSnapshot,presetHash:book.presetHash}:{}),
             overwrite: false,
             retryOnlyFailed: true,
             retryChapterIds: selected,

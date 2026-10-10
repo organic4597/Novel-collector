@@ -10,11 +10,11 @@ import {JSDOM} from "jsdom";
 
 test("release history distinguishes published versions, installed version and development notes without ghost links",()=>{
   const history=releaseHistory("1.0.0.11");assert.equal(history.records.find(record=>record.version==="1.0.0.11").status,"current");
-  const pending=history.records.find(record=>record.version==="1.0.0.12");assert.equal(pending.status,"development");assert.equal(pending.url,null);
+  const pending=history.records.find(record=>record.version==="1.0.0.13");assert.equal(pending.status,"development");assert.equal(pending.url,null);
   assert.equal(history.records.some(record=>["1.0.0.8","1.0.0.9"].includes(record.version)),false);
-  const installed=releaseHistory("1.0.0.12").records[0];assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.12$/);
+  const installed=releaseHistory("1.0.0.13").records[0];assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.13$/);
   history.records[1].groups[0].items[0]="changed";assert.notEqual(releaseHistory("1.0.0.11").records[1].groups[0].items[0],"changed");
-  assert.match(releaseNotesFor("1.0.0.11"),/웹툰.*검색/);assert.match(releaseNotesFor("1.0.0.12"),/버전별/);assert.throws(()=>releaseNotesFor("unknown"),/기능 내역/);
+  assert.match(releaseNotesFor("1.0.0.11"),/웹툰.*검색/);assert.match(releaseNotesFor("1.0.0.12"),/버전별/);assert.match(releaseNotesFor("1.0.0.13"),/설치/);assert.throws(()=>releaseNotesFor("unknown"),/기능 내역/);
 });
 test("history API is admin protected and reads local curated notes without checking or applying releases",async t=>{
   const root=await mkdtemp(join(tmpdir(),"release-history-"));let network=0;
@@ -39,7 +39,7 @@ const tick=()=>new Promise(resolve=>setTimeout(resolve,10));
 test("release page loads only when opened, filters versions and opens from update settings without applying",async t=>{
   const f=await fixture(t),doc=f.window.document;assert.equal(f.calls.length,0);
   doc.getElementById("update-history-open").click();await tick();assert.deepEqual(f.calls,["/api/updates/history"]);
-  assert.equal(doc.querySelectorAll(".release-record").length,11);
+  assert.equal(doc.querySelectorAll(".release-record").length,releaseHistory("1.0.0.11").records.length);
   doc.getElementById("release-history-version").value="1.0.0.11";doc.getElementById("release-history-version").dispatchEvent(new f.window.Event("change"));
   assert.equal(doc.querySelectorAll(".release-record").length,1);assert.match(doc.getElementById("release-history-list").textContent,/웹툰/);
   assert.equal(doc.querySelector(".release-record a").getAttribute("href"),"https://github.com/organic4597/Novel-collector/releases/tag/1.0.0.11");
@@ -49,7 +49,7 @@ test("release page loads only when opened, filters versions and opens from updat
 test("release page retains existing notes on failure and drops late replies and errors after logout",async t=>{
   const f=await fixture(t),doc=f.window.document;f.open();await tick();
   f.set(async()=>{throw Error("fixture failure");});doc.getElementById("release-history-refresh").click();await tick();
-  assert.equal(doc.querySelectorAll(".release-record").length,11);assert.ok(doc.getElementById("release-history-error").textContent);
+  assert.equal(doc.querySelectorAll(".release-record").length,releaseHistory("1.0.0.11").records.length);assert.ok(doc.getElementById("release-history-error").textContent);
   let resolve;f.set(()=>new Promise(done=>{resolve=done;}));doc.getElementById("release-history-refresh").click();await tick();f.logout();resolve(releaseHistory("1.0.0.11"));await tick();
   assert.equal(doc.getElementById("release-history-list").children.length,0);assert.equal(doc.getElementById("release-history-error").textContent,"");
 });

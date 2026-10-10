@@ -1,119 +1,98 @@
-<p align="center"><img src="docs/assets/hero.svg" alt="Novel Collector — 로컬 보관함과 예약 수집 대시보드" width="100%"></p>
-
-<p align="center">
-  <a href="docs/INSTALL.md"><img src="https://img.shields.io/badge/Node.js-22%2B-43853d?logo=nodedotjs&logoColor=white" alt="Node 22 이상"></a>
-  <img src="https://img.shields.io/badge/Browser-Playwright-2EAD33?logo=playwright&logoColor=white" alt="Playwright">
-  <img src="https://img.shields.io/badge/Storage-Local_files-5978a9" alt="로컬 파일 저장">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-78cbb6" alt="MIT 라이선스"></a>
-</p>
-
-<p align="center"><a href="docs/INSTALL.md"><b>설치 매뉴얼</b></a> · <a href="docs/DASHBOARD.md">대시보드 사용법</a> · <a href="docs/UPDATE.md">업데이트</a> · <a href="docs/TROUBLESHOOTING.md">문제 해결</a> · <a href="https://github.com/organic4597/Novel-collector/wiki">Wiki</a></p>
-
 # Novel Collector
 
-앱 버전 **1.0.0.12**. 수집 중인 예약도 현재 회차 저장 후 순서를 변경하며, 제목형 대체 표지와 작가 검색을 제공합니다. 업데이트 대기 전 모듈 선로딩 오류를 수정했습니다. 설치·업데이트 사전 권한 검사, 실제 태그 중복 제거·원본 평점, 관리자 복구·기본 프리셋·실시간 업데이트 로그와 12시간 브라우저 연결 갱신도 포함합니다.
+**소설과 웹툰을 고르고, 서버에 모아 읽거나 내려받는 보관함입니다.**
 
-Node.js·Playwright 기반 소설 수집기와 웹 대시보드입니다. 최대 두 작업을 실행하고 작품별 회차는 순서대로 처리합니다. 데이터는 로컬 파일 저장소에 보관합니다.
+Windows PC 또는 Linux 서버에 설치하고 웹 브라우저로 사용합니다. 최대 두 작품을 동시에 수집하며, 작품별 회차는 순서대로 저장합니다. 라이트·다크 모드, 작품 검색, 예약, TXT·EPUB·CBZ·ZIP 내보내기를 제공합니다.
 
-## 주요 기능
+현재 소스 버전 **1.0.0.12**. 실행 중인 버전은 **관리 → 설정 → 프로그램 업데이트**에서 확인하세요.
 
-- [공식 최신 ZIP 다운로드](https://github.com/organic4597/Novel-collector/releases/latest)와 [초기 로그인·관리자 복구 안내](docs/INSTALL.md#관리자-비밀번호를-잊었을-때)
-- 직접 로컬 주소의 비밀번호 복구: 변경 범위 확인, 확인 문구, 새 접속 정보 파일 저장, 기존 관리자 세션 무효화
-- 기본 추출 프리셋 선택·추가: 기존 설정을 보존하는 수정 가능한 독립 복사본
-- 만료 목록 캐시 우선 표시·백그라운드 갱신, 탭 복귀 시 목록 유지, 카드·썸네일 유지와 부분 갱신
-- 작업 로그 선택 즉시 조회, 이전 작업의 늦은 응답 차단과 로그 행·스크롤 유지
+**[최신 정식 버전 다운로드](https://github.com/organic4597/Novel-collector/releases/latest)** · **[처음 설치하기](docs/INSTALL.md)** · **[로그인과 이용 매뉴얼](docs/DASHBOARD.md)** · [문제 해결](docs/TROUBLESHOOTING.md)
 
-- 작품 등록, 예약·일시정지·재개, 실패 회차 재수집
-- 예약 목록 삭제(저장 본문 유지), 미업로드 회차 실패 기록 후 다음 회차 진행
-- 파일 기반 작품·회차 저장, TXT/EPUB 및 묶음 다운로드
-- 작품 카드 클릭으로 작가·태그·줄거리·연재 상태를 확인하는 소개 팝업
-- 작품 찾기 페이지당 40개 카드 자리 선배치, 준비된 작품부터 순차 표시와 첫 작품 위치로 스크롤
-- 12시간 브라우저 연결 갱신, 사용 중인 연결은 회차 저장·수동 인증 완료 뒤 안전한 시점에 재연결
-- 같은 브라우저 세션을 유지하는 사이트 인증과 사용자 CAPTCHA 창
-- 서버의 `captcha_required_daily_quota` 응답에만 실행되는 조건부 CAPTCHA 모듈
-- 세션별 단일 CAPTCHA 처리, OpenCV 후보 분석, 1.8~4.5초의 실제 브라우저 드래그 기록 검증
-- 새 챌린지로 최대 **5회 자동 시도**, 모두 실패하면 기존 수동 CAPTCHA 방식으로 전환
-- 자동 시도 중 수동 화면 차단, 대시보드 자동 재시도 버튼과 단계별 진행 표시
-- 상세 로그 페이지, 시도별 예상 시간 갱신, 검증 목차 재사용과 변경 카드만 렌더링
-- [추출 프리셋](docs/PRESETS.md): 한 프리셋의 세 페이지 유형·항목별 이미지 안내, 영역 저장·재강조, 선택 항목 미리보기와 서버 저장
-- 하루 한 번 GitHub 정식 릴리스 확인, 새 버전 알림과 사용자 클릭 업데이트
-- 코드/런타임 사전 준비·개인정보 로컬 백업·실패 복구, Windows/Linux 설치 스크립트
+## 처음 사용하는 순서
 
-CAPTCHA 자동 제출은 평가된 이미지 점수·후보 차이 임계값을 설정한 경우에만 활성화됩니다. 기본값은 분석 후 제출 보류입니다. 자세한 규약은 [CAPTCHA 문서](docs/CAPTCHA.md)를 확인하세요.
+1. 최신 릴리스의 **Assets**에서 `Novel-collector-<버전>.zip`을 받아 압축을 풉니다. Linux에서는 첨부 `.tar.gz`도 사용할 수 있습니다.
+2. `install.ps1` 또는 `install.sh`로 실행 환경을 준비합니다.
+3. `start.ps1` 또는 `start.sh`로 프로그램을 실행합니다.
+4. `http://127.0.0.1:8788`을 열고 설치 폴더의 `secrets/admin-login.txt`에 있는 초기 **관리자 비밀번호**로 로그인합니다.
+5. **관리 → 설정**에서 관리자 비밀번호를 변경하고, 필요한 수집 사이트의 계정을 등록합니다.
+6. **작품 찾기**에서 소설·웹툰을 고르거나 **수집 예약**에 작품 주소를 등록합니다.
+7. **작품 보관함**에서 저장한 회차를 읽고 내려받습니다.
 
-## 실행 환경
+설치 폴더는 압축 안에서 `run.mjs`, `package-lock.json`, `install.ps1`, `install.sh`가 함께 있는 폴더입니다. GitHub가 자동 생성하는 **Source code** 압축은 개발 소스용이며 내장 업데이터의 다운로드 대상이 아닙니다. 아래 안내는 릴리스 **첨부 파일**을 기준으로 합니다.
 
-Windows와 Linux에서 같은 **`run.mjs`** 실행기를 사용합니다. 런타임이 없는 환경은 소스 ZIP 해제 후 Windows `install.ps1`, Linux `bash install.sh`로 Node.js·Python·npm·OpenCV·Chromium을 준비합니다. 설치 후 `start.ps1` / `bash start.sh`로 실행합니다.
+## Windows 빠른 시작
 
-```sh
-node run.mjs
+Windows x64 기준입니다. 압축 내용을 쓰기 가능한 폴더에 놓고 그 폴더에서 PowerShell을 엽니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-기본 대시보드는 `http://127.0.0.1:8788`입니다. `HOST`, `PORT`, `BROWSER_PATH`, `PROFILE_DIR`로 실행 환경을 지정할 수 있습니다. `deploy/novel-collector.service`는 설치 경로와 전용 사용자를 준비한 뒤 조정할 수 있는 일반 템플릿입니다.
+Node.js 22 이상, Python 환경, npm 패키지와 Chromium 등 필요한 실행 환경을 설치 스크립트가 준비합니다. 설치와 실행에 같은 Windows 계정을 사용하세요. 설치 후 다시 실행할 때는 `start.ps1`만 실행하면 됩니다.
 
-첫 실행은 빠진 npm 런타임 패키지·독립 Python/OpenCV 환경·Chromium을 준비합니다. 이후에는 확인 후 바로 실행하며 기존 DB·계정·브라우저 프로필을 재사용합니다. 경로에 공백이 있어도 실행할 수 있습니다. `npm start`도 같은 실행기를 호출합니다.
+## Linux 빠른 시작
 
-```sh
-node run.mjs --setup      # 준비만 수행
-node run.mjs --check      # 설치 없이 실행 환경 확인
-node run.mjs --no-setup   # 준비된 환경으로 서버 실행 (서비스용)
-```
-
-서비스 설치·관리자 첫 접속·브라우저 의존성·CAPTCHA 환경 설정까지는 [단계별 설치 가이드](docs/INSTALL.md)를 사용하세요.
-
-## 한눈에 보는 흐름
-
-```mermaid
-flowchart LR
-  A[작품 예약] --> B[최대 2개 수집 슬롯]
-  B --> C[검증 목차·저장 회차 재사용]
-  C --> D[회차 순차 요청]
-  D --> E{CAPTCHA 요구}
-  E -->|없음·자동 성공| F[본문 저장]
-  E -->|발생| G[동일 세션 자동 최대 5회]
-  G -->|성공| F
-  G -->|5회 실패| H[수동 확인·자동 재시도 버튼]
-  F --> I[TXT / EPUB / ZIP]
-  B -. 단계·시간·오류 .-> J[상세 로그]
-```
-
-첫 실행에서 관리자 인증 파일이 로컬 `secrets/`에 만들어집니다. 사이트 계정은 설정 화면에서 등록하며 암호화해 저장합니다. 실행 데이터·자격정보·브라우저 프로필은 Git 추적 대상이 아닙니다.
-
-## 구조
-
-| 경로 | 역할 |
-|---|---|
-| `run.mjs` | Windows/Linux 공통 준비·점검·실행 진입점 |
-| `src/` | HTTP 서버, 스케줄러, 수집기, 저장소, 사이트 인증 |
-| `public/` | 대시보드 화면 |
-| `tests/` | 단위·통합 테스트와 합성 fixture |
-| `tools/` | 이미지 분석·평가 및 Git 공개 대상 검사 |
-| `docs/` | 공개용 기능 계약과 검증 문서 |
-| `data/`, `profile/`, `secrets/` | 실행 중 생성되는 로컬 전용 데이터 |
-
-## 검증
+압축을 푼 설치 폴더에서 실행합니다. 아래 명령은 **일반 사용자로 로그인한 Linux** 기준이며 OS 패키지 설치에 sudo 권한이 필요합니다.
 
 ```sh
+sudo bash install.sh --service-user "$(id -un)"
+bash start.sh
+```
+
+**root로 접속한 Rocky/Linux 서버**는 서비스 전용 계정을 먼저 만들고 설치해야 합니다. [Rocky/Linux 서버 설치와 자동 시작](docs/INSTALL.md#rockylinux-서버-설치)을 따라 주세요. 서버에 데스크톱 화면을 설치할 필요는 없으며, 대시보드는 다른 PC의 브라우저에서도 열 수 있습니다.
+
+## 비밀번호와 접속 주소
+
+- 기본 주소: `http://127.0.0.1:8788` — 프로그램을 실행한 컴퓨터에서 엽니다.
+- 초기 비밀번호: **설치한 컴퓨터/서버**의 `secrets/admin-login.txt`. 처음 서버를 실행할 때 만들어집니다.
+- 관리자 비밀번호와 **원본 사이트의 아이디·비밀번호·4자리 PIN은 서로 다릅니다**.
+- 관리자 로그인 쿠키의 유효시간은 6시간입니다. 관리자 비밀번호를 변경하면 초기 접속 파일이 삭제되므로 변경한 비밀번호를 별도로 보관하세요.
+- 서버·다른 기기·HTTPS 접속은 [접속 주소 설정](docs/INSTALL.md#다른-pc와-모바일에서-접속)을 확인하세요. 개인 서버마다 포트와 주소가 다를 수 있습니다.
+- 비밀번호를 잊으면 [관리자 복구](docs/INSTALL.md#관리자-비밀번호를-잊었을-때)를 사용합니다. 저장소나 인증 폴더를 삭제하지 않습니다.
+
+## 사용할 수 있는 기능
+
+| 화면                 | 하는 일                                                                          |
+| -------------------- | -------------------------------------------------------------------------------- |
+| 작품 찾기            | 소설·웹툰, 제목·작가, 장르·플랫폼·연재 상태·정렬로 찾고 여러 작품을 선택해 예약  |
+| 작품 보관함          | 저장한 회차 읽기, 소설 합본 TXT, 웹툰 회차 CBZ·작품 ZIP, 여러 작품 묶음 다운로드 |
+| 수집 예약            | 작품 주소·여러 주소·회차 범위·예약 시각 등록, 전체 시작·일시정지·순서 변경       |
+| 수집 기록            | 완료·부분 실패·취소 기록, 생성된 파일 받기, 실패 회차 재수집과 기록 삭제         |
+| 관리 → 설정          | 수집 속도·표지·화면 간격·관리자 비밀번호·사이트 계정·설정 파일·프로그램 업데이트 |
+| 관리 → 추출 프리셋   | 선택자 작성·저장, 웹툰의 세 페이지 원본 확인과 수집 연결                         |
+| 관리 → 상세 로그     | 프로그램 요청·조작·오류·업데이트 단계 확인                                       |
+| 관리 → 업데이트 내역 | 버전별 기능·개선·수정 확인                                                       |
+
+상단 달·해 버튼으로 라이트·다크 모드를 바꾸면 브라우저가 선택을 기억합니다. **수집 로그** 버튼은 작품별 로그를 오른쪽 창에 표시합니다. 사이트의 추가 인증은 대시보드 안내에서 **같은 서버 세션**으로 직접 완료합니다.
+
+일반 사용에는 기본 수집기를 사용하면 됩니다. 프리셋이 필요한 경우에는 [현재 지원 범위와 저장·검증·적용 단계](docs/PRESETS.md)를 먼저 확인하세요.
+
+## 업데이트와 자료 보관
+
+**관리 → 설정 → 프로그램 업데이트**에서 새 정식 버전을 확인하고 업데이트합니다. [업데이트 절차](docs/UPDATE.md)는 기존 DB·설정·계정·브라우저 프로필을 보존하고 교체 실패를 복구합니다. 처음 설치할 때의 압축본을 기존 설치 폴더에 덮어쓰는 방식으로 업데이트하지 마세요.
+
+`data/`, `secrets/`, `profile/`, `.updates/`는 설치별 개인 영역입니다. 설치 전체를 옮기거나 백업할 때는 [자료 보관 안내](docs/INSTALL.md#자료-보관과-설치-이동)를 확인하세요. 본문·DB·비밀번호·사이트 계정·쿠키·프로필은 GitHub에 올리지 않습니다.
+
+## 개발자용
+
+정식 사용자는 릴리스 첨부 파일을 사용합니다. 개발 소스는 `develop`, 검증된 정식 소스는 `main`, 배포 기준은 `release` 브랜치입니다. 개발 환경에서는 Node.js 22 이상과 개발 의존성을 준비합니다.
+
+```sh
+npm ci
 npm test
-npm run test:captcha
-npm run test:captcha:images
 node tools/check-publication.mjs
 ```
 
-1.0.0.4 변경 회귀 **670개 통과**와 커버리지·운영체제 검증 범위는 [검증 현황](docs/TESTING.md), 수명·소유권 경계는 [기능 계약](docs/CONTRACT.md)에 기록했습니다. 자동 CAPTCHA 두 테스트 파일은 이번 변경 검증에서 제외했습니다.
+테스트의 환경 변수와 실제 검증 범위는 [검증 현황](docs/TESTING.md)을 확인하세요. 프로그램 이용에 테스트 실행은 필요하지 않습니다.
 
-## 저장소 포함 범위
+## 문서 안내
 
-소스, 합성 테스트, 의존성 명세, 일반 배포 템플릿과 공개 문서만 포함합니다. 수집 본문·DB·비밀번호·계정·쿠키·토큰·브라우저 프로필·실사이트 HTML 캡처·운영 서버 주소·이전 배포 압축본은 포함하지 않습니다. `.gitignore`는 검토한 파일 유형만 허용하는 방식입니다.
+- [설치·실행·초기 로그인·서비스·접속·관리자 복구](docs/INSTALL.md)
+- [작품 선택부터 수집·읽기·다운로드까지 이용 매뉴얼](docs/DASHBOARD.md)
+- [추출 프리셋 사용법과 현재 실행 연결 범위](docs/PRESETS.md)
+- [프로그램 업데이트와 중단 복구](docs/UPDATE.md)
+- [접속·설치·수집 문제 해결](docs/TROUBLESHOOTING.md)
+- [개발 기능 계약](docs/CONTRACT.md) · [테스트 검증 현황](docs/TESTING.md)
 
-## 문서 지도
-
-| 문서 | 확인할 내용 |
-|---|---|
-| [설치](docs/INSTALL.md) | 준비물, 첫 실행, systemd, 환경값 |
-| [대시보드](docs/DASHBOARD.md) | 예약·보관함·자동 CAPTCHA·상세 로그 |
-| [추출 프리셋](docs/PRESETS.md) | 설치 없는 북마크릿 선택·미리보기·JSON 가져오기 |
-| [업데이트](docs/UPDATE.md) | 자료를 보존하는 소스 갱신·복구 |
-| [문제 해결](docs/TROUBLESHOOTING.md) | 목차 시간 초과, 인증, 브라우저, 화면 지연 |
-| [CAPTCHA](docs/CAPTCHA.md) | 상태·좌표·trail·재시도 규약 |
-| [계약](docs/CONTRACT.md) / [검증](docs/TESTING.md) | 수명·소유권과 실제 테스트 범위 |
+[MIT 라이선스](LICENSE)

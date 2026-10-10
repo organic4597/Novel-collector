@@ -1,185 +1,300 @@
-# 설치와 공통 실행기
+# 처음 설치부터 관리자 로그인까지
 
-[README](../README.md) · [대시보드 사용법](DASHBOARD.md) · [문제 해결](TROUBLESHOOTING.md)
+[README](../README.md) · [로그인 후 이용 매뉴얼](DASHBOARD.md) · [문제 해결](TROUBLESHOOTING.md)
 
-## 1. 클린 설치 — 런타임이 없는 환경
+**처음 사용하는 사람을 위한 정식 설치 안내입니다.** Windows는 x64, 서버 예시는 Rocky/Linux x64를 기준으로 설명합니다. 설치 스크립트는 Windows와 Linux를 지원합니다. Linux arm64용 Node 준비 경로도 있지만 Chromium과 해당 배포판의 실제 실행 지원은 별도로 확인해야 합니다.
 
-릴리스 소스 ZIP을 내려받아 압축을 해제한 뒤 설치 스크립트를 실행합니다. 이 스크립트가 포함된 새 릴리스부터 사용할 수 있으며 이미 게시된 1.0.0.0에는 소급 추가되지 않습니다.
+## 설치 방식 선택
 
-### Windows
+| 사용할 환경                                  | 따라갈 부분                                       |
+| -------------------------------------------- | ------------------------------------------------- |
+| Windows PC에서 직접 실행                     | [Windows 설치](#windows-설치)                     |
+| 일반 Linux 계정에서 터미널 실행              | [일반 Linux 사용자 설치](#일반-linux-사용자-설치) |
+| root로 접속한 Rocky 서버·재부팅 후 자동 시작 | [Rocky/Linux 서버 설치](#rockylinux-서버-설치)    |
+| 다른 PC·휴대전화·HTTPS 주소로 접속           | [접속 주소](#다른-pc와-모바일에서-접속)           |
+| 설치는 끝났고 비밀번호를 찾는 중             | [첫 관리자 로그인](#첫-관리자-로그인)             |
+| 관리자 비밀번호 분실                         | [복구](#관리자-비밀번호를-잊었을-때)              |
+
+## 설치 파일 받기
+
+1. [GitHub 최신 정식 릴리스](https://github.com/organic4597/Novel-collector/releases/latest)를 엽니다.
+2. **Assets**의 `Novel-collector-<버전>.zip`을 받습니다. Linux에서는 `Novel-collector-<버전>.tar.gz`도 사용할 수 있습니다.
+3. 압축을 풉니다. 압축 안쪽에서 다음 파일이 함께 있는 폴더를 찾습니다.
+
+   ```text
+   install.ps1   install.sh
+   start.ps1     start.sh
+   run.mjs       package.json   package-lock.json
+   src/          public/        tools/        docs/
+   ```
+
+4. 이 폴더를 **설치 폴더**로 사용합니다. ZIP 이름과 같은 바깥 폴더가 한 번 더 생겼다면 안쪽 폴더까지 들어갑니다. 압축 안에서 바로 실행하지 않습니다.
+
+GitHub 자동 생성 **Source code** 압축은 개발 소스용입니다. 이 안내는 릴리스 첨부 ZIP/TAR 기준이며 내장 업데이터도 릴리스 첨부 ZIP과 체크섬을 사용합니다. 첨부 `Novel-collector-<버전>-SHA256SUMS.txt`는 내려받은 파일의 SHA256을 확인할 때 사용합니다.
+
+설치와 첫 환경 준비에는 인터넷 연결이 필요합니다. 설치 폴더와 다운로드하는 런타임·저장할 작품을 위한 디스크 여유를 확보하세요.
+
+## Windows 설치
+
+### 1. 설치 폴더에서 PowerShell 열기
+
+설치 폴더는 현재 Windows 계정이 쓰기 가능한 위치에 둡니다. 아래 `C:\Novel-collector`는 예시이며 실제 압축을 푼 위치로 바꿉니다.
+
+```powershell
+Set-Location "C:\Novel-collector"
+Test-Path .\run.mjs
+```
+
+두 번째 명령 결과가 `True`인지 확인합니다. `False`이면 폴더 위치가 잘못된 것입니다.
+
+### 2. 실행 환경 설치
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+지원되는 Node.js 22 이상이 없으면 공식 x64 포터블 Node 패키지를 `.runtime\node`에 준비하고 체크섬을 확인합니다. 설치기는 uv/Python 환경, npm 패키지와 Chromium 등 필요한 의존성을 준비합니다. PATH는 설치/실행 과정에 적용하며 전역 Python 패키지를 바꾸는 방식이 아닙니다.
+
+설치와 이후 실행에는 같은 Windows 계정을 사용합니다. 오류가 나면 [설치 문제 해결](TROUBLESHOOTING.md#설치가-끝나지-않거나-실행되지-않음)을 확인하세요.
+
+### 3. 실행
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-Node.js가 없거나 지원 버전이 아니면 공식 x64 포터블 패키지를 `.runtime/node`에 준비하고 SHA256을 확인합니다. uv를 통해 Python 3.11을 준비하며 npm 패키지·OpenCV/NumPy·Chromium을 설치합니다. PATH 변경은 이 실행 과정에만 적용하고 전역 Python 패키지나 개인 데이터 폴더를 초기화하지 않습니다.
+실행 창의 `Novel Collector 실행 중`과 주소를 확인합니다. 브라우저에서 `http://127.0.0.1:8788`을 열고 [첫 관리자 로그인](#첫-관리자-로그인)을 진행합니다. 다른 포트를 설정했다면 실행 창에 표시된 주소를 사용합니다.
 
-### Linux
+터미널로 실행한 프로그램은 그 실행 창이 닫히거나 Windows가 종료되면 계속 수집할 수 없습니다. 다시 사용할 때는 `start.ps1`을 실행합니다. Windows 자동 시작 서비스 설치는 이 스크립트가 수행하는 기능이 아닙니다.
+
+### 환경 점검만 하기
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1 --check
+```
+
+점검 모드는 서버를 시작하거나 빠진 패키지를 설치하지 않습니다. 포터블 Node를 사용한 설치에서도 PATH를 구성하는 시작 스크립트를 통해 점검할 수 있습니다.
+
+## 일반 Linux 사용자 설치
+
+**일반 사용자로 로그인하고 sudo를 사용할 수 있는 경우**입니다. 압축을 푼 설치 폴더에서 실행합니다.
 
 ```sh
-bash install.sh
+sudo bash install.sh --service-user "$(id -un)"
 bash start.sh
 ```
 
-공식 Node.js 포터블 바이너리(x64/arm64)와 체크섬, uv/Python, npm, OpenCV/NumPy, Chromium을 준비합니다. Debian/Ubuntu는 Playwright의 install-deps, RHEL 8+/Rocky/AlmaLinux/Fedora는 배포판 라이브러리 패키지를 설치합니다. OS 패키지 설치에는 root 또는 비대화형 sudo 권한이 필요합니다. 수집기는 Chromium sandbox를 사용할 수 있는 일반 사용자/서비스 전용 계정으로 실행하세요. root 설치는 환경 준비이며 root로 브라우저 수집을 실행하는 방식은 아닙니다.
+설치는 root 권한으로 필요한 OS 패키지를 준비하고, 실행과 개인 자료는 지정한 일반 계정으로 사용하도록 권한을 맞춥니다. 프로그램은 일반 계정의 `bash start.sh`에서 실행합니다. 터미널 실행은 해당 실행 프로세스가 계속 살아 있어야 수집이 진행됩니다. 서버 자동 시작은 다음 서비스 설치를 사용하세요.
 
-기존 OS 라이브러리가 준비된 개발 환경에서만 `bash install.sh --skip-os-deps`를 사용할 수 있습니다. 최초 설치에는 기본 명령을 사용하세요.
+Node.js 22 이상이 없으면 공식 Node 포터블 패키지를 준비합니다. 설치기는 uv/Python, npm 패키지, Chromium과 OS 공유 라이브러리를 준비합니다. Debian/Ubuntu는 Playwright의 의존성 설치, Rocky/RHEL 계열은 `dnf` 패키지 설치를 사용합니다.
 
-서비스 계정으로 실행할 설치는 계정을 먼저 준비한 뒤 아래처럼 지정합니다. 기존 `novel-collector.service`의 설치 경로가 일치하면 root 설치 시 해당 실행 계정을 자동으로 사용하며, `sudo` 설치에서는 호출한 일반 사용자를 사용합니다. 이 두 경우에 해당하지 않으면 `--service-user`로 계정을 지정해야 합니다.
-
-```sh
-sudo bash install.sh --service-user novelcollector
-```
-
-설치 마지막에 앱 소스·런타임의 소유자는 유지하고 서비스 그룹 권한을 추가합니다. 폴더는 setgid로 새 파일의 그룹을 이어받도록 설정합니다. 소스·런타임의 기존 기타 사용자 권한은 유지합니다. 인증·설정 파일은 앱이 직접 600 권한을 관리하므로 `data`, `secrets`, `profile`, `.updates`는 서비스 계정 소유로 준비하고 다른 사용자 접근 권한은 제거합니다. root는 기존 관리자 권한으로 접근할 수 있어 비공개 파일도 root와 서비스 계정 모두 관리할 수 있습니다. `.git`과 심볼릭 링크 대상은 변경하지 않습니다. 실제 실행 계정으로 백업 읽기와 소스·런타임 교체 권한을 검사해야 설치 완료로 표시합니다.
-
-권한만 확인하려면 실행 계정으로 `node tools/install-runtime.mjs --check-permissions`를 실행합니다. Windows에서는 설치와 실행에 같은 계정을 사용하고 동일한 검사로 접근 권한을 확인합니다.
-
-관리자 계정·보관 DB·브라우저 프로필은 각 설치에서 생성하며 설치 스크립트는 이를 삭제하지 않습니다. `.runtime`, `.venv-captcha`, `profile/playwright-browsers`는 로컬 런타임입니다.
-
-## 2. 수동 실행의 준비물
-
-Windows와 Linux 모두 같은 파일을 실행합니다.
-
-- **Node.js 22 이상**과 함께 제공되는 npm
-- Python **3.9~3.12**(3.11 권장) 또는 `uv`
-- Git 또는 저장소 소스 압축본
-
-Chromium·OpenCV는 실행기가 준비할 수 있습니다. Linux Chromium의 운영체제 공유 라이브러리는 배포판에 맞게 설치해야 합니다. Playwright 지원 Debian/Ubuntu에서는 `npx playwright install --with-deps chromium`을 사용할 수 있고, Rocky/RHEL은 해당 호스트 라이브러리·sandbox를 확인합니다.
+이미 OS 공유 라이브러리가 준비된 환경에서만 `--skip-os-deps`를 사용할 수 있습니다. 처음 설치에서는 생략하지 않습니다.
 
 ```sh
-node --version
-npm --version
+bash start.sh --check
 ```
 
-Python 설치를 직접 사용할 경우 `python --version` 또는 Linux의 `python3 --version`을 확인합니다. `uv`가 있으면 실행기가 Python 3.11 가상환경을 준비할 수 있습니다. 현재 고정된 NumPy 버전으로 새 가상환경을 준비할 때는 Python 3.9~3.12를 사용합니다.
+이 점검이 통과한 뒤 브라우저에서 [첫 관리자 로그인](#첫-관리자-로그인)을 진행합니다.
 
-## 3. 실행 — Windows/Linux 동일
+## Rocky/Linux 서버 설치
 
-개발 소스는 `develop` 브랜치에 올라갑니다.
+root 또는 sudo 관리 권한을 사용할 수 있는 서버의 **첫 설치 예시**입니다. 경로 `/opt/novel-collector`, 계정·그룹 `novelcollector`, 서비스 `novel-collector.service`는 제공 템플릿과 같은 일반 예시입니다. 실제 경로를 바꾸면 서비스 설정도 함께 바꿉니다.
+
+### 1. 실행 계정과 설치 폴더 준비
 
 ```sh
-git clone --branch develop https://github.com/organic4597/Novel-collector.git
-cd Novel-collector
-node run.mjs
+id novelcollector >/dev/null 2>&1 || sudo useradd --system --user-group --create-home --home-dir /var/lib/novelcollector --shell /usr/sbin/nologin novelcollector
+sudo mkdir -p /opt/novel-collector
 ```
 
-PowerShell·명령 프롬프트·Linux 터미널 모두 마지막 명령이 같습니다. 프로그램 폴더가 아닌 위치에서는 파일의 전체 경로를 따옴표로 감싸 실행할 수 있습니다.
-
-```powershell
-node "C:\Novel Collector\run.mjs"
-```
-
-```sh
-node "/opt/novel collector/run.mjs"
-```
-
-프로젝트 폴더를 자동으로 작업 경로로 사용합니다. 브라우저 프로필·DB·인증은 그 설치의 로컬 폴더에 저장합니다.
-
-### 실행기가 하는 일
-
-1. Node 버전과 npm 런타임 패키지 확인. 없거나 버전이 다르면 `npm ci --omit=dev`로 준비.
-2. 독립 `.venv-captcha`의 Python/OpenCV/NumPy 확인. 없으면 uv 또는 Python venv/pip로 준비.
-3. 현재 `BROWSER_PATH`, 로컬 브라우저 또는 Playwright Chromium 확인. 없으면 다운로드.
-4. 현재 세션·데이터 경로를 사용해 서버 실행.
-
-준비된 환경은 매번 다시 설치하지 않습니다. Windows npm은 `npm.cmd` 셸 실행 대신 Node의 JavaScript CLI로 호출하여 공백 경로와 인자 전달을 처리합니다. Python 경로도 Windows는 `.venv-captcha/Scripts/python.exe`, Linux는 `.venv-captcha/bin/python`으로 구분합니다.
-
-## 4. 옵션
-
-| 명령 | 동작 |
-|---|---|
-| `node run.mjs` | 필요 환경 준비 후 실행 |
-| `node run.mjs --setup` | 준비만 수행하고 종료 |
-| `node run.mjs --check` | 설치·서버 시작 없이 환경 확인 |
-| `node run.mjs --no-setup` | 자동 설치 없이 준비된 서버 실행 |
-| `node run.mjs --test-images` | 준비된 Python 환경의 이미지 테스트 |
-| `node run.mjs --help` | 옵션 표시 |
-
-`npm start`, `npm run setup`, `npm run check`도 같은 실행기를 사용합니다. `--check`와 `--no-setup`에서 의존성이 빠져 있으면 설치하지 않고 오류를 안내합니다.
-
-## 5. 첫 접속과 환경 변수
-
-기본 주소는 `http://127.0.0.1:8788`입니다. 첫 실행에서 생성한 `secrets/admin-login.txt`의 초기 관리자 비밀번호로 접속합니다. 변경 뒤에는 해시가 보관되고 초기 파일은 제거됩니다. 사이트 계정·PIN은 대시보드에서 등록합니다.
-
-### 공식 다운로드와 초기 로그인
-
-1. [GitHub 최신 정식 릴리스](https://github.com/organic4597/Novel-collector/releases/latest)의 첨부 파일 `Novel-collector-<버전>.zip`을 다운로드하고 압축을 풉니다. 자동 생성된 **Source code** 압축과 실행 환경·사용자 DB를 혼동하지 마세요. 업데이터는 첨부 ZIP의 SHA256을 확인합니다.
-2. 설치·실행 안내에 따라 실행한 뒤 **설치된 컴퓨터/서버**의 `secrets/admin-login.txt`를 확인합니다. 원격 서버 설치라면 SSH 또는 서버 파일 관리자로 확인합니다. 로그인 화면에 초기 비밀번호를 공개하지 않습니다.
-3. 이 파일의 관리자 비밀번호로 로그인합니다. 원본 소설 사이트 계정과 별개입니다. 관리자 로그인 쿠키는 최대 6시간 유지됩니다.
-4. 설정에서 비밀번호를 변경하면 초기 접속 파일이 삭제됩니다. 변경한 비밀번호는 별도로 보관하세요. 관리자 비밀번호를 잊었다면 아래 복구를 사용합니다.
-
-### 관리자 비밀번호를 잊었을 때
-
-**웹 복구:** 설치된 컴퓨터의 브라우저에서 실행 포트의 직접 로컬 주소(`http://127.0.0.1:8788` 등)를 엽니다. 로그인 화면의 복구 안내를 펼쳐 변경 범위 확인과 정확한 문구 `관리자 비밀번호 초기화`를 입력합니다. 새 접속 정보 파일을 저장하고 저장 여부를 확인한 다음 새 비밀번호로 직접 로그인합니다. 복구 자체는 자동 로그인하지 않습니다.
-
-공개 도메인·LAN 주소·역방향 프록시에서 웹 초기화는 허용되지 않습니다. 로컬 주소를 사용해도 프록시 전달 헤더가 있으면 거부됩니다. 고정 `ADMIN_PASSWORD` 환경 변수 방식 또는 메모리 인증에서는 파일 기반 복구를 지원하지 않습니다.
-
-**원격 서버 수동 복구:** 서버 관리자가 프로그램/서비스를 먼저 정상 종료한 뒤 설치 폴더에서 실행합니다. 사용 중인 Node 경로와 서비스 사용자를 사용하세요.
+다운로드한 릴리스 압축을 풀고 **`install.sh`와 `run.mjs`가 있는 안쪽 폴더의 내용**을 `/opt/novel-collector`에 배치합니다. SSH 파일 전송 도구나 서버 파일 관리자를 사용할 수 있습니다.
 
 ```sh
 cd /opt/novel-collector
-node tools/reset-admin.mjs --root . --service-stopped --confirm "관리자 비밀번호 초기화"
+test -f install.sh && test -f run.mjs && test -f package-lock.json
 ```
 
-서비스를 정상 종료했다는 `--service-stopped` 확인과 정확한 `--confirm` 문구가 모두 필요합니다. 실행 중인 설치는 PID 기록을 확인해 거부합니다. 도구는 비밀번호를 터미널에 출력하지 않습니다. 완료 후 설치 폴더의 `secrets/admin-login.txt`를 안전한 경로에 보관하고 서비스를 다시 시작합니다. Windows에서도 설치 폴더의 PowerShell에서 같은 Node 명령을 사용할 수 있습니다. 공백 경로는 따옴표로 감쌉니다. 옵션은 `node tools/reset-admin.mjs --help`로 확인합니다.
+마지막 명령이 성공해야 다음 단계로 진행합니다. 이 계정은 서비스용이므로 대화형 로그인을 할 필요가 없습니다.
 
-복구는 관리자 비밀번호와 관리자 로그인 세션만 변경합니다. 소설 DB·수집 회차·예약·프리셋·원본 사이트 계정·브라우저 로그인 프로필은 유지됩니다. 모든 기존 관리자 쿠키는 무효화되며 새 접속 정보 파일을 잃으면 다시 수동 복구가 필요합니다. 초기 파일은 평문이므로 공개 업로드·이슈 첨부·공유 폴더 저장을 피하세요. 설치 폴더나 인증 파일을 삭제하는 방법으로 복구하지 마세요.
+### 2. 실행 환경과 권한 설치
 
-| 변수 | 기본 / 용도 |
-|---|---|
-| `HOST`, `PORT` | loopback / 8788 |
-| `PROFILE_DIR` | `profile/chromium`. 기존 `data/browser-profile`이 있으면 재사용하며 명시한 경로가 우선 |
-| `BROWSER_PATH` | 지정한 Chromium을 우선 사용 |
-| `PLAYWRIGHT_BROWSERS_PATH` | 기본 `profile/playwright-browsers` |
-| `CAPTCHA_PYTHON` | OS별 독립 가상환경 경로 |
-| `CAPTCHA_MIN_SCORE`, `CAPTCHA_MIN_MARGIN` | 평가한 이미지 임계값 |
-| `TRUST_PROXY`, `SECURE_COOKIES` | 자체 HTTPS 대시보드 앞단 설정 |
-| `UPDATE_REPOSITORY` | `organic4597/Novel-collector`. GitHub owner/repository 또는 저장소 URL |
-
-명시적인 `CAPTCHA_PYTHON`을 지정하면 해당 Python 환경을 확인하며 자동으로 패키지를 설치하지 않습니다. 평가 임계값을 생략하면 이미지 분석 결과 제출은 보류합니다. 계정·쿠키·토큰·실제 운영 주소는 Git에 포함하지 않습니다.
-
-## 6. Linux 서비스와 대시보드 업데이트
-
-템플릿은 `deploy/novel-collector.service`이며 `/opt/novel-collector`, 사용자 `novelcollector`를 기준으로 합니다. 실행기는 같고 서비스는 `--no-setup`을 사용합니다.
-
-```ini
-[Service]
-WorkingDirectory=/opt/novel-collector
-ExecStart=/bin/bash /opt/novel-collector/start.sh --no-setup
-Environment=UPDATE_WORKER_SURVIVES_SERVICE=1
-Environment=UPDATE_SERVICE_NAME=novel-collector.service
-KillMode=process
-ReadWritePaths=/opt/novel-collector
+```sh
+sudo bash install.sh --service-user novelcollector
+sudo -u novelcollector bash start.sh --check
 ```
 
-전용 사용자와 그룹을 먼저 준비하고 `sudo bash install.sh --service-user novelcollector`로 환경과 공유 그룹 권한을 준비합니다. 기존 서비스를 재설치할 때는 먼저 서비스를 정상 종료합니다. 서비스 등록 전에 실제 실행 계정에서 `node run.mjs --check`를 완료하세요. 읽기 전용 서비스 제한 안에서는 npm·Python 설치를 수행하지 않습니다.
+처음 root로 설치할 때는 실행 계정을 먼저 준비하고 `--service-user`로 지정합니다. **설치 준비는 root, 브라우저 수집 실행은 일반/서비스 계정**입니다. 단순히 root에서 `bash install.sh`만 실행하는 안내와 구분하세요.
+
+설치기는 소스·런타임의 서비스 그룹 권한과 `data`, `secrets`, `profile`, `.updates`의 실행 계정 접근 권한을 준비하고, 실제 계정으로 백업·교체 권한을 점검합니다. 기존 사용자 자료와 `.git`, 외부 심볼릭 링크 대상을 초기화하지 않습니다.
+
+### 3. 서비스 설정 확인
+
+`deploy/novel-collector.service`를 열어 다음 항목이 실제 설치와 맞는지 확인합니다.
+
+| 항목           | 제공 템플릿의 값                                                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------- |
+| 실행 계정·그룹 | `User=novelcollector`, `Group=novelcollector`                                                         |
+| 설치 폴더      | `WorkingDirectory=/opt/novel-collector`                                                               |
+| 실행           | `ExecStart=/bin/bash /opt/novel-collector/start.sh --no-setup`                                        |
+| 접속           | `HOST=127.0.0.1`, `PORT=8788`                                                                         |
+| 프로필·캐시    | 설치 폴더의 `profile/`                                                                                |
+| 쓰기 허용      | `ReadWritePaths=/opt/novel-collector`                                                                 |
+| 업데이트       | `KillMode=process`, `UPDATE_WORKER_SURVIVES_SERVICE=1`, `UPDATE_SERVICE_NAME=novel-collector.service` |
+
+설치 경로를 바꾸면 `WorkingDirectory`, `ExecStart`, 프로필·캐시 경로와 `ReadWritePaths`를 모두 맞춥니다. 서비스 이름을 바꾸면 `UPDATE_SERVICE_NAME`도 맞춥니다. 포트가 사용 중이면 `PORT`를 다른 번호로 바꿉니다.
+
+### 4. 등록과 자동 시작
 
 ```sh
 sudo install -m 644 deploy/novel-collector.service /etc/systemd/system/novel-collector.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now novel-collector.service
-sudo systemctl status novel-collector.service
+sudo systemctl status novel-collector.service --no-pager
 ```
 
-이미 서비스가 있으면 ExecStart를 위 실행기로 연결하는 drop-in 설정을 추가할 수 있습니다. 기존 포트·프로필·계정 경로·HTTPS 설정은 그대로 사용합니다.
-
-대시보드 업데이트를 사용하려면 root와 서비스 그룹이 설치 폴더·소스 하위 폴더·런타임을 교체할 수 있어야 하며 사용자 저장소 전체를 백업할 읽기 권한도 필요합니다. 위 서비스 설정도 함께 적용합니다. 정상 종료 후 업데이트 worker가 남아 작업을 끝내도록 KillMode=process를 사용합니다. 업데이터는 다운로드와 서비스 종료 전에 접근 권한을 검사하고 실패 원인을 기록합니다.
-
-## 7. 검증
-
-## 시작 스크립트의 기존 인스턴스 교체
-
-`start.sh` / `start.ps1`은 `run.mjs --replace`를 사용합니다. 같은 설치 폴더의 비공개 관리 소켓/Windows named pipe와 토큰으로 인스턴스를 확인하고 정상 종료 후 다시 시작합니다. 다른 설치 폴더나 무관한 Node 프로세스는 종료하지 않습니다. 업데이트 진행 중에는 인스턴스 교체를 시작하지 않습니다.
-
-이 프로토콜이 없는 이전 버전이 실행 중이면 PID만 보고 강제 종료하지 않습니다. 기존 실행 창에서 Ctrl+C로 최초 한 번 종료한 뒤 새 스크립트를 실행하세요. 이후 동일 프로토콜을 사용하는 인스턴스는 시작 스크립트가 교체합니다.
+`active (running)`인지 확인합니다. 실패 원인은 다음으로 확인합니다.
 
 ```sh
-node run.mjs --check
-node run.mjs --test-images
+sudo journalctl -u novel-collector.service -n 50 --no-pager
 ```
 
-개발 테스트까지 실행하려면 개발 의존성을 포함해 `npm ci`를 수행한 뒤 `npm test`를 실행합니다. 실행기의 기본 자동 설치는 런타임 패키지만 설치합니다. 브라우저 테스트에는 해당 환경의 Chromium을 `BROWSER_PATH`로 지정할 수 있습니다.
+이제 SSH를 닫아도 서비스가 살아 있는 동안 수집이 진행되고, 서버 재부팅 시 다시 시작합니다. 처음 실행한 뒤 초기 관리자 비밀번호를 확인하세요.
 
-서비스 연결 후 대시보드에서 실제 본문 저장과 다음 회차 진행을 확인합니다. 기존 전체 테스트 실패 항목은 [검증 현황](TESTING.md)에 공개되어 있습니다.
+기존 같은 이름의 서비스를 재설치하는 명령으로 사용하지 마세요. 기존 설치는 먼저 정상 종료하고 [업데이트 절차](UPDATE.md)를 확인합니다.
+
+## 첫 관리자 로그인
+
+1. **설치한 컴퓨터/서버**에서 프로그램이 실제로 실행 중인지 확인합니다. 설치만 하고 실행하지 않았다면 초기 비밀번호 파일이 아직 없을 수 있습니다.
+2. 설치 폴더의 `secrets/admin-login.txt`를 확인합니다. 서버에서는 SSH/파일 관리자로 확인하고, Windows에서는 메모장 등으로 엽니다.
+3. 해당 파일의 비밀번호로 대시보드의 **관리자 비밀번호**에 로그인합니다. 이 화면에는 원본 사이트 아이디나 PIN을 입력하지 않습니다.
+4. 로그인 후 **관리 → 설정 → 보안**에서 현재 비밀번호와 새 비밀번호를 입력하고 **비밀번호 변경**을 누릅니다. 새 비밀번호는 8~128자입니다.
+5. 변경하면 초기 `admin-login.txt`는 삭제되고 다른 기기의 기존 로그인은 해제됩니다. 새 비밀번호를 별도로 보관하세요.
+
+관리자 로그인 쿠키의 유효시간은 6시간입니다. 로그인 화면으로 돌아오면 관리자 비밀번호로 다시 로그인합니다. 사이트 로그인과 추가 인증은 별개이며 [이용 매뉴얼](DASHBOARD.md#사이트-계정-설정)에서 이어서 설정합니다.
+
+초기 파일은 평문 비밀번호를 포함하므로 GitHub·공개 이슈·공유 폴더에 올리지 않습니다. 설치 폴더의 `secrets`를 사용자끼리 공유하는 방식으로 로그인하지 않습니다.
+
+## 다른 PC와 모바일에서 접속
+
+### 같은 PC에서 사용
+
+기본 `HOST=127.0.0.1`, `PORT=8788`이면 **프로그램을 실행한 컴퓨터**에서 `http://127.0.0.1:8788`을 엽니다. 다른 PC·휴대전화의 `127.0.0.1`은 그 기기 자신을 가리키므로 서버에 연결되지 않습니다.
+
+### 같은 네트워크에서 사용
+
+LAN으로 직접 열 때는 서버가 외부 인터페이스를 수신하도록 `HOST`를 설정하고 사용 중인 포트에 대한 방화벽 접근을 허용합니다. 주소는 `http://서버의-LAN-IP:포트`입니다. `0.0.0.0`은 수신 설정값이며 브라우저에 입력하는 주소가 아닙니다.
+
+Windows 터미널 실행 예시:
+
+```powershell
+$env:HOST = "0.0.0.0"
+$env:PORT = "8788"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+일반 Linux 계정의 터미널 실행 예시:
+
+```sh
+HOST=0.0.0.0 PORT=8788 bash start.sh
+```
+
+systemd 서비스는 등록된 서비스 파일 또는 drop-in의 `Environment=HOST`, `Environment=PORT`를 수정한 뒤 `daemon-reload`와 해당 서비스 재시작으로 반영합니다. Windows 방화벽과 Rocky의 firewalld 설정은 해당 서버의 허용 범위에 맞춰 관리하세요.
+
+### HTTPS·역방향 프록시·Cloudflare Tunnel
+
+같은 서버의 프록시/터널 앞단을 사용할 때 앱은 기본 loopback 수신을 유지할 수 있습니다. 터널의 서비스 URL은 **`http://127.0.0.1:8788`**이며 실제 `PORT`가 다르면 그 포트를 사용합니다. 전체 대시보드를 연결할 때 경로 조건은 비워 둡니다. 사용자는 터널에 등록한 HTTPS 호스트 이름으로 접속합니다.
+
+공개 호스트 등록, 터널 생성과 프록시 자체 설치는 Novel Collector 설치기가 수행하지 않습니다. HTTPS 프록시 뒤에서 전달된 프로토콜과 Secure 쿠키를 사용하려면 실행 환경에 다음을 지정합니다.
+
+```ini
+[Service]
+Environment=TRUST_PROXY=1
+Environment=SECURE_COOKIES=1
+```
+
+이 설정은 신뢰하는 프록시만 앱에 접근하는 구성과 HTTPS 접속을 전제로 합니다. 직접 HTTP만 사용하는 첫 로컬 설치에는 `SECURE_COOKIES=1`을 넣지 않습니다. 호스트·Origin·프록시 구성이 어긋나면 로그인이 거부되거나 쿠키가 유지되지 않을 수 있습니다.
+
+PC·태블릿은 해당 주소를 브라우저로 열면 됩니다. 모바일에서 다시 열 때도 관리자 로그인이 필요할 수 있으며, 이것은 별도 전자책 앱용 DB 연결 기능을 의미하지 않습니다.
+
+## 다시 실행·중지·환경 점검
+
+| 방식              | 실행/점검                                        | 정상 중지                                |
+| ----------------- | ------------------------------------------------ | ---------------------------------------- |
+| Windows           | `start.ps1`, `start.ps1 --check`                 | 실행 창에서 Ctrl+C                       |
+| 일반 Linux 터미널 | `bash start.sh`, `bash start.sh --check`         | 실행 창에서 Ctrl+C                       |
+| systemd           | `systemctl start/status novel-collector.service` | `systemctl stop novel-collector.service` |
+
+서비스 조작은 필요에 따라 sudo를 사용합니다. 실행 중인 서버가 없으면 예약 수집도 진행되지 않습니다.
+
+시작 스크립트는 같은 설치 폴더의 기존 인스턴스를 확인하고 정상 종료한 뒤 다시 시작합니다. 다른 설치나 무관한 Node 프로세스를 종료하지 않습니다. 이전 버전이 이 교체 규약을 지원하지 않으면 처음 한 번 기존 창에서 Ctrl+C로 종료하세요. 업데이트 진행 중에는 중복 실행하지 않습니다.
+
+Node가 PATH에 있는 개발 환경에서는 다음 공통 실행기도 사용할 수 있습니다. 포터블 설치만 한 경우에는 위 시작 스크립트를 사용합니다.
+
+```sh
+node run.mjs --help
+node run.mjs --check
+node run.mjs --setup
+node run.mjs --no-setup
+```
+
+`--setup`은 필요한 앱 런타임 준비만 하고 종료합니다. OS 라이브러리·실행 계정 권한까지 준비하는 첫 설치 스크립트와 같은 작업은 아닙니다. `--check`는 설치 없이 점검, `--no-setup`은 설치 없이 서버 실행입니다. `npm start/setup/check`는 Node와 npm이 준비된 개발 환경에서 같은 실행기를 호출합니다.
+
+## 관리자 비밀번호를 잊었을 때
+
+### 웹에서 로컬 복구
+
+설치한 컴퓨터의 **직접 loopback 주소**에서 로그인 화면의 복구 안내를 엽니다. 예: `http://127.0.0.1:8788`.
+
+1. 변경 범위와 모든 관리자 로그인 종료 경고를 확인합니다.
+2. 확인 문구 `관리자 비밀번호 초기화`를 입력합니다.
+3. 초기화를 실행하고 **새 접속 정보 파일 저장**을 누릅니다.
+4. 파일 저장을 확인한 뒤 새 비밀번호로 직접 로그인합니다.
+
+LAN IP·공개 도메인·역방향 프록시에서는 이 초기화를 허용하지 않습니다. 로컬 주소여도 프록시 전달 헤더가 있으면 거부합니다. 복구는 자동 로그인하지 않습니다.
+
+### 원격 서버의 수동 복구
+
+서버 관리자가 프로그램을 **먼저 정상 종료**한 뒤 설치 폴더의 복구 도구를 실제 실행 계정으로 사용합니다. 다음은 위 Linux 서비스 예시와 같은 설치의 명령입니다.
+
+```sh
+sudo systemctl stop novel-collector.service
+cd /opt/novel-collector
+sudo -u novelcollector env PATH="/opt/novel-collector/.runtime/node/bin:$PATH" node tools/reset-admin.mjs --root . --service-stopped --confirm "관리자 비밀번호 초기화"
+sudo systemctl start novel-collector.service
+```
+
+복구 도구는 정확한 확인 문구·서비스 중지 확인을 요구하고 실행 중인 설치를 거부합니다. 새 비밀번호를 명령 출력에 쓰지 않으며 `secrets/admin-login.txt`에서 확인합니다. 설치 경로·서비스 이름·실행 계정은 실제 값으로 맞춥니다.
+
+Windows 터미널 실행은 기존 창을 Ctrl+C로 종료한 후 같은 Windows 계정의 설치 폴더에서 실행할 수 있습니다.
+
+```powershell
+$env:PATH = (Join-Path $PWD '.runtime\node') + ';' + $env:PATH
+node .\tools\reset-admin.mjs --root . --service-stopped --confirm "관리자 비밀번호 초기화"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+복구는 관리자 비밀번호·관리자 세션만 변경합니다. 작품·회차·예약·프리셋·사이트 계정·브라우저 프로필은 유지됩니다. 파일을 저장하지 못했다면 안내 창을 닫기 전에 저장을 다시 시도하세요. DB나 `secrets` 폴더를 삭제해서 복구하지 않습니다.
+
+## 자료 보관과 설치 이동
+
+| 폴더                          | 보관할 내용                                         |
+| ----------------------------- | --------------------------------------------------- |
+| `data/`                       | 작품·회차·예약·설정·프리셋·로그                     |
+| `secrets/`                    | 관리자 인증과 사이트 계정 암호화에 필요한 개인 정보 |
+| `profile/`                    | 서버 브라우저 로그인 상태·캐시                      |
+| `.updates/`                   | 설치 버전·업데이트 상태·복구 기록                   |
+| `.runtime/`, `.venv-captcha/` | 설치 컴퓨터용 실행 환경                             |
+
+작품 TXT/ZIP을 내려받는 것은 프로그램 설정과 인증까지 백업한 것이 아닙니다. 설치 전체를 옮길 때는 정상 종료 후 개인 영역을 함께 보존하고, 실행 계정 권한을 유지합니다. Windows와 Linux 사이에서는 런타임·브라우저를 다시 준비해야 하며 기존 브라우저 로그인이 그대로 사용된다고 가정하지 않습니다.
+
+기존 설치 업데이트는 [대시보드 업데이터](UPDATE.md)를 사용합니다. 새 릴리스 압축을 개인 데이터 위에 통째로 덮어쓰지 않습니다. 백업 파일에는 비밀번호·계정·쿠키가 포함될 수 있으므로 공개 저장소나 이슈에 첨부하지 않습니다.
+
+## 설치 완료 확인
+
+- 실행 창 또는 서비스가 정상 실행 중입니다.
+- 실제 수신 포트의 대시보드를 열고 관리자 비밀번호로 로그인할 수 있습니다.
+- **관리 → 설정**에서 비밀번호를 변경하고 필요한 사이트 계정을 등록했습니다.
+- 작품 한 개를 선택/예약하고 **작품 보관함**에 실제로 저장된 회차가 표시되는지 확인합니다.
+- [이용 매뉴얼](DASHBOARD.md)을 따라 읽기·다운로드·실패 재수집을 사용합니다.
+
+설치 환경 점검과 원본 사이트에서 실제로 수집 가능한지는 별개의 확인입니다. 실패 상태에서는 [문제 해결](TROUBLESHOOTING.md)을 참조하세요.

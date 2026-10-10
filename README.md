@@ -4,7 +4,7 @@
 
 Windows PC 또는 Linux 서버에 설치하고 웹 브라우저로 사용합니다. 최대 두 작품을 동시에 수집하며, 작품별 회차는 순서대로 저장합니다. 라이트·다크 모드, 작품 검색, 예약, TXT·EPUB·CBZ·ZIP 내보내기를 제공합니다.
 
-현재 소스 버전 **1.0.0.14**. 실행 중인 버전은 **관리 → 설정 → 프로그램 업데이트**에서 확인하세요.
+현재 소스 버전 **1.0.0.15**. 실행 중인 버전은 **관리 → 설정 → 프로그램 업데이트**에서 확인하세요.
 
 **[최신 정식 버전 다운로드](https://github.com/organic4597/Novel-collector/releases/latest)** · **[처음 설치하기](docs/INSTALL.md)** · **[로그인과 이용 매뉴얼](docs/DASHBOARD.md)** · [문제 해결](docs/TROUBLESHOOTING.md)
 

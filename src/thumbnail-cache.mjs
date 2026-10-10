@@ -3,6 +3,119 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { isPublicAddress } from "./collector.mjs";
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+export function isListingThumbnail(value) {
+  try {
+    return validateThumbnailUrl(value).hostname === "image-comic.pstatic.net";
+  } catch {
+    return false;
+  }
+}
+
+export async function watchListingThumbnails(
+  page,
+  { lookup = dnsLookup, assertAvailable = () => {} } = {},
+) {
+  const responses = new Map();
+  const addresses = new Map();
+  let closed = false;
+  const routeImage = async (route) => {
+    const request = route.request();
+    if (
+      request.resourceType() !== "image" ||
+      !isListingThumbnail(request.url())
+    )
+      return route.fallback();
+    try {
+      assertAvailable();
+      const host = new URL(request.url()).hostname;
+      if (!addresses.has(host)) {
+        let timeout;
+        addresses.set(
+          host,
+          Promise.race([
+            lookup(host, { all: true }),
+            new Promise((_, reject) => {
+              timeout = setTimeout(
+                () => reject(new Error("표지 주소 확인 시간 초과")),
+                1500,
+              );
+            }),
+          ]).finally(() => clearTimeout(timeout)),
+        );
+      }
+      const resolved = await addresses.get(host);
+      assertAvailable();
+      if (
+        closed ||
+        !resolved.length ||
+        resolved.some((item) => !isPublicAddress(item.address))
+      )
+        return route.abort();
+      await route.continue();
+    } catch {
+      await route.abort().catch(() => {});
+    }
+  };
+  const onResponse = (response) => {
+    if (
+      closed ||
+      response.status() !== 200 ||
+      response.request().resourceType() !== "image" ||
+      !isListingThumbnail(response.url())
+    )
+      return;
+    const size = Number(response.headers()["content-length"]);
+    if (!Number.isSafeInteger(size) || size <= 0 || size > MAX_IMAGE_BYTES)
+      return;
+    responses.delete(response.url());
+    // Filter/page changes must retain the final listing's most recent covers.
+    if (responses.size >= 96) responses.delete(responses.keys().next().value);
+    responses.set(response.url(), response);
+  };
+  await page.route("**/*", routeImage);
+  page.on("response", onResponse);
+  const close = async () => {
+    closed = true;
+    page.off("response", onResponse);
+    await page.unroute("**/*", routeImage);
+    responses.clear();
+  };
+  return {
+    async save(items, store) {
+      const deadline = Date.now() + 2000;
+      let totalBytes = 0;
+      for (const item of items) {
+        const response = responses.get(item.thumbnailUrl);
+        if (!response || Date.now() >= deadline) continue;
+        let timer;
+        try {
+          const bytes = await Promise.race([
+            response.body(),
+            new Promise((_, reject) => {
+              timer = setTimeout(
+                () => reject(new Error("표지 응답 대기 시간 초과")),
+                deadline - Date.now(),
+              );
+            }),
+          ]);
+          const mimeType = validateImage(
+            bytes,
+            response.headers()["content-type"],
+          );
+          totalBytes += bytes.length;
+          if (totalBytes > 16 * MAX_IMAGE_BYTES) break;
+          await store(item.id, { bytes, mimeType });
+          responses.delete(item.thumbnailUrl);
+        } catch {
+          // A missing public cover must not prevent the listing from loading.
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    },
+    close,
+  };
+}
 export function validateThumbnailUrl(value) {
   const url = new URL(value);
   if (
@@ -13,7 +126,15 @@ export function validateThumbnailUrl(value) {
     !(
       /^(newtoki\d*\.(org|com|net|me))$/i.test(url.hostname) ||
       ["sbxh9.com", "toki32.com"].includes(url.hostname) ||
-      url.hostname === "apitk.peertrk.com"
+      url.hostname === "apitk.peertrk.com" ||
+      (url.hostname === "image-comic.pstatic.net" &&
+        /^\/webtoon\/(?:[\w-]+\/)+[\w.-]+\.(?:jpe?g|png|webp|gif)$/i.test(
+          url.pathname,
+        )) ||
+      (/^user\d+\.quicksharefiles\.top$/i.test(url.hostname) &&
+        /^\/comics\/covers\/[\w-]+\.(?:jpe?g|png|webp|gif)$/i.test(
+          url.pathname,
+        ))
     )
   )
     throw new Error("지원하지 않는 썸네일 주소입니다.");

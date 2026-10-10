@@ -7,6 +7,7 @@ import { mergeSourceMetadata } from "./source-metadata.mjs";
 import { openNormalDiscovery } from "./normal-discovery.mjs";
 import { validDiscoveryId } from "./webtoon-source.mjs";
 import { webtoonListing, webtoonPreset } from "./webtoon-runtime.mjs";
+import { watchListingThumbnails } from "./thumbnail-cache.mjs";
 
 async function json(path) {
   try { return JSON.parse(await readFile(path, "utf8")); }
@@ -59,7 +60,7 @@ export class DiscoveryPageCache {
     const remote = { ...query, minEpisodes: null, maxEpisodes: null };
     const origin = new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin;
     const selected=query.contentType==="webtoon"?webtoonPreset(this.owner.presets,origin).presetHash:"";
-    const key = createHash("sha256").update(query.contentType==="webtoon"?`webtoon-v2:${origin}:${selected}:${JSON.stringify(remote)}`:`normal-v1:${origin}:${JSON.stringify(remote)}`).digest("hex");
+    const key = createHash("sha256").update(query.contentType==="webtoon"?`webtoon-v3:${origin}:${selected}:${JSON.stringify(remote)}`:`normal-v1:${origin}:${JSON.stringify(remote)}`).digest("hex");
     await this.owner.init();
     const path = join(this.owner.rootDir, "pages", `${key}.json`);
     let data = await json(path), cacheHit = !!data;
@@ -113,10 +114,18 @@ export class DiscoveryPageCache {
   }
   async fetchPage(query, options) {
     const page = await (await this.owner.openContext()).newPage();
-    try { return await openNormalDiscovery(this.owner, page, query, readDiscoveryDocument, readReaderDocument,
+    let thumbnails;
+    try {
+      if (query.contentType === "webtoon") thumbnails = await watchListingThumbnails(page, {
+        assertAvailable: () => this.owner.sourceGate.assertAvailable(),
+      });
+      const parsed = await openNormalDiscovery(this.owner, page, query, readDiscoveryDocument, readReaderDocument,
       {...options,...(query.contentType==="webtoon"?{readPage:()=>webtoonListing(this.owner,page,query),
-        webtoonSources:webtoonPreset(this.owner.presets,new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin).presetSnapshot.pages.listing.sources}:{})}); }
-    finally { await page.close(); }
+        webtoonSources:webtoonPreset(this.owner.presets,new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin).presetSnapshot.pages.listing.sources}:{})});
+      await thumbnails?.save(parsed.items, (id, image) => this.owner.storeThumbnail(id, image));
+      return parsed;
+    }
+    finally { try { await thumbnails?.close(); } finally { await page.close(); } }
   }
   async publicPage(data, query, freshness) {
     if(query.contentType==="webtoon"){

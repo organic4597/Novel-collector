@@ -621,6 +621,14 @@ function jobCard(job, queued, inHistory = false) {
     download.setAttribute("download", "");
     actions.append(download);
   }
+  if (job.contentType === "webtoon" && /^[A-Za-z0-9_-]{1,100}$/.test(job.bookId || "") &&
+    ["completed", "completed_with_errors"].includes(job.status) &&
+    number(job.completed) + number(job.skipped) > 0) {
+    const download = node("a", "export-link", "작품 ZIP 받기");
+    download.href = `/api/books/${encodeURIComponent(job.bookId)}/export/zip`;
+    download.setAttribute("download", "");
+    actions.append(download);
+  }
   if (
     ["failed", "completed_with_errors"].includes(job.status) &&
     (number(job.failed) > 0 || job.failedChapters?.length)

@@ -633,6 +633,16 @@ export class Discovery {
       }),
     );
   }
+  async storeThumbnail(value, image) {
+    const id = validId(value);
+    const imagePath = join(this.rootDir, "thumbnails", `${id}.image`);
+    const mimeType = validateImage(image.bytes, image.mimeType);
+    const etag = `"${createHash("sha256").update(image.bytes).digest("hex")}"`;
+    await atomic(imagePath, image.bytes);
+    await atomic(join(this.rootDir, "thumbnails", `${id}.json`),
+      JSON.stringify({ etag, mimeType, savedAt: this.now() }));
+    return { path: imagePath, mimeType, etag };
+  }
   thumbnail(value) {
     const id = validId(value);
     return this.dedupe(`thumbnail:${id}`, async () => {
@@ -672,14 +682,7 @@ export class Discovery {
           if (/^newtoki\d*\.(org|com|net|me)$/i.test(cover.hostname))
             cover.hostname = new URL(this.transportUrl(work.url)).hostname;
           const image = await this.fetchImage(cover.href);
-          const mimeType = validateImage(image.bytes, image.mimeType);
-          const etag = `"${createHash("sha256").update(image.bytes).digest("hex")}"`;
-          await atomic(imagePath, image.bytes);
-          await atomic(
-            metaPath,
-            JSON.stringify({ etag, mimeType, savedAt: this.now() }),
-          );
-          return { path: imagePath, mimeType, etag };
+          return await this.storeThumbnail(id, image);
         } catch {
           await atomic(metaPath, JSON.stringify({ failedAt: this.now() }));
           return null;

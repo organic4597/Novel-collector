@@ -2,10 +2,11 @@ import { spawn,execFile } from "node:child_process";
 import { open,mkdir,rm,cp,realpath } from "node:fs/promises";
 import { join,resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { latestRelease,releaseZip } from "../src/update-network.mjs";
-import { APP_VERSION,compareVersions,repositoryName } from "../src/version.mjs";
+import { releaseZip } from "../src/update-network.mjs";
+import { APP_VERSION,versionParts,repositoryName } from "../src/version.mjs";
+import { updateChannel,installedIdentity,resolveUpdateRelease,validateUpdateTarget } from "../src/update-channels.mjs";
 import { atomicJson,readJson,exists,safePath,assertUpdatePermissions } from "../src/update-files.mjs";
-import { extractSource,sourceManifest,assertUnmodified,activate,rollback,privateBackup,restorePrivate,transactionId,validateStagedRuntime } from "../src/update-engine.mjs";
+import { extractSource,sourceManifest,assertUnmodified,activate,rollback,privateBackup,restorePrivate,transactionId,validateStagedRuntime,validateStagedVersion } from "../src/update-engine.mjs";
 import { updateLog,updateEvent,redactDiagnostic } from "../src/activity-log.mjs";
 import { npmCliPath } from "../run.mjs";
 
@@ -43,26 +44,30 @@ async function stopService(root){
   const pid=await new Promise((yes,no)=>execFile("systemctl",["show",name,"--property=MainPID","--value"],{timeout:10000},(e,out)=>e?no(e):yes(Number(out.trim()))));
   if(Number.isSafeInteger(pid)&&pid>0){if(await realpath(`/proc/${pid}/cwd`)!==await realpath(root))throw Error("다른 서비스는 종료하지 않습니다.");process.kill(pid,"SIGTERM");await parentExit(pid);}
 }
-async function healthy(env,version){
+export function healthMatches(info,target){return info?.version===target.version&&(info.channel||"stable")===target.channel&&(info.commit||null)===(target.commit||null);}
+async function healthy(env,target){
   const host=["0.0.0.0","::"].includes(env.HOST)?"127.0.0.1":env.HOST||"127.0.0.1",port=env.PORT||8788;
-  for(let i=0;i<60;i++){try{const r=await fetch(`http://${host.includes(":")?"["+host+"]":host}:${port}/api/health`,{signal:AbortSignal.timeout(1000)});if(r.ok&&(await r.json()).version===version)return true;}catch{}await new Promise(r=>setTimeout(r,1000));}return false;
+  for(let i=0;i<60;i++){try{const r=await fetch(`http://${host.includes(":")?"["+host+"]":host}:${port}/api/health`,{signal:AbortSignal.timeout(1000)});if(r.ok&&healthMatches(await r.json(),target))return true;}catch{}await new Promise(r=>setTimeout(r,1000));}return false;
 }
-export async function update({root,repository,version,offline=false,hooks={}}={}){
-  root=resolve(root);repository=repositoryName(repository);const parent=process.ppid,id=transactionId(),base=join(root,".updates"),stage=join(base,id,"source");let journal=null,stopped=false,newProcess=null;
+export async function update({root,repository,version,channel="stable",commit=null,offline=false,hooks={}}={}){
+  root=resolve(root);repository=repositoryName(repository);channel=updateChannel(channel);versionParts(version);const parent=process.ppid,id=transactionId(),base=join(root,".updates"),stage=join(base,id,"source");let journal=null,stopped=false,newProcess=null;
   await safePath(root,".updates");await mkdir(base,{recursive:true,mode:0o700});const log=await updateLog(root);let step="LOCK";
-  const report=async(state,message,details={})=>{updateEvent(log,step,message,{targetVersion:version,...details,level:state==="failed"?"error":"info"});await atomicJson(join(base,"job.json"),{state,message,version,step,...details});};
+  const report=async(state,message,details={})=>{updateEvent(log,step,message,{targetVersion:version,...details,level:state==="failed"?"error":"info"});await atomicJson(join(base,"job.json"),{state,message,version,channel,commit,step,...details});};
   let locked=false;
   try{
     const lock=await open(join(base,"lock.json"),"wx",0o600);await lock.writeFile(JSON.stringify({pid:process.pid,id,startedAt:Date.now()}));await lock.close();locked=true;
     updateEvent(log,step,"업데이트 시작",{targetVersion:version});
     if(offline){const server=await readJson(join(base,"server.json"));if(server?.pid){let alive=false;try{process.kill(server.pid,0);alive=true;}catch{}if(alive)throw Error("실행 중인 프로그램은 먼저 종료하세요.");}}
-    const installed=await readJson(join(base,"installed-version.json")),current=installed?.version||APP_VERSION;if(compareVersions(version,current)<=0)throw Error("새 버전이 아닙니다.");
+    const installed=installedIdentity(await readJson(join(base,"installed-version.json")),APP_VERSION);
     step="CHECK_SOURCE";await report("preparing","설치 버전과 로컬 소스 변경 검사");await assertUnmodified(root,await sourceManifest(root));
     step="CHECK_PERMISSIONS";await report("preparing","백업 읽기와 소스·런타임 교체 권한 검사");await assertUpdatePermissions(root);
     step="CHECK_RELEASE";await report("preparing","GitHub 릴리스 확인");
-    const {release}=await (hooks.latest||latestRelease)(repository);if(!release||release.version!==version)throw Error("릴리스가 변경됐습니다.");
+    const selection={channel,version,commit,installed};
+    const {release}=await (hooks.latest||resolveUpdateRelease)(repository,selection);validateUpdateTarget(release,selection);
+    const identity={version,channel,commit:channel==="stable"?null:release.commit,baseVersion:channel==="stable"?version:installed.baseVersion};
     step="DOWNLOAD";await report("preparing","릴리스 ZIP 다운로드와 SHA256 확인");const archive=await(hooks.download||releaseZip)(release);
     step="EXTRACT";await report("preparing","업데이트 소스 압축 해제");const files=await extractSource(archive,stage),runtime=stageEnvironment(root,stage);
+    step="CHECK_STAGED_VERSION";await report("preparing","선택한 업데이트와 소스 앱 버전 일치 확인");await validateStagedVersion(stage,version);
     step="SETUP_NPM";await report("preparing","준비 폴더에 독립 npm 패키지 설치");await command([npmCliPath({env:runtime.env}),"ci","--omit=dev","--no-audit","--no-fund"],stage,runtime.env,{log,step});
     step="SETUP_RUNTIME";await report("preparing","npm·Python/OpenCV·Chromium 준비");await command([join(stage,"run.mjs"),"--setup"],stage,runtime.env,{log,step});
     step="CHECK_RUNTIME";await report("preparing","새 실행 환경 점검");await command([join(stage,"run.mjs"),"--check"],stage,runtime.env,{log,step});
@@ -79,11 +84,11 @@ export async function update({root,repository,version,offline=false,hooks={}}={}
     }stopped=true;
     step="BACKUP";await report("applying","개인정보 로컬 백업");await privateBackup(root,join(base,"backups",id));
     step="ACTIVATE";await report("applying","프로그램 소스·런타임 교체");
-    journal=await activate(root,{id,stage,files,runtimes:runtime.runtimes,version});
+    journal=await activate(root,{id,stage,files,runtimes:runtime.runtimes,...identity});
     const restartEnv={...process.env};if(runtime.runtimes.includes(".venv-captcha"))delete restartEnv.CAPTCHA_PYTHON;if(runtime.runtimes.includes("profile/playwright-browsers"))delete restartEnv.BROWSER_PATH;
     step="CHECK_INSTALLED_RUNTIME";await report("applying","교체 후 실제 설치 경로의 실행 환경 점검");await command([join(root,"run.mjs"),"--check"],root,restartEnv,{log,step});
-    step="VERIFY";await atomicJson(join(base,"pending-verification.json"),{version,pid:process.pid});await report("verifying","새 버전 시작 확인");await rm(join(base,"lock.json"),{force:true});
-    if(!offline){if(!process.env.INVOCATION_ID)newProcess=launch(root,restartEnv,log);if(!await healthy(restartEnv,version))throw Error("새 버전 시작 후 로컬 서버에 연결하지 못했습니다. START_SERVER 상세 로그를 확인하세요.");}
+    step="VERIFY";await atomicJson(join(base,"pending-verification.json"),{...identity,pid:process.pid});await report("verifying","새 버전 시작 확인");await rm(join(base,"lock.json"),{force:true});
+    if(!offline){if(!process.env.INVOCATION_ID)newProcess=launch(root,restartEnv,log);if(!await healthy(restartEnv,identity))throw Error("선택한 버전·채널·커밋으로 시작한 서버를 확인하지 못했습니다. START_SERVER 상세 로그를 확인하세요.");}
     step="COMPLETED";await rm(join(base,"pending-verification.json"),{force:true});await rm(join(base,"transaction.json"),{force:true});await report("completed","업데이트 완료 · 사용자 저장소 유지");
   }catch(e){
     const failedStep=step,errorCode=/^[A-Z0-9_]{1,60}$/.test(e.code||"")?e.code:"UPDATE_FAILED",reason=redactDiagnostic(e.message);
@@ -101,7 +106,18 @@ export async function update({root,repository,version,offline=false,hooks={}}={}
     throw e;
   }finally{if(locked&&(!journal||offline))await rm(join(base,"lock.json"),{force:true});await log.close();}
 }
+export function parseUpdateArguments(args){
+  const values={},keys=new Set(["--root","--repository","--version","--channel","--commit"]);let offline=false;
+  for(let i=0;i<args.length;i++){
+    const key=args[i];if(key==="--offline"){if(offline)throw Error("중복 업데이트 옵션입니다.");offline=true;continue;}
+    if(!keys.has(key)||Object.hasOwn(values,key)||!args[i+1]||args[i+1].startsWith("--"))throw Error("업데이트 실행 옵션을 확인하세요.");values[key]=args[++i];
+  }
+  const channel=updateChannel(values["--channel"]||"stable"),commit=values["--commit"]||null;
+  if(!values["--root"]||!values["--repository"]||!values["--version"])throw Error("설치 경로·저장소·버전이 필요합니다.");
+  versionParts(values["--version"]);repositoryName(values["--repository"]);
+  if(channel==="stable"?commit!==null:typeof commit!=="string"||!/^[a-f0-9]{40}$/.test(commit))throw Error("개발·핫픽스 업데이트에는 전체 커밋 SHA가 필요합니다.");
+  return {root:values["--root"],repository:values["--repository"],version:values["--version"],channel,commit,offline};
+}
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){
-  const args=process.argv.slice(2),get=key=>args[args.indexOf(key)+1];
-  update({root:get("--root"),repository:get("--repository"),version:get("--version"),offline:args.includes("--offline")}).catch(()=>{process.exitCode=1;});
+  try{update(parseUpdateArguments(process.argv.slice(2))).catch(()=>{process.exitCode=1;});}catch{process.exitCode=1;}
 }

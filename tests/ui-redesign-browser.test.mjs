@@ -914,13 +914,15 @@ test(
         assert.equal(await page.locator("#books-list .book-card").count(), 3);
         await page.locator("#library-content-type").selectOption("webtoon");
         assert.equal(await page.locator("#books-list .book-card").count(), 1);
+        await page.locator("#books-list .book-card").click();
         assert.equal(
           await page
-            .locator("#books-list .export-link")
+            .locator("#library-profile-download")
             .first()
             .getAttribute("href"),
           "/api/books/webtoon-one/export/zip",
         );
+        await page.locator('[data-close="reader-dialog"]').click();
         await page.locator("#library-content-type").selectOption("novel");
         await page.locator("#library-sort").selectOption("title");
         await page.locator("#library-genre").selectOption("판타지");
@@ -935,8 +937,9 @@ test(
           true,
         );
         await page.locator("#library-clear").click();
-        await page.locator("#books-list .book-actions button").first().click();
+        await page.locator("#books-list .book-card").first().click();
         await shown(page, "#reader-dialog");
+        await page.locator("#library-content-tab").click();
         await page.waitForFunction(() =>
           document
             .getElementById("reader-text")
@@ -1022,10 +1025,14 @@ test(
           "settings-export",
           "settings-import-preview",
           "password-save",
-          "update-check",
+          "update-apply",
           "site-account-save",
         ])
           await shown(page, "#" + id);
+        await page.locator("#update-apply").click();
+        for (const id of ["update-channel", "update-candidate", "update-check"])
+          await shown(page, "#" + id);
+        await page.keyboard.press("Escape");
 
         await visit(page, "presets");
         await page.waitForFunction(

@@ -42,7 +42,7 @@ export class JobProfiles {
         ...(!previous.id ? { storedChapterCount: 0, failureCount: 0 } : {}),
         ...(!previous.title ? { title: job.title || `작품 ${source.id}` } : {}),
         url: source.url,
-        ...(job.contentType==="webtoon"?{contentType:"webtoon",presetHash:job.presetHash}:{}),
+        ...(job.contentType&&job.contentType!=="novel"?{contentType:job.contentType,presetHash:job.presetHash}:{}),
       }));
       registered.push(
         await this.store.patchJob(job.id, (current) => ({

@@ -148,7 +148,7 @@ test("library selection and one-book changes preserve cards, covers and current 
   assert.equal(first.querySelector("h2"), title);
   assert.equal(title.textContent, "갱신된 제목");
   assert.match(first.textContent, /실패 2화/);
-  assert.match(first.querySelector(".book-actions .quiet").textContent, /실패/);
+  first.click();assert.match(d.getElementById("library-profile-retry").textContent,/실패/);d.getElementById("reader-dialog").close();
   assert.equal(first.querySelector('input[type="checkbox"]').checked, true);
 });
 test("library automatic refresh reuses fresh data but mutation and expiry invalidate it", async (t) => {
@@ -196,9 +196,9 @@ test("keyed actions and selection use latest data while retaining controls and s
   const f = await fixture(t),
     d = f.w.document;
   const card = d.querySelector('[data-id="1"]'),
-    read = card.querySelector(".secondary"),
+    read = card,
     check = card.querySelector("input"),
-    retry = card.querySelector(".quiet"),
+    retry = d.getElementById("library-profile-retry"),
     image = card.querySelector("img");
   d.getElementById("books-list").scrollTop = 300;
   d.getElementById("library-select-all").click();
@@ -218,8 +218,8 @@ test("keyed actions and selection use latest data while retaining controls and s
     ),
   );
   await f.w.CollectorLibrary.refresh();
-  assert.equal(card.querySelector(".secondary"), read);
-  assert.equal(card.querySelector(".quiet"), retry);
+  assert.equal(d.querySelector('[data-id="1"]'), read);
+  assert.equal(d.getElementById("library-profile-retry"), retry);
   assert.equal(card.querySelector("img"), image);
   assert.equal(d.getElementById("books-list").scrollTop, 300);
   assert.equal(check.getAttribute("aria-label"), "최신 제목 선택");
@@ -228,11 +228,11 @@ test("keyed actions and selection use latest data while retaining controls and s
       ? [{ id: "failed-one", number: 2, title: "실패 회차" }]
       : { book: { title: "최신 제목" }, chapters: [] },
   );
-  retry.click();
+  card.click();retry.click();
   await tick();
   assert.match(d.getElementById("failures-title").textContent, /최신 제목/);
   d.getElementById("failures-dialog").close();
-  read.click();
+  d.getElementById("reader-dialog").close();read.click();d.getElementById("library-content-tab").click();
   await tick();
   assert.equal(d.getElementById("reader-book-title").textContent, "최신 제목");
   assert.match(d.getElementById("reader-text").textContent, /본문이 없습니다/);
@@ -243,7 +243,7 @@ test("availability transitions patch existing nodes, failed cover stays absent a
   const f = await fixture(t),
     d = f.w.document,
     card = d.querySelector('[data-id="1"]'),
-    read = card.querySelector(".secondary"),
+    read = card,
     image = card.querySelector("img");
   image.dispatchEvent(new f.w.Event("error"));
   d.getElementById("library-select-all").click();
@@ -258,8 +258,7 @@ test("availability transitions patch existing nodes, failed cover stays absent a
     },
   ]);
   await f.w.CollectorLibrary.refresh();
-  assert.equal(card.querySelector(".secondary"), read);
-  assert.equal(read.disabled, true);
+  assert.equal(d.querySelector('[data-id="1"]'), read);card.click();assert.equal(d.getElementById("library-content-tab").disabled,true);d.getElementById("reader-dialog").close();
   assert.equal(card.querySelector("input").disabled, true);
   assert.equal(card.querySelector("a.export-link"), null);
   assert.equal(card.querySelector(".quiet"), null);
@@ -277,8 +276,7 @@ test("availability transitions patch existing nodes, failed cover stays absent a
   assert.equal(card.querySelector("img"), image);
   assert.match(image.getAttribute("src"), /v=fresh/);
   assert.equal(card.querySelector(".book-synopsis img"), null);
-  assert.equal(card.querySelector(".secondary"), read);
-  assert.equal(read.disabled, false);
+  assert.equal(d.querySelector('[data-id="1"]'), read);card.click();assert.equal(d.getElementById("library-content-tab").disabled,false);d.getElementById("reader-dialog").close();
   f.setRows([]);
   await f.w.CollectorLibrary.refresh();
   assert.equal(card.isConnected, false);
@@ -373,8 +371,7 @@ test("metadata retries retain the button, deduplicate and clear request state af
     },
   ]);
   await f.w.CollectorLibrary.refresh();
-  const card = d.querySelector(".library-card"),
-    button = card.querySelector(".metadata-retry");
+  const card = d.querySelector(".library-card");card.click();const button=d.getElementById("library-profile-metadata");
   let finish;
   f.setHandler((path, options) =>
     options.method === "POST"
@@ -385,17 +382,17 @@ test("metadata retries retain the button, deduplicate and clear request state af
   );
   button.click();
   button.dispatchEvent(new f.w.Event("click"));
-  assert.equal(card.querySelector(".metadata-retry"), button);
+  assert.equal(d.getElementById("library-profile-metadata"), button);
   assert.equal(button.disabled, true);
   f.setRows([{ ...f.rows()[0], metadataStatus: "completed", metadataFetchedAt: "done" }]);
   finish({ status: "pending" });
   await tick();
   await tick();
-  assert.equal(card.querySelector(".metadata-retry"), null);
+  assert.equal(button.hidden,true);
   f.setRows([{ ...f.rows()[0], metadataStatus: "deferred", metadataError: "대기" }]);
   f.setHandler(null);
   await f.w.CollectorLibrary.refresh();
-  assert.equal(card.querySelector(".metadata-retry"), button);
+  assert.equal(d.getElementById("library-profile-metadata"), button);assert.equal(button.hidden,false);
   f.setHandler(async () => {
     throw Error("fixture failure");
   });
@@ -427,7 +424,7 @@ test("reader and selected bundle operations remain functional with keyed card ac
     if (path === "/api/downloads") return { id: "bundle", status: "ready", total: 2, processed: 2 };
     return structuredClone(f.rows());
   });
-  d.querySelector('[data-id="1"] .secondary').click();
+  d.querySelector('[data-id="1"]').click();d.getElementById("library-content-tab").click();
   await tick();
   await tick();
   assert.equal(d.getElementById("reader-text").textContent, "본문 내용");
@@ -481,7 +478,7 @@ test("failed chapter actions submit only checked rows and queue missing-only ret
   });
   assert.equal(d.getElementById("failures-dialog").open, false);
   f.setHandler(async (path) => (path.endsWith("/failures") ? [] : { id: "missing-retry" }));
-  d.querySelector('[data-id="1"] .quiet').click();
+  d.querySelector('[data-id="1"]').click();d.getElementById("library-profile-retry").click();
   await tick();
   assert.match(d.getElementById("failures-title").textContent, /누락/);
   d.getElementById("failures-submit").click();
@@ -561,7 +558,7 @@ test("reader failures and stale reads preserve the active dialog state", async (
   f.setHandler(async () => {
     throw Error("fixture load error");
   });
-  d.querySelector('[data-id="1"] .secondary').click();
+  d.querySelector('[data-id="1"]').click();d.getElementById("library-content-tab").click();
   await tick();
   assert.match(d.getElementById("reader-text").textContent, /요청을 처리하지/);
   d.getElementById("reader-dialog").close();
@@ -570,7 +567,7 @@ test("reader failures and stale reads preserve the active dialog state", async (
       ? { chapters: [{ id: "c1", number: 1 }] }
       : Promise.reject(Error("fixture chapter error")),
   );
-  d.querySelector('[data-id="1"] .secondary').click();
+  d.querySelector('[data-id="1"]').click();d.getElementById("library-content-tab").click();
   await tick();
   await tick();
   assert.equal(d.getElementById("reader-meta").textContent, "본문 조회 실패");
@@ -582,7 +579,7 @@ test("reader failures and stale reads preserve the active dialog state", async (
         finish = resolve;
       }),
   );
-  d.querySelector('[data-id="1"] .secondary').click();
+  d.querySelector('[data-id="1"]').click();d.getElementById("library-content-tab").click();
   d.getElementById("reader-dialog").close();
   finish({ chapters: [{ id: "late" }] });
   await tick();

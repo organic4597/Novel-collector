@@ -12,7 +12,7 @@ import { resolve, join, basename } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { setTimeout as wait } from "node:timers/promises";
 import { canonicalWorkInput } from "./source-links.mjs";
-import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
+import { isWebtoonUrl, webtoonSource, isImageType } from "./webtoon-source.mjs";
 import { validateRunnablePreset, presetHash } from "./preset-runtime.mjs";
 import {
   listChapterMetadata,
@@ -81,7 +81,8 @@ export function validateJob(input) {
     throw Object.assign(new Error("작품 설정이 필요합니다."), { status: 400 });
   const url = validateUrl(canonicalWorkInput(input.url));
   const webtoon=isWebtoonUrl(url);
-  if(input.contentType!==undefined&&input.contentType!==(webtoon?"webtoon":"novel"))
+  const contentType=webtoon?webtoonSource(url).contentType:"novel";
+  if(input.contentType!==undefined&&input.contentType!==contentType)
     throw Object.assign(Error("작품 주소와 콘텐츠 유형이 다릅니다."),{status:400});
   const executor = input.executor ?? "server",
     format = input.format ?? (webtoon?"cbz":"txt");
@@ -146,7 +147,7 @@ export function validateJob(input) {
   }
   return {
     url,
-    ...(webtoon?{contentType:"webtoon"}:{}),
+    ...(webtoon?{contentType}:{}),
     ...(input.presetSnapshot?validatedSnapshot(input,url,webtoon):{}),
     title: input.title?.trim() ?? "",
     executor,
@@ -161,7 +162,7 @@ export function validateJob(input) {
 }
 function validatedSnapshot(input,url,webtoon){
   const config=validateRunnablePreset(input.presetSnapshot);
-  if(config.origin!==new URL(url).origin||config.contentType!==(webtoon?"webtoon":"novel")||input.presetHash!==presetHash(config))
+  if(config.origin!==new URL(url).origin||config.contentType!==(webtoon?webtoonSource(url).contentType:"novel")||input.presetHash!==presetHash(config))
     throw Object.assign(Error("예약 프리셋의 유형·원천·해시를 확인하세요."),{status:400});
   return {presetSnapshot:config,presetHash:input.presetHash,...(input.presetId?{presetId:safeId(input.presetId)}:{})};
 }
@@ -548,7 +549,7 @@ export class FolderStore {
         number: chapter.number,
         title: chapter.title.slice(0, 1000),
         url: validateUrl(chapter.url),
-        ...(data.contentType==="webtoon"?{sourceOrdinal:chapter.sourceOrdinal,chapterLabel:chapter.chapterLabel,
+        ...(isImageType(data.contentType)?{sourceOrdinal:chapter.sourceOrdinal,chapterLabel:chapter.chapterLabel,
           seasonLabel:chapter.seasonLabel,seasonNumber:chapter.seasonNumber}:{}),
         ...(chapter.notReady === true ? { notReady: true } : {}),
       };
@@ -685,7 +686,7 @@ export class FolderStore {
   }
   async writeWebtoonChapter(bookId,chapterId,chapter){
     safeId(bookId);safeId(chapterId);
-    if(!chapter.complete||chapter.contentType!=="webtoon"||!chapter.images?.length||chapter.images.length!==chapter.expectedImages)
+    if(!chapter.complete||!isImageType(chapter.contentType)||!chapter.images?.length||chapter.images.length!==chapter.expectedImages)
       throw Object.assign(Error("불완전한 웹툰 회차는 저장 완료로 표시할 수 없습니다."),{status:400});
     return this.saveChapter(bookId,chapterId,{...chapter,id:chapterId,url:validateUrl(chapter.url),updatedAt:new Date().toISOString()});
   }

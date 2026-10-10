@@ -621,7 +621,7 @@ function jobCard(job, queued, inHistory = false) {
     download.setAttribute("download", "");
     actions.append(download);
   }
-  if (job.contentType === "webtoon" && /^[A-Za-z0-9_-]{1,100}$/.test(job.bookId || "") &&
+  if (["webtoon","manhwa"].includes(job.contentType) && /^[A-Za-z0-9_-]{1,100}$/.test(job.bookId || "") &&
     ["completed", "completed_with_errors"].includes(job.status) &&
     number(job.completed) + number(job.skipped) > 0) {
     const download = node("a", "export-link", "작품 ZIP 받기");

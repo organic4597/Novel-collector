@@ -21,7 +21,7 @@ function locator(value){
 }
 export function validatePresetV3(input){
   exact(input,["version","contentType","name","origin","catalogOrder","pages"]);
-  if(input.version!==3||!["novel","webtoon"].includes(input.contentType)||Buffer.byteLength(JSON.stringify(input))>32768)throw bad("버전 3 콘텐츠 유형과 설정 크기를 확인하세요.");
+  if(input.version!==3||!["novel","webtoon","manhwa"].includes(input.contentType)||Buffer.byteLength(JSON.stringify(input))>32768)throw bad("버전 3 콘텐츠 유형과 설정 크기를 확인하세요.");
   if(!["oldest-first","newest-first"].includes(input.catalogOrder))throw bad("목차 순서를 명시적으로 지정하세요.");
   const common=legacyCommon(input);exact(input.pages,Object.keys(RUNTIME_FIELDS));const pages={};
   for(const[kind,allowed]of Object.entries(RUNTIME_FIELDS)){
@@ -33,11 +33,11 @@ export function validatePresetV3(input){
       if(!attributes.includes(item.attribute))throw bad(`추출 항목의 속성이 맞지 않습니다: ${key}`);
       if(item.relativeTo!=null&&(item.relativeTo!==parent||key===parent||!page.fields[parent]))throw bad("상대 선택자의 부모 영역을 확인하세요.");
       if(["items","rows","images"].includes(key)&&!item.multiple)throw bad("반복 영역은 multiple true여야 합니다.");
-      if(key==="images"&&(kind!=="reader"||input.contentType!=="webtoon"||item.relativeTo!=="root"))throw bad("웹툰 이미지는 지정한 본문 루트 안에서만 추출합니다.");
+      if(key==="images"&&(kind!=="reader"||!["webtoon","manhwa"].includes(input.contentType)||item.relativeTo!=="root"))throw bad("본문 이미지는 지정한 루트 안에서만 추출합니다.");
       if(key==="root"&&item.multiple)throw bad("본문 루트는 하나여야 합니다.");fields[key]=item;
     }
     const clean={pagePatterns:page.pagePatterns.map(pattern),fields};
-    if(kind==="listing"&&input.contentType==="webtoon"&&(!page.sources?.ongoing||!page.sources?.completed))throw bad("웹툰 연재·완결 목록 원천을 지정하세요.");
+    if(kind==="listing"&&["webtoon","manhwa"].includes(input.contentType)&&(!page.sources?.ongoing||!page.sources?.completed))throw bad("이미지 작품의 목록 원천을 지정하세요.");
     if(page.sources){if(kind!=="listing")throw bad("목록 원천은 listing에서만 지정합니다.");exact(page.sources,["ongoing","completed","search"]);clean.sources=Object.fromEntries(Object.entries(page.sources).map(([key,value])=>[key,pattern(value)]));}
     if(page.actions){exact(page.actions,["nextPage","loadMore"]);clean.actions=Object.fromEntries(Object.entries(page.actions).map(([key,value])=>{const item=locator(value);if(item.multiple||item.relativeTo)throw bad("페이지 동작은 단일 독립 버튼이어야 합니다.");return[key,item];}));}
     pages[kind]=clean;
@@ -58,10 +58,10 @@ export function compilePreset(input){
 }
 export function validateRunnablePreset(input){
   const config=compilePreset(input);
-  const required={listing:["items","title","url"],detail:["title","rows","chapterUrl"],reader:["root",config.contentType==="webtoon"?"images":"text"]};
+  const required={listing:["items","title","url"],detail:["title","rows","chapterUrl"],reader:["root",config.contentType!=="novel"?"images":"text"]};
   for(const[kind,keys]of Object.entries(required))for(const key of keys)if(!config.pages[kind].fields[key])throw bad(`실행 필수 항목이 없습니다: ${kind}.${key}`);
   if(config.pages.listing.fields.url.attribute!=="href"||config.pages.detail.fields.chapterUrl.attribute!=="href")throw bad("작품·회차 링크는 href로 지정하세요.");
-  if(config.contentType==="webtoon"&&config.pages.reader.fields.images.attribute!=="imageUrl")throw bad("웹툰 본문 이미지는 imageUrl로 지정하세요.");
+  if(config.contentType!=="novel"&&config.pages.reader.fields.images.attribute!=="imageUrl")throw bad("본문 이미지는 imageUrl로 지정하세요.");
   return config;
 }
 export function presetHash(config){

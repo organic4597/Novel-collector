@@ -68,7 +68,7 @@ export class ViewerOrigins {
       [...url.searchParams.keys()].every((key) =>
         ["q", "kind", "field", "match", "page", "status", "sort"].includes(key),
       ) &&
-      [null, "novel", "webtoon"].includes(url.searchParams.get("kind"));
+      [null, "novel", "webtoon", "manhwa"].includes(url.searchParams.get("kind"));
     if (
       url.protocol !== "https:" ||
       url.username ||

@@ -4,6 +4,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import JSZip from "jszip";
 import { validateRunnablePreset, matchesPresetPage, evaluatePresetPage } from "./preset-runtime.mjs";
+import { isImageType } from "./webtoon-source.mjs";
 
 export const WEBTOON_LIMITS=Object.freeze({imageBytes:8*1024**2,chapterBytes:512*1024**2,images:1000});
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -99,7 +100,7 @@ export async function extractWebtoonImages(page,job,chapter,signal,onProgress=()
     const final=await page.evaluate(webtoonImageState,{reader:config.pages.reader});if(final.count!==images.length)throw fail("웹툰 이미지 목록이 변경됐습니다.","CHECKPOINT_CONFLICT");
     const finalImages=(await page.evaluate(evaluatePresetPage,config.pages.reader)).images;
     if(JSON.stringify(finalImages.map(image=>image.url))!==JSON.stringify(observed))throw fail("웹툰 이미지 순서가 수집 중 변경됐습니다.","CHECKPOINT_CONFLICT");
-    return{contentType:"webtoon",version:1,presetHash:job.presetHash,expectedImages:images.length,savedImages:images.length,complete:true,images,
+    return{contentType:job.contentType,version:1,presetHash:job.presetHash,expectedImages:images.length,savedImages:images.length,complete:true,images,
       hash:digest(JSON.stringify(images)),size:totalBytes};
   }catch(error){
     if(!signal?.aborted&&error.code!=="CHECKPOINT_CONFLICT"){
@@ -109,7 +110,7 @@ export async function extractWebtoonImages(page,job,chapter,signal,onProgress=()
   }finally{page.off("response",received);await Promise.allSettled([...pending]);await rm(scratch,{recursive:true,force:true});}
 }
 export async function verifyWebtoonChapter(store,bookId,chapter){
-  if(!chapter?.complete||chapter.contentType!=="webtoon"||!Array.isArray(chapter.images)||!chapter.images.length||
+  if(!chapter?.complete||!isImageType(chapter.contentType)||!Array.isArray(chapter.images)||!chapter.images.length||
     chapter.images.length!==chapter.expectedImages||chapter.images.length>WEBTOON_LIMITS.images||chapter.hash!==digest(JSON.stringify(chapter.images)))return false;
   let total=0;
   for(const [index,image]of chapter.images.entries()){
@@ -135,7 +136,7 @@ export async function webtoonCbz(store,rootDir,bookId,chapter,signal){
 }
 export async function webtoonZip(store,rootDir,bookId,signal,maxBytes=3*1024**3){
   const book=await store.getBook(bookId),chapters=await store.listChapters(bookId);
-  if(!book||book.contentType!=="webtoon"||!chapters.length)throw fail("저장된 웹툰 회차가 없습니다.","NO_STORED_IMAGES");
+  if(!book||!isImageType(book.contentType)||!chapters.length)throw fail("저장된 이미지 회차가 없습니다.","NO_STORED_IMAGES");
   const zip=new JSZip();let size=0;
   for(const meta of chapters){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);if(chapter?.hash!==meta.hash)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");const file=await webtoonCbz(store,rootDir,bookId,chapter,signal);
     size+=(await stat(file.path)).size+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");

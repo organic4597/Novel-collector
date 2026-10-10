@@ -13,7 +13,7 @@ export function normalizeDiscoveryUrl(value) {
   )
     throw new Error("지원하는 목록 주소가 아닙니다.");
   if(["sbxh9.com","toki32.com"].includes(url.hostname)&&
-    (/^\/(?:ing|end)\/?$/.test(url.pathname)||/^\/webtoon\/[^/]{1,900}(?:\/[^/]{1,900})?\/?$/.test(url.pathname)))return url;
+    (/^\/(?:ing|end|manhwa|rank)\/?$/.test(url.pathname)||/^\/(?:webtoon|manhwa)\/[^/]{1,900}(?:\/[^/]{1,900})?\/?$/.test(url.pathname)))return url;
   if (
     /^\/novel(?:\/\d+)?\/?$/.test(url.pathname) ||
     url.pathname === "/novel-end"
@@ -28,7 +28,7 @@ export function normalizeDiscoveryUrl(value) {
           value.length > 200 ||
           /[\x00-\x1f\x7f]/.test(value),
       ) ||
-      (url.searchParams.has("kind") && !["novel","webtoon"].includes(url.searchParams.get("kind")))
+      (url.searchParams.has("kind") && !["novel","webtoon","manhwa"].includes(url.searchParams.get("kind")))
     )
       throw new Error("소설 검색 주소가 잘못됐습니다.");
     return url;

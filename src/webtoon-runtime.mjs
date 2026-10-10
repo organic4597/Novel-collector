@@ -24,7 +24,7 @@ export function readWebtoonPageState(doc=document) {
 }
 export async function webtoonListing(owner,page,query) {
   const origin=new URL(owner.transportUrl("https://newtoki1.org/novel")).origin;
-  const {presetSnapshot:config}=webtoonPreset(owner.presets,origin);
+  const {presetSnapshot:config}=webtoonPreset(owner.presets,origin,null,query.contentType||"webtoon");
   if(!matchesPresetPage(config,"listing",page.url()))throw Object.assign(Error("웹툰 목록 주소가 선택한 프리셋 경로와 다릅니다."),{status:400});
   const state=await page.evaluate(readWebtoonPageState);
   owner.webtoonPlatforms||={};owner.webtoonPlatforms[origin]={...owner.webtoonPlatforms[origin],...state.filters.platformKeys};
@@ -33,14 +33,14 @@ export async function webtoonListing(owner,page,query) {
   const items=[],ids=new Set();
   for(const row of data.items){
     const source=webtoonSource(row.url);
-    if(source.episodeId||new URL(source.url).origin!==origin)throw Error("웹툰 목록의 작품 링크가 원천과 다릅니다.");
+    if(source.episodeId||source.contentType!==config.contentType||new URL(source.url).origin!==origin)throw Error("이미지 목록의 작품 링크가 원천·유형과 다릅니다.");
     if(ids.has(source.id))continue;ids.add(source.id);
     const count=String(row.episodeCount||"").match(/([\d,]+)\s*(?:화|회차)/)?.[1]?.replace(/,/g,"");
     const rating=Number(row.rating);
     items.push({...source,title:row.title,authors:(row.authors||[]).flatMap(v=>v.split(/[,|·]/)).map(v=>v.trim()).filter(Boolean),
       author:(row.authors||[]).join(", "),genres:(row.genres||[]).flatMap(v=>v.split(/[,|·/]/)).map(v=>v.trim()).filter(Boolean),
       tags:row.tags||[],platform:owner.webtoonPlatforms[origin]?.[row.platform]||row.platform||"",thumbnailUrl:row.thumbnail||null,updatedLabel:row.updatedLabel||"",
-      publication:query.publication==="completed"?"completed":"ongoing",episodeCount:count?Number(count):null,
+      publication:config.contentType==='manhwa'?/완결|완료/.test(row.publication||'')?'completed':/연재/.test(row.publication||'')?'ongoing':'unknown':query.publication==="completed"?"completed":"ongoing",episodeCount:count?Number(count):null,
       rating:row.rating&&Number.isFinite(rating)&&rating>=0&&rating<=5?rating:null});
   }
   return {...state,items};
@@ -49,7 +49,7 @@ export async function webtoonMetadata(page,config) {
   const data=await page.evaluate(evaluatePresetPage,config.pages.detail);
   return {title:data.title,authors:(data.authors||[]).flatMap(v=>v.split(/[,|·]/)).map(v=>v.trim()).filter(Boolean),
     synopsis:data.synopsis||"",tags:data.tags||[],genres:data.genres||[],platform:data.platform||"",thumbnailUrl:data.thumbnail||null,
-    expectedChapterCount:data.expectedChapters??data.episodeCount,contentType:"webtoon"};
+    expectedChapterCount:data.expectedChapters??data.episodeCount,contentType:config.contentType};
 }
 export function readWebtoonCatalogPage(doc=document) {
   const current=new URL(doc.URL),page=Number(current.searchParams.get("epage")||1),pages=new Map();

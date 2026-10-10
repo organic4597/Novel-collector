@@ -19,7 +19,7 @@ export function readNormalListState(doc = document) {
     }),
   );
   return {
-    ready: !!list,
+    ready: !!list || /\b0\s*개/.test(doc.querySelector(".toolbar .count")?.textContent||""),
     pageMode: mode
       ? mode.getAttribute("aria-selected") === "true" ||
         mode.classList.contains("active")
@@ -103,8 +103,8 @@ export function clickNormalListControl(control, doc = document) {
     if (!node && pager) return { changed: false };
     if (node?.getAttribute("aria-selected") === "true")
       return { changed: false };
-  } else if (["genre", "platform", "publication"].includes(control.kind)) {
-    const label = { genre: "장르", platform: "플랫폼", publication: "상태" }[
+  } else if (["genre", "platform", "publication", "category"].includes(control.kind)) {
+    const label = { genre: "장르", platform: "플랫폼", publication: "상태",category:"분류" }[
       control.kind
     ];
     const row = [...doc.querySelectorAll(".filter .filter-row")].find(
@@ -170,11 +170,11 @@ export async function openNormalDiscovery(
   { knownMaxPage = null, knownTotal = null, readPage = () => page.evaluate(readDocument), webtoonSources = null } = {},
 ) {
   const search = !!(query.query || query.author);
-  if (!search && query.publication === "ongoing" && query.contentType!=="webtoon")
+  if (!search && query.publication === "ongoing" && !["webtoon","manhwa"].includes(query.contentType))
     throw failure(
       "새 사이트의 전체 작품 목록에서는 연재 중 필터를 제공하지 않습니다. 제목·작가 검색에서 연재 상태를 선택해 주세요.",
     );
-  const base = query.contentType==="webtoon"?
+  const base = query.contentType==="manhwa"?new URL(owner.transportUrl("https://newtoki1.org/novel")).origin+"/manhwa":query.contentType==="webtoon"?
     new URL(owner.transportUrl("https://newtoki1.org/novel")).origin+(query.publication==="completed"?webtoonSources?.completed||"/end":webtoonSources?.ongoing||"/ing"):
     query.publication === "completed"
       ? "https://newtoki1.org/novel-end"
@@ -237,7 +237,7 @@ export async function openNormalDiscovery(
           },
         );
       const after = await page.evaluate(readNormalListState);
-      const label = { genre: "장르", platform: "플랫폼", publication: "상태" }[
+      const label = { genre: "장르", platform: "플랫폼", publication: "상태",category:"분류" }[
         control.kind
       ];
       const proved =
@@ -262,7 +262,7 @@ export async function openNormalDiscovery(
                     : control.kind === "expand"
                       ? after.expanded
                       : false;
-      const filterChanged = ["genre", "platform", "sort"].includes(
+      const filterChanged = ["genre", "platform", "sort", "category"].includes(
         control.kind,
       );
       const responseProved = responses.completedFor(
@@ -308,6 +308,8 @@ export async function openNormalDiscovery(
     // tests. The live path always starts on an allowed normal frontend.
     if (!initial.normalCatalog) return initial;
     await change({ kind: "mode" });
+    if(query.contentType==="webtoon"&&query.genre&&(await page.evaluate(readNormalListState)).labels.some(row=>row.label==="분류"))
+      await change({kind:"category",value:"전체"});
     if (query.genre) await change({ kind: "genre", value: query.genre });
     if (query.platform)
       await change({ kind: "platform", value: query.platform });

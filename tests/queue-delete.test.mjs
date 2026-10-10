@@ -32,10 +32,11 @@ test("queued, paused and held reservations can be deleted while library chapters
   assert.equal((await f.store.readChapter("book","chapter")).text,"saved synthetic body");
 });
 
-test("running deletion waits outside the scheduler lock, returns pending and never cancels another slot",async t=>{
-  let finish;const gate=new Promise(r=>{finish=r;});const signals=new Map();
+test("running deletion waits outside the scheduler lock, returns pending and never cancels another slot",{timeout:5000},async t=>{
+  let finish,started;const gate=new Promise(r=>{finish=r;}),startedBoth=new Promise(r=>{started=r;});const signals=new Map();
+  t.after(()=>finish());
   const collector={delayMs:0,run:async(job,hooks,signal)=>{
-    signals.set(job.id,signal);
+    signals.set(job.id,signal);if(signals.size===2)started();
     await new Promise(r=>{if(signal.aborted)r();else signal.addEventListener("abort",r,{once:true});});
     if(job.url.endsWith("/1"))await gate;
     await hooks.report({completed:999});
@@ -44,7 +45,7 @@ test("running deletion waits outside the scheduler lock, returns pending and nev
   const f=await fixture(t,collector);
   const a=await f.store.createJob({url:"https://newtoki1.org/novel/1"});
   const b=await f.store.createJob({url:"https://newtoki1.org/novel/2"});
-  await f.scheduler.start();
+  await f.scheduler.start();await startedBoth;
   const result=await f.scheduler.deleteJob(a.id,{waitMs:10});
   assert.equal(result.pending,true);
   assert.equal(signals.get(a.id).aborted,true);assert.equal(signals.get(b.id).aborted,false);

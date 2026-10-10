@@ -344,7 +344,7 @@ test("Library failure retry excludes unchecked chapters and default setting upda
   assert.equal(w.document.getElementById("batch-format").value, "epub");
   click(w, "nav-library");
   await tick();
-  w.document.querySelector("#books-list .book-actions .quiet").click();
+  w.document.querySelector("#books-list .library-card").click();click(w,"library-profile-retry");
   await tick();
   const checks = w.document.querySelectorAll("#failures-list input");
   assert.equal(checks.length, 2);
@@ -358,7 +358,7 @@ test("Legacy book with missing chapters and no failure ledger queues missing-onl
   const { w, calls } = await setup(t, { missingOnly: true });
   click(w, "nav-library");
   await tick();
-  w.document.querySelector("#books-list .book-actions .quiet").click();
+  w.document.querySelector("#books-list .library-card").click();click(w,"library-profile-retry");
   await tick();
   assert.equal(w.document.getElementById("failures-dialog").open, true);
   assert.match(
@@ -399,8 +399,8 @@ test("Catalog-only book waits for stored chapters before reading, selection, dow
   assert.ok(card);
   assert.equal(card.querySelector('input[type="checkbox"]').disabled, true);
   assert.equal(card.querySelector("a.export-link"), null);
-  assert.match(card.textContent, /저장된 본문 없음/);
-  assert.equal(card.querySelector(".book-actions .secondary").disabled, true);
+  card.click();assert.equal(w.document.getElementById("library-profile-download").hidden,true);
+  assert.equal(w.document.getElementById("library-content-tab").disabled, true);
   assert.equal(card.querySelector(".book-actions .quiet"), null);
   assert.match(card.textContent, /본문 수집 대기/);
   click(w, "library-select-all");

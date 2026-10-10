@@ -8,9 +8,10 @@ const exec=promisify(execFile);
 const api=async path=>JSON.parse((await exec("gh",["api",path],{maxBuffer:16*1024*1024})).stdout);
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export function validCandidate(manifest,run){
-  return manifest?.schema===1&&manifest.channel==="develop-validation"&&/^\d+\.\d+\.\d+\.\d+$/.test(manifest.version||"")&&
-    /^[a-f0-9]{40}$/.test(manifest.commit||"")&&/^[a-f0-9]{40}$/.test(manifest.sourceSha||"")&&/^[a-f0-9]{64}$/.test(manifest.zipSha256||"")&&
-    run?.event==="push"&&run.head_branch==="develop"&&run.head_sha===manifest.sourceSha&&run.status==="completed"&&run.conclusion==="success"&&run.path===".github/workflows/delivery.yml";
+  const metadataOk=manifest?.schema===1&&manifest.channel==="develop-validation"&&/^\d+\.\d+\.\d+\.\d+$/.test(manifest.version||"")&&
+    /^[a-f0-9]{40}$/.test(manifest.commit||"")&&/^[a-f0-9]{40}$/.test(manifest.sourceSha||"")&&/^[a-f0-9]{64}$/.test(manifest.zipSha256||"");
+  const runOk=run?.head_branch==="develop"&&run.head_sha===manifest?.sourceSha&&run.status==="completed"&&run.conclusion==="success"&&run.path===".github/workflows/delivery.yml";
+  return metadataOk&&runOk&&(run.event==="push"||run.event==="workflow_dispatch");
 }
 async function workerLauncher(root,repo,version){
   const child=fork(fileURLToPath(import.meta.url),["--update-worker",root,repo,version],{detached:true,stdio:["ignore","ignore","ignore","ipc"]});

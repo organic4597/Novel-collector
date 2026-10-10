@@ -126,7 +126,9 @@ export function createApp({
   activity = null,
   extractionPresets = null,
   updates = null,
+  startupIdentity = null,
 }) {
+  const healthIdentity={version:APP_VERSION,channel:startupIdentity?.version===APP_VERSION?startupIdentity.channel:"stable",commit:startupIdentity?.version===APP_VERSION?startupIdentity.commit:null};
   if (!credentials && (typeof adminPassword !== "string" || !adminPassword))
     throw Error("관리자 인증 설정이 필요합니다.");
   if (
@@ -150,7 +152,7 @@ export function createApp({
     if(input?.presetSnapshot||input?.presetHash)throw HTTP_ERROR("예약 프리셋은 서버에서 확정합니다. presetId만 선택하세요.",400);
     if(!isWebtoonUrl(input?.url))return input;
     const source=webtoonSource(input.url);
-    return{...input,...webtoonPreset(extractionPresets,new URL(source.url).origin,input.presetId||null)};
+    return{...input,...webtoonPreset(extractionPresets,new URL(source.url).origin,input.presetId||null,source.contentType)};
   };
   const featureRouter = createFeatureRouter({
     store,
@@ -273,7 +275,7 @@ export function createApp({
       const url = new URL(request.url, "http://localhost");
       const parts = url.pathname.split("/").filter(Boolean);
       const method = request.method;
-      if(url.pathname==="/api/health"&&method==="GET")return send(response,200,{ok:true,version:updates?.currentVersion||APP_VERSION});
+      if(url.pathname==="/api/health"&&method==="GET")return send(response,200,{ok:true,...healthIdentity});
       if (url.pathname.startsWith("/api")) {
         if (method !== "GET" && request.headers.origin) {
           let origin;
@@ -448,11 +450,21 @@ export function createApp({
             await discovery.list(Object.fromEntries(url.searchParams)),
           );
         }
+        if(url.pathname==='/api/discover/rankings'&&method==='GET'){
+          if(!discovery?.rankings)throw HTTP_ERROR('랭킹 조회를 사용할 수 없습니다.',503);
+          return send(response,200,await discovery.rankings(Object.fromEntries(url.searchParams)));
+        }
         if (parts[1] === "discover" && parts.length === 4) {
           if (!validDiscoveryId(parts[2]))
             throw HTTP_ERROR("잘못된 작품 ID입니다.", 400);
           if (!discovery)
             throw HTTP_ERROR("작품 목록을 사용할 수 없습니다.", 503);
+          if(parts[3]==='saved'&&method==='GET'){
+            const saved=await discovery.overviewState(parts[2]),url=saved.item?.url;
+            if(!url)return send(response,200,{book:null});
+            const {makeBookId}=await import('./collector.mjs');const book=await store.getBook(makeBookId(url));
+            return send(response,200,{book:book?.storedChapterCount>0?publicBook(book,{status:'completed'}):null});
+          }
           if (parts[3] === "overview" && ["GET", "POST"].includes(method)) {
             if (!discovery.overviewState || !discovery.requestOverview)
               throw HTTP_ERROR("작품 소개를 사용할 수 없습니다.", 503);
@@ -716,6 +728,7 @@ async function secretFile(path) {
 }
 export async function startServer({
   rootDir = BASE,
+  startupIdentity = null,
   host = process.env.HOST ?? "127.0.0.1",
   port = Number(process.env.PORT ?? 8788),
 } = {}) {
@@ -839,6 +852,7 @@ export async function startServer({
   const app = createApp({
     extractionPresets,
     updates,
+    startupIdentity,
     activity,
     store,
     scheduler,

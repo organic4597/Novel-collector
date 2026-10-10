@@ -31,8 +31,9 @@ import {
 import { SourceRequestGate } from "./source-request-gate.mjs";
 import { readWorkMetadata } from "./collection-metadata.mjs";
 import { DiscoveryPageCache, catalogFreshness } from "./discovery-page-cache.mjs";
-import { isWebtoonUrl, validDiscoveryId } from "./webtoon-source.mjs";
+import { isWebtoonUrl, validDiscoveryId, isImageType } from "./webtoon-source.mjs";
 import { webtoonMetadata, webtoonPreset } from "./webtoon-runtime.mjs";
+import {discoveryRankings} from './discovery-rankings.mjs';
 
 const PAGE_TTL = 30 * 60 * 1000,
   NEGATIVE_TTL = 6 * 60 * 60 * 1000;
@@ -62,7 +63,7 @@ const validId = (value) => {
 const attention = (message) =>
   Object.assign(new Error(message), { code: "NEEDS_ATTENTION" });
 export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
-  if(input.contentType!==undefined&&!["novel","webtoon"].includes(input.contentType))throw badInput("콘텐츠 유형을 확인하세요.");
+  if(input.contentType!==undefined&&!["novel","webtoon","manhwa"].includes(input.contentType))throw badInput("콘텐츠 유형을 확인하세요.");
   const integer = (value, fallback, max) => {
     const n = value === undefined || value === "" ? fallback : Number(value);
     if (!Number.isSafeInteger(n) || n < 1 || n > max)
@@ -98,7 +99,7 @@ export function normalizeDiscoveryQuery(input = {}, pageLimit = 1000) {
   if (minEpisodes !== null && maxEpisodes !== null && minEpisodes > maxEpisodes)
     throw badInput("회차 범위가 잘못됐습니다.");
   return {
-    ...(input.contentType==="webtoon"?{contentType:"webtoon"}:{}),
+    ...(isImageType(input.contentType)?{contentType:input.contentType}:{}),
     page: integer(input.page, 1, pageLimit),
     query,
     genre,
@@ -183,7 +184,7 @@ export class Discovery {
   }
   transportUrl(value) {
     const source = normalizeDiscoveryUrl(value);
-    if(isWebtoonUrl(value)||/^\/(?:ing|end)\/?$/.test(source.pathname))return source.href;
+    if(isWebtoonUrl(value)||/^\/(?:ing|end|manhwa|rank)\/?$/.test(source.pathname))return source.href;
     if (this.viewerOrigins)
       return (
         this.viewerOrigins.resolveWork?.(source.href) ||
@@ -401,7 +402,7 @@ export class Discovery {
         await this.navigate(page, source);
         // Read the introductory page only. No chapter body, full catalog walk,
         // load-more button, login or CAPTCHA solver is part of this operation.
-        const metadata = isWebtoonUrl(work.url)?await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin).presetSnapshot):await page.evaluate(readWorkMetadata);
+        const metadata = isWebtoonUrl(work.url)?await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin,null,normalizeWorkSource(work.url).contentType).presetSnapshot):await page.evaluate(readWorkMetadata);
         const detail = await this.updateWork(id, latest => ({ ...latest,
           ...mergeSourceMetadata(latest, metadata),
           episodeCount: Number.isSafeInteger(metadata.expectedChapterCount) ? metadata.expectedChapterCount : latest?.episodeCount ?? null,
@@ -432,7 +433,7 @@ export class Discovery {
     // Dashboard pages are independent of the source site's page size. Keep
     // source-page caches intact and join only the pages covering this range.
     const query = normalizeDiscoveryQuery(input, 25000);
-    if(query.contentType==="webtoon"&&(query.query||query.author)&&(query.genre||query.platform))return this.filteredWebtoonSearch(query,{onProgress});
+    if(isImageType(query.contentType)&&(query.query||query.author)&&(query.genre||query.platform))return this.filteredWebtoonSearch(query,{onProgress});
     const key = `paged-list:${JSON.stringify(query)}`;
     let observers = this.listObservers.get(key);
     if (!this.pending.has(key)) {
@@ -527,10 +528,11 @@ export class Discovery {
   sourceList(input = {}, options = {}) {
     return this.pageCache.list(input, options);
   }
+  rankings(input={}){return discoveryRankings(this,input);}
   filteredWebtoonSearch(query,{onProgress}={}){
-    const origin=new URL(this.transportUrl("https://newtoki1.org/novel")).origin,selected=webtoonPreset(this.presets,origin);
+    const origin=new URL(this.transportUrl("https://newtoki1.org/novel")).origin,selected=webtoonPreset(this.presets,origin,null,query.contentType);
     return this.dedupe("webtoon-search:"+selected.presetHash+":"+JSON.stringify(query),async()=>{
-      const normal=await this.sourceList({contentType:"webtoon",page:1,publication:query.publication});
+      const normal=await this.sourceList({contentType:query.contentType,page:1,publication:query.publication});
       const remote={...query,genre:"",platform:"",minEpisodes:undefined,maxEpisodes:undefined,page:1};
       const first=await this.sourceList(remote),pages=[first],items=[],ids=new Set();
       for(let page=1;page<=first.maxPage;page++){
@@ -582,7 +584,7 @@ export class Discovery {
             if (number > 1) url.searchParams.set("epage", String(number));
             await this.navigate(page, url.href);
             if(isWebtoonUrl(work.url)){
-              const metadata=await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin).presetSnapshot);
+              const metadata=await webtoonMetadata(page,webtoonPreset(this.presets,new URL(work.url).origin,null,normalizeWorkSource(work.url).contentType).presetSnapshot);
               const detail=await this.updateWork(id,latest=>({...latest,...mergeSourceMetadata(latest,metadata),episodeCount:metadata.expectedChapterCount??null,
                 detailCachedAt:new Date(this.now()).toISOString(),overviewCachedAt:new Date(this.now()).toISOString()}));
               return publicWork(detail);
@@ -662,11 +664,11 @@ export class Discovery {
           if (error.code !== "ENOENT") throw error;
         }
       }
-      if (cached?.failedAt && this.now() - cached.failedAt < NEGATIVE_TTL)
-        return null;
       if (this.sourceGate.active) return null;
       const work = await json(join(this.rootDir, "works", `${id}.json`));
       if (!work?.thumbnailUrl) return null;
+      const correctedFormat=new URL(work.thumbnailUrl).hostname==='mana.apihost93.com';
+      if(cached?.failedAt&&this.now()-cached.failedAt<NEGATIVE_TTL&&(!correctedFormat||cached.formatPolicy==='actual-mime-v1'))return null;
       if (this.sourceGate.isHeld(new URL(work.url).hostname)) return null;
       const task = async () => {
         if (
@@ -684,7 +686,7 @@ export class Discovery {
           const image = await this.fetchImage(cover.href);
           return await this.storeThumbnail(id, image);
         } catch {
-          await atomic(metaPath, JSON.stringify({ failedAt: this.now() }));
+          await atomic(metaPath, JSON.stringify({ failedAt: this.now(),...(correctedFormat?{formatPolicy:'actual-mime-v1'}:{}) }));
           return null;
         }
       };

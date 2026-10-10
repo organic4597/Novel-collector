@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {execFile} from "node:child_process";
+import {readFile} from "node:fs/promises";
 import {promisify} from "node:util";
-import {nextVersion,releaseFiles,verifyPublishedAssetDigest} from "../tools/ci-release.mjs";
+import {nextVersion,releaseFiles,verifyPublishedAssetDigest,channelNameForBranch,channelArtifactNames,buildChannelManifest,sourceBranchRef,plannedCandidateEnv,channelPublishedAt} from "../tools/ci-release.mjs";
 import {validCandidate} from "../tools/deploy-verified-release.mjs";
 import {sourcePath} from "../src/update-files.mjs";
 const exec=promisify(execFile);
@@ -58,4 +59,58 @@ test("published ZIP digest check fails after bounded missing digest retries",asy
   },{version:"1.0.0.14",assetName:zipAssetName,expectedDigest:expectedZipDigest,attempts:3,delayMs:5,delay:async ms=>waits.push(ms)}),/확인하지 못했습니다/);
   assert.equal(calls,3);
   assert.deepEqual(waits,[5,5]);
+});
+test("push update channels use immutable source commit artifacts without a formal version bump",()=>{
+  const commit="1".repeat(40);
+  const channel=channelNameForBranch("develop");
+  const names=channelArtifactNames({channel,commit});
+  const manifest=buildChannelManifest({channel,version:"1.0.0.16",commit,baseVersion:"1.0.0.15",baseCommit:"2".repeat(40),runId:123,repository:"owner/repo",sourceSha:commit,zipName:names.zipName,zipSha256:"3".repeat(64),summary:"test change",publishedAt:"2026-10-10T00:00:00.000Z"});
+  assert.equal(names.zipName,"develop-"+commit+".zip");
+  assert.equal(names.manifestName,"develop-"+commit+".json");
+  assert.equal(manifest.channel,"develop");
+  assert.equal(manifest.version,"1.0.0.16");
+  assert.equal(manifest.baseVersion,"1.0.0.15");
+});
+
+test("hotfix update channels are tied to the exact stable base version",()=>{
+  const commit="4".repeat(40);
+  const channel=channelNameForBranch("hotfix/1.0.0.15");
+  const names=channelArtifactNames({channel,baseVersion:"1.0.0.15",commit});
+  assert.equal(channel,"hotfix");
+  assert.equal(names.zipName,"hotfix-1.0.0.15-"+commit+".zip");
+  assert.equal(names.manifestName,"hotfix-1.0.0.15-"+commit+".json");
+  assert.throws(()=>channelArtifactNames({channel,commit}),/baseVersion/);
+});
+
+test("delivery workflow keeps push channels separate from explicit formal releases",async()=>{
+  const workflow=await readFile(new URL("../.github/workflows/delivery.yml",import.meta.url),"utf8");
+  assert.match(workflow,/branches:\s*\[develop, hotfix\/\*\*\]/);
+  assert.match(workflow,/workflow_dispatch:/);
+  assert.match(workflow,/node tools\/ci-release\.mjs channel/);
+  assert.match(workflow,/if: github\.event_name == 'push'/);
+  assert.match(workflow,/if: github\.event_name == 'workflow_dispatch'/);
+});
+test("formal validation accepts explicit release dispatch but rejects channel manifests",()=>{
+  const manifest={schema:1,channel:"develop-validation",version:"1.0.0.17",commit:"a".repeat(40),sourceSha:"b".repeat(40),zipSha256:"c".repeat(64)};
+  const dispatchRun={event:"workflow_dispatch",head_branch:"develop",head_sha:manifest.sourceSha,status:"completed",conclusion:"success",path:".github/workflows/delivery.yml"};
+  assert.equal(validCandidate(manifest,dispatchRun),true);
+  assert.equal(validCandidate({...manifest,channel:"develop"},dispatchRun),false);
+  assert.equal(validCandidate({...manifest,channel:"hotfix",baseVersion:"1.0.0.16"},dispatchRun),false);
+  assert.equal(validCandidate(manifest,{...dispatchRun,head_branch:"hotfix/1.0.0.16"}),false);
+  assert.equal(validCandidate(manifest,{...dispatchRun,status:"in_progress"}),false);
+});
+test("channel manifests stay byte-stable across reruns for the same source commit",()=>{
+  const commit="5".repeat(40),publishedAt=channelPublishedAt("2026-10-10T01:02:03+09:00");
+  const names=channelArtifactNames({channel:"develop",commit});
+  const common={channel:"develop",version:"1.0.0.16",commit,baseVersion:"1.0.0.15",baseCommit:"6".repeat(40),runId:456,repository:"owner/repo",sourceSha:commit,zipName:names.zipName,zipSha256:"7".repeat(64),summary:"stable rerun",publishedAt};
+  assert.equal(JSON.stringify(buildChannelManifest(common)),JSON.stringify(buildChannelManifest({...common,publishedAt:channelPublishedAt("2026-10-10T01:02:03+09:00")})));
+  assert.equal(buildChannelManifest(common).publishedAt,"2026-10-10T01:02:03+09:00");
+  assert.throws(()=>channelPublishedAt(new Date().toDateString()),/커밋 시각/);
+});
+
+test("formal release prepare records the local candidate without pushing before validation",()=>{
+  const env=plannedCandidateEnv({version:"1.0.0.18",commit:"8".repeat(40),sourceSha:"9".repeat(40),sourceRef:"refs/heads/develop"});
+  assert.deepEqual(env,{CANDIDATE_VERSION:"1.0.0.18",CANDIDATE_COMMIT:"8".repeat(40),CANDIDATE_SOURCE_SHA:"9".repeat(40),CANDIDATE_SOURCE_REF:"refs/heads/develop"});
+  assert.equal(sourceBranchRef(env),"HEAD:refs/heads/develop");
+  assert.throws(()=>sourceBranchRef({...env,CANDIDATE_SOURCE_REF:"refs/heads/main"}),/develop/);
 });

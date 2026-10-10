@@ -4,6 +4,7 @@
     $ = (id) => document.getElementById(id);
   const { api, node, count, date, empty, textError } = UI;
   const state = { selectedBook: null, chapterId: null, page: 1 };
+  let profileBook=null,profileOpener=null,chaptersLoaded=false;
   let books = [],
     signature = "",
     loading = null,
@@ -41,10 +42,10 @@
     sort.append(option);
   }
   sortLabel.append(sort);
-  document.querySelector(".library-filters").append(sortLabel);
+  document.querySelector("#library-view .library-filters").append(sortLabel);
   const typeLabel=node("label","","작품 유형"),contentType=node("select");contentType.id="library-content-type";
-  for(const [value,label]of [["all","전체"],["novel","소설"],["webtoon","웹툰"]]){const option=node("option","",label);option.value=value;contentType.append(option);}
-  typeLabel.append(contentType);document.querySelector(".library-filters").prepend(typeLabel);
+  for(const [value,label]of [["all","전체"],["novel","소설"],["webtoon","웹툰"],["manhwa","만화"]]){const option=node("option","",label);option.value=value;contentType.append(option);}
+  typeLabel.append(contentType);document.querySelector("#library-view .library-filters").prepend(typeLabel);
   contentType.addEventListener("change",()=>{state.page=1;selected.clear();render();});
   const pageSize = () => UI.preferences().libraryPageSize;
   function pagedBooks() {
@@ -64,9 +65,36 @@
     state.page = 1;
     render();
   });
-  async function openBook(book) {
-    if (storedChapters(book) === 0) return;
+  function profileInfo(book){
+    const id=book.id||book.bookId,image=["webtoon","manhwa"].includes(book.contentType),stored=storedChapters(book)||0,failed=book.failedChapterCount??book.failureCount??0;
+    $("library-profile-author").textContent=book.author||book.authors?.join(", ")||"작가 정보 없음";
+    $("library-profile-meta").textContent=`${({novel:"소설",webtoon:"웹툰",manhwa:"만화"})[book.contentType||"novel"]} · ${book.platform||"공급처 미확인"} · ${count(stored)}화 저장 / 전체 ${book.expectedChapterCount==null?"미확인":count(book.expectedChapterCount)+"화"}`;
+    $("library-profile-tags").replaceChildren(...[...new Set([...(book.genres||[]),...(book.tags||[])])].map(value=>node("span","",value)));
+    $("library-profile-synopsis").textContent=book.synopsis||"저장된 작품 소개가 없습니다.";
+    const cover=book.thumbnail||`/api/books/${encodeURIComponent(id)}/thumbnail`;
+    $("library-profile-cover").hidden=!/^\/api\/books\/[A-Za-z0-9_-]{1,100}\/thumbnail(?:\?v=[^#]*)?$/.test(cover);
+    if(!$("library-profile-cover").hidden)$("library-profile-cover").src=cover;else $("library-profile-cover").removeAttribute("src");
+    $("library-profile-download").hidden=!stored;$("library-profile-download").href=`/api/books/${encodeURIComponent(id)}/export/${image?"zip":"txt"}`;
+    $("library-profile-download").textContent=image?"작품 ZIP 받기":"TXT 받기";
+    $("library-profile-retry").hidden=!failed&&!(stored&&(book.missingChapterCount||0)>0);
+    $("library-profile-retry").textContent=failed?"실패 회차만 재수집":"누락 회차만 재수집";
+    $("library-profile-metadata").hidden=!["failed","deferred"].includes(metadataState(book));
+    $("library-profile-metadata").disabled=metadataRequests.has(String(id));
+    $("library-content-tab").disabled=!stored;
+    let url;try{url=new URL(book.url);if(/^newtoki\d+\./.test(url.hostname))url=new URL(url.pathname,UI.status?.().source?.origin||"https://sbxh9.com");}catch{}
+    $("library-profile-source").hidden=!url||!["https://sbxh9.com","https://toki32.com"].includes(url.origin);
+    if(!$("library-profile-source").hidden)$("library-profile-source").href=url.href;
+    $("library-profile-error").textContent="";
+  }
+  async function readerTab(detail){
+    $("library-profile-panel").hidden=!detail;$("library-content-panel").hidden=detail;
+    for(const [id,selected]of [["library-info-tab",detail],["library-content-tab",!detail]]){$(id).setAttribute("aria-selected",String(selected));$(id).tabIndex=selected?0:-1;}
+    if(!detail&&!chaptersLoaded&&profileBook){chaptersLoaded=true;await loadBookChapters(profileBook);}
+  }
+  async function openBook(book,{details=false}={}) {
+    if (storedChapters(book) === 0&&!details) return;
     const id = book.id || book.bookId;
+    profileBook=book;profileOpener=document.activeElement;chaptersLoaded=false;profileInfo(book);
     state.selectedBook = id;
     state.chapterId = null;
     $("reader-book-title").textContent = book.title || "작품";
@@ -75,7 +103,11 @@
     $("reader-chapter-title").textContent = "회차를 선택하세요";
     $("reader-meta").textContent = "";
     $("reader-text").textContent = "";
-    $("reader-dialog").showModal();
+    if(!$("reader-dialog").open)$("reader-dialog").showModal();
+    await readerTab(details);
+  }
+  async function loadBookChapters(book){
+    const id=book.id||book.bookId;
     try {
       const data = await api(`/api/books/${encodeURIComponent(id)}`);
       if (state.selectedBook !== id || !$("reader-dialog").open) return;
@@ -122,7 +154,7 @@
         data.title || chapter.title || `${data.number ?? ""}화`;
       $("reader-meta").textContent =
         `${data.number === undefined ? "" : `${data.number}화 · `}${count((data.text || "").length)}자`;
-      if(data.contentType==="webtoon"){
+      if(["webtoon","manhwa"].includes(data.contentType)){
         $("reader-meta").textContent=`${data.chapterLabel||data.number+"화"} · ${count(data.savedImages)}장 저장`;
         const prefix=`/api/books/${encodeURIComponent(bookId)}/chapters/${encodeURIComponent(id)}`;
         const link=node("a","export-link","회차 CBZ 받기");link.href=prefix+"/cbz";link.setAttribute("download","");
@@ -229,6 +261,7 @@
   function createBookCard(book, id) {
     const card = node("article", "book-card library-card");
     card.dataset.id = id;
+    card.tabIndex=0;card.setAttribute("role","button");
     const cover = node("div", "library-cover"),
       fallback = node("span", "cover-fallback", "▤"),
       label = node("label", "discover-select"),
@@ -254,12 +287,6 @@
       synopsis: node("p", "book-synopsis"),
       completeness: node("strong", "book-completeness"),
       meta: node("p", "book-meta"),
-      actions: node("div", "book-actions"),
-      read: node("button", "secondary", "회차 열기 →"),
-      download: node("a", "export-link", "TXT 받기"),
-      noDownload: node("span", "export-link", "저장된 본문 없음"),
-      retry: node("button", "quiet"),
-      metadataRetry: node("button", "quiet metadata-retry", "작품 정보 다시 불러오기"),
     };
     entry.image.alt = "";
     entry.image.loading = "lazy";
@@ -273,12 +300,8 @@
     });
     entry.image.addEventListener("load",()=>{entry.fallback.hidden=true;});
     entry.profile.setAttribute("role", "status");
-    entry.download.href = "/api/books/" + encodeURIComponent(id) + "/export/txt";
-    entry.download.setAttribute("download", "");
-    entry.noDownload.setAttribute("aria-disabled", "true");
-    entry.read.addEventListener("click", () => openBook(entry.book));
-    entry.retry.addEventListener("click", () => retryBook(entry.book));
-    entry.metadataRetry.addEventListener("click", () => retryMetadata(entry.book));
+    card.addEventListener("click",event=>{if(!event.target.closest("input,label,button,a,select"))void openBook(entry.book,{details:true});});
+    card.addEventListener("keydown",event=>{if(event.target===card&&["Enter"," "].includes(event.key)){event.preventDefault();void openBook(entry.book,{details:true});}});
     check.addEventListener("change", () => {
       if (!selectable(entry.book)) {
         check.checked = false;
@@ -305,8 +328,7 @@
     } else cardEntries.delete(id);
     cardEntries.set(id, entry);
     entry.book = book;
-    entry.download.href="/api/books/"+encodeURIComponent(id)+"/export/"+(book.contentType==="webtoon"?"zip":"txt");
-    text(entry.download,book.contentType==="webtoon"?"작품 ZIP 받기":"TXT 받기");
+    entry.card.setAttribute("aria-label",(book.title||"작품")+" 상세 정보 열기");
     const profileState = metadataState(book),
       stored = storedChapters(book),
       expected = book.expectedChapterCount;
@@ -371,7 +393,7 @@
           ? " " + reason
           : ""),
     );
-    text(entry.synopsis, book.synopsis || "");
+    text(entry.synopsis, book.synopsis || "저장된 작품 소개가 없습니다.");
     text(
       entry.completeness,
       (stored == null ? "저장 회차 확인 전" : count(stored) + "화 저장") +
@@ -388,24 +410,14 @@
         .filter(Boolean)
         .join(" · ") || "저장한 본문을 확인하세요.",
     );
-    entry.read.disabled = stored === 0;
-    text(entry.retry, missing > 0 && failed === 0 ? "누락 회차만 재수집" : "실패 회차만 재수집");
-    entry.metadataRetry.disabled = metadataRequests.has(id);
-    reconcile(entry.actions, [
-      entry.read,
-      eligible ? entry.download : entry.noDownload,
-      ...(failed > 0 || (stored > 0 && missing > 0) ? [entry.retry] : []),
-      ...(["failed", "deferred"].includes(profileState) ? [entry.metadataRetry] : []),
-    ]);
     reconcile(entry.body, [
       entry.title,
       entry.author,
       entry.tags,
       ...(messages[profileState] ? [entry.profile] : []),
-      ...(book.synopsis ? [entry.synopsis] : []),
+      entry.synopsis,
       entry.completeness,
       entry.meta,
-      entry.actions,
     ]);
     return entry.card;
   }
@@ -431,6 +443,7 @@
     loaded = true;
     const next = JSON.stringify(data);
     books = Array.isArray(data) ? data : [];
+    if(profileBook&&$("reader-dialog").open){const latest=books.find(book=>(book.id||book.bookId)===state.selectedBook);if(latest){profileBook=latest;profileInfo(latest);}}
     const currentIds = new Set(books.map((book) => String(book.id || book.bookId)));
     for (const id of cardEntries.keys()) if (!currentIds.has(id)) cardEntries.delete(id);
     $("book-badge").textContent = count(books.length);
@@ -465,6 +478,7 @@
       generation = UI.generation();
     if (metadataRequests.has(id) || !UI.authenticated()) return;
     metadataRequests.add(id);
+    if(profileBook&&(profileBook.id||profileBook.bookId)===id)$("library-profile-metadata").disabled=true;
     error();
     render();
     try {
@@ -479,6 +493,7 @@
     } finally {
       if (generation === UI.generation()) {
         metadataRequests.delete(id);
+        if(profileBook&&(profileBook.id||profileBook.bookId)===id)$("library-profile-metadata").disabled=false;
         render();
       }
     }
@@ -712,7 +727,13 @@
   $("reader-dialog").addEventListener("close", () => {
     state.selectedBook = null;
     state.chapterId = null;
+    profileBook=null;chaptersLoaded=false;profileOpener?.focus?.();profileOpener=null;
   });
+  $("library-info-tab").onclick=()=>void readerTab(true);$("library-content-tab").onclick=()=>void readerTab(false);
+  for(const id of ["library-info-tab","library-content-tab"])$(id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight"].includes(event.key)){event.preventDefault();const detail=id!=="library-info-tab";if(!detail&&$("library-content-tab").disabled)return;void readerTab(detail);$(detail?"library-info-tab":"library-content-tab").focus();}});
+  $("library-profile-cover").onerror=()=>{$("library-profile-cover").hidden=true;};
+  $("library-profile-retry").onclick=()=>{if(profileBook)void retryBook(profileBook);};
+  $("library-profile-metadata").onclick=()=>{if(profileBook)void retryMetadata(profileBook);};
   $("failures-dialog").addEventListener("close", () => {
     failureContext = null;
   });
@@ -737,5 +758,5 @@
       failureContext = null;
     }
   });
-  window.CollectorLibrary = { refresh, retryJob };
+  window.CollectorLibrary = { refresh, retryJob,openProfile:book=>openBook(book,{details:true}),openBook,find:url=>books.find(book=>book.url===url&&storedChapters(book)>0) };
 })();

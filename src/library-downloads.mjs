@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import JSZip from "jszip";
 import { safeId } from "./store.mjs";
 import { webtoonCbz, webtoonZip } from "./webtoon-images.mjs";
+import { isImageType } from "./webtoon-source.mjs";
 
 const fail = (message, status) => Object.assign(new Error(message), { status });
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -115,14 +116,14 @@ export class LibraryDownloads {
   async bookZip(bookId){safeId(bookId);this.checkOpen();return webtoonZip(this.store,this.rootDir,bookId,this.controller.signal,this.maxArchiveBytes);}
   async chapterCbz(bookId,chapterId){safeId(bookId);safeId(chapterId);this.checkOpen();return webtoonCbz(this.store,this.rootDir,bookId,
     await this.store.readChapter(bookId,chapterId),this.controller.signal);}
-  async bookFile(bookId){return (await this.store.getBook(bookId))?.contentType==="webtoon"?this.bookZip(bookId):this.bookTxt(bookId);}
+  async bookFile(bookId){return isImageType((await this.store.getBook(bookId))?.contentType)?this.bookZip(bookId):this.bookTxt(bookId);}
 
   async createBookTxt(bookId) {
     for (let attempt = 0; attempt < 3; attempt++) {
       this.checkOpen();
       const book = await this.store.getBook(bookId);
       if (!book) throw fail("작품을 찾을 수 없습니다.", 404);
-      if(book.contentType==="webtoon")throw fail("웹툰은 회차 CBZ·작품 ZIP으로 내려받으세요.",400);
+      if(isImageType(book.contentType))throw fail("이미지 작품은 회차 CBZ·작품 ZIP으로 내려받으세요.",400);
       const chapters = (await this.store.listChapters(bookId))
         .slice()
         .sort(

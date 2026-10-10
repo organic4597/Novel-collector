@@ -23,8 +23,9 @@ test(
         const page = await browser.newPage({
             viewport: { width, height: 844 },
           }),
-          errors = [];
+          errors = [], checks = [];
         page.on("pageerror", (error) => errors.push(error.message));
+        page.on("dialog", dialog => dialog.accept());
         await page.route("**/api/**", (route) => {
           const path = new URL(route.request().url()).pathname;
           let data = {},
@@ -33,7 +34,9 @@ test(
           else if (["/api/jobs", "/api/books"].includes(path)) data = [];
           else if (path === "/api/status")
             data = { siteAttention: [], maxConcurrency: 2 };
-          else if (path === "/api/updates/status")
+          else if (["/api/updates/status", "/api/updates/check"].includes(path)) {
+            const channel = path.endsWith("/check") ? route.request().postDataJSON().channel : "stable";
+            if(path.endsWith("/check")) checks.push(channel);
             data = {
               currentVersion: "1.0.0.4",
               latestVersion: "1.0.0.5",
@@ -43,7 +46,10 @@ test(
               repository: "example/repo",
               releaseUrl: "https://github.com/example/repo/releases",
               job: { state: "idle", message: "" },
+              channel,
+              candidates: [{ id: `${channel}:1.0.0.5:${"a".repeat(40)}`, channel, version: "1.0.0.5", commit: channel === "stable" ? null : "a".repeat(40), summary: "선택한 수정본", url: "https://github.com/example/repo/releases" }],
             };
+          }
           else if (path === "/api/updates/log")
             data = {
               items: [
@@ -72,6 +78,7 @@ test(
         await page.locator("#nav-settings").click();
         await page.waitForSelector(".update-log-row");
         await page.locator("#update-apply").click();
+        await page.locator("#update-check").click();
         await page.waitForFunction(
           () =>
             document.getElementById("update-task-state").textContent ===
@@ -81,6 +88,20 @@ test(
           await page.locator("#update-error").textContent(),
           /서비스 업데이트 설정/,
         );
+        assert.equal(await page.locator("#update-channel").getAttribute("aria-describedby"), "update-channel-help");
+        await page.locator("#update-channel").selectOption("develop");
+        assert.deepEqual(checks, [], "changing channel must not check automatically");
+        assert.match(await page.locator("#update-channel-help").textContent(), /실험판.*불안정/);
+        await page.locator("#update-check").click();
+        await page.waitForFunction(() => document.getElementById("update-candidate").disabled === false);
+        assert.deepEqual(checks, ["develop"]);
+        assert.match(await page.locator("#update-candidate").textContent(), /실험판.*aaaaaaa/);
+        await page.locator("#update-channel").press("Escape");
+        assert.equal(await page.locator("#update-options").isVisible(), false);
+        await page.locator("#update-apply").press("Enter");
+        assert.equal(await page.locator("#update-options").isVisible(), true);
+        await page.evaluate(() => document.documentElement.dataset.theme = "dark");
+        assert.equal(await page.locator("#update-channel").evaluate(node => getComputedStyle(node).colorScheme), "dark");
         await page.locator("#update-log-panel summary").click();
         assert.equal(
           await page.locator("#update-log-panel").evaluate((node) => node.open),

@@ -201,7 +201,7 @@ export class LibraryMetadata {
         await this.discovery.navigate(page, source.url);
         this.checkOpen();
         if(isWebtoonUrl(source.url))return this.register(bookId,{...(await webtoonMetadata(page,
-          webtoonPreset(this.discovery.presets,new URL(source.url).origin).presetSnapshot)),url:source.url});
+          webtoonPreset(this.discovery.presets,new URL(source.url).origin,null,source.contentType).presetSnapshot)),url:source.url});
         const metadata = await page.evaluate(readWorkMetadata);
         const catalog = await page.evaluate(readCatalogDocument);
         if (

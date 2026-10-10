@@ -9,7 +9,7 @@ import { runCollection } from "./collector-runner.mjs";
 import { navigate as navigateReader } from "./collector-navigation.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 import { cleanMessage } from "./store.mjs";
-import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
+import { isWebtoonUrl, webtoonSource, isImageType } from "./webtoon-source.mjs";
 import { webtoonCatalog, webtoonNavigate } from "./webtoon-runtime.mjs";
 import { extractWebtoonImages, verifyWebtoonChapter } from "./webtoon-images.mjs";
 import { isPublicAddress } from "./public-address.mjs";
@@ -105,7 +105,7 @@ export function readReaderDocument(doc = document) {
   const text = texts.sort((a, b) => b.length - a.length)[0] || "";
   const host = doc.querySelector("[data-theme-novel-content], #novel_content");
   let readerPath="";try{readerPath=new URL(doc.URL).pathname;}catch{}
-  const imageRoot=/^\/webtoon\/[^/]+\/[^/]+\/?$/.test(readerPath)?doc.querySelector(".vw-imgs"):null;
+  const imageRoot=/^\/(?:webtoon|manhwa)\/[^/]+\/[^/]+\/?$/.test(readerPath)?doc.querySelector(".vw-imgs"):null;
   const notice = host?.querySelector(".wr-none")?.textContent.trim() ||
     (imageRoot&&!imageRoot.querySelector("img")?imageRoot.textContent.trim():"");
   const visible = (element) => {
@@ -540,7 +540,7 @@ export class Collector {
   }
 
   async catalog(page, job, hooks, signal) {
-    if(job.contentType==="webtoon")return webtoonCatalog.call(this,page,job,hooks,signal);
+    if(isImageType(job.contentType))return webtoonCatalog.call(this,page,job,hooks,signal);
     return collectCatalog.call(this, page, job, hooks, signal, {
       chapterIdFor,
       delay,
@@ -636,7 +636,7 @@ export class Collector {
   }
 
   async exportBook(job, chapters) {
-    if(job.contentType==="webtoon")return{exports:[]};
+    if(isImageType(job.contentType))return{exports:[]};
     const collected = [];
     for (const chapter of chapters) {
       const saved = chapter.text
@@ -669,11 +669,11 @@ export class Collector {
   async collectionPlan(page, job, hooks, signal, bookId) {
     const stored = await this.store.readCatalog(bookId);
     const complete = stored?.chapters?.length > 0 &&
-      (job.contentType!=="webtoon"||stored.presetHash===job.presetHash) &&
+      (!isImageType(job.contentType)||stored.presetHash===job.presetHash) &&
       stored.expectedChapters === stored.chapters.length &&
       new Set(stored.chapters.map(c => c.url)).size === stored.chapters.length;
     const fresh = Date.now() - Date.parse(stored?.catalogVerifiedAt || "") < 30 * 60 * 1000;
-    const cached = (job.contentType!=="webtoon"||stored?.presetHash===job.presetHash)&&
+    const cached = (!isImageType(job.contentType)||stored?.presetHash===job.presetHash)&&
       (job.retryOnlyFailed || (complete && (job.resumeCatalog || fresh))) ? stored : null;
     if (cached) await hooks.event("info", "검증된 저장 목차 재사용 · 목차 재스캔 생략");
     const plan = cached
@@ -703,7 +703,7 @@ export class Collector {
     for (const chapter of candidates) {
       const failed = failedIds.has(chapter.id);
        const record=await this.store.readChapter(bookId, chapter.id);
-       const saved = job.contentType==="webtoon"?record?.presetHash===job.presetHash&&await verifyWebtoonChapter(this.store,bookId,record):record?.text;
+       const saved = isImageType(job.contentType)?record?.presetHash===job.presetHash&&await verifyWebtoonChapter(this.store,bookId,record):record?.text;
       if (selected && !failed && saved)
         throw new Error(
           "이미 정상 저장된 회차는 실패 재시도에 선택할 수 없습니다.",

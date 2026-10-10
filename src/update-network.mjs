@@ -18,7 +18,7 @@ export async function githubBytes(url,{fetcher=fetch,headers={},limit=2*1024*102
 export function parseRelease(data,repository){
   const repo=repositoryName(repository);if(!data||data.draft||data.prerelease)throw Error("공개 정식 릴리스가 아닙니다.");versionParts(data.tag_name);
   const url=`https://github.com/${repo}/releases/tag/${encodeURIComponent(data.tag_name)}`;
-  const asset=(data.assets||[]).find(a=>typeof a.name==="string"&&a.name.endsWith(".zip")&&a.state==="uploaded"&&/^sha256:[a-f0-9]{64}$/.test(a.digest||""));
+  const asset=(data.assets||[]).find(a=>typeof a.name==="string"&&a.name.endsWith(".zip")&&!/^(?:develop|hotfix)-/.test(a.name)&&a.state==="uploaded"&&/^sha256:[a-f0-9]{64}$/.test(a.digest||""));
   let download=null;if(asset){const prefix=`https://github.com/${repo}/releases/download/${encodeURIComponent(data.tag_name)}/`;
     if(!asset.browser_download_url?.startsWith(prefix)||!Number.isSafeInteger(asset.size)||asset.size<1||asset.size>64*1024*1024)throw Error("릴리스 ZIP 주소나 크기를 확인하세요.");
     download={url:asset.browser_download_url,sha256:asset.digest.slice(7),size:asset.size};}

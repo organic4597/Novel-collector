@@ -3,6 +3,7 @@ import { safeId } from "./store.mjs";
 import { SystemInfo } from "./system-info.mjs";
 import { readFile } from "node:fs/promises";
 import { webtoonImageInfo } from "./webtoon-images.mjs";
+import { isImageType } from "./webtoon-source.mjs";
 const fail = (message, status) => Object.assign(new Error(message), { status });
 export function streamDownload(request, response, file) {
   const headers = {
@@ -126,7 +127,7 @@ export function createFeatureRouter({
         if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
         streamDownload(request,response,await downloads.bookZip(id));return true;
       }
-      if(parts[3]==="chapters"&&parts[4]&&book.contentType==="webtoon"&&["GET","HEAD"].includes(method)){
+      if(parts[3]==="chapters"&&parts[4]&&isImageType(book.contentType)&&["GET","HEAD"].includes(method)){
         const chapter=await store.readChapter(id,safeId(parts[4]));if(!chapter)throw fail("웹툰 회차를 찾을 수 없습니다.",404);
         if(parts.length===6&&parts[5]==="cbz"){
           if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
@@ -184,8 +185,8 @@ export function createFeatureRouter({
           {
             url: book.url,
             title: book.title,
-            format: book.contentType==="webtoon"?"cbz":settings?.get().defaultFormat ?? "txt",
-            ...(book.contentType==="webtoon"?{contentType:"webtoon",presetSnapshot:book.presetSnapshot,presetHash:book.presetHash}:{}),
+            format: isImageType(book.contentType)?"cbz":settings?.get().defaultFormat ?? "txt",
+            ...(isImageType(book.contentType)?{contentType:book.contentType,presetSnapshot:book.presetSnapshot,presetHash:book.presetHash}:{}),
             overwrite: false,
             retryOnlyFailed: true,
             retryChapterIds: selected,

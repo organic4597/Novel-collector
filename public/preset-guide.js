@@ -22,7 +22,7 @@
   definitions.reader.description="/novel/{소설 ID}/{회차 ID} — 특정 회차를 읽는 본문 페이지입니다. 소설 정보·회차 목록이 아닌 실제 소설 문단을 지정합니다. 메뉴·광고·댓글은 제외하세요.";
   const legacyDefinitions=definitions;
   function v3Definitions(contentType){
-    const webtoon=contentType==="webtoon",name=webtoon?"웹툰":"소설",path=webtoon?"webtoon":"novel";
+    const webtoon=contentType!=="novel",name=contentType==="manhwa"?"만화":webtoon?"웹툰":"소설",path=webtoon?contentType:"novel";
     const keys={listing:["items","title","url","authors","genres","tags","platform","thumbnail","publication","episodeCount","updatedLabel","rating","actions.nextPage","actions.loadMore"],detail:["title","authors","genres","tags","platform","synopsis","thumbnail","publication","episodeCount","rows","chapterTitle","chapterUrl","chapterLabel","notReady","expectedChapters","seasonLabel","seasonNumber","actions.loadMore","actions.nextPage"],reader:["root",webtoon?"images":"text","notice"]};
     const additions={authors:["authors","작가","작가·그림 작가 등 이름 요소를 각각 선택합니다.","text",true],rating:["rating","평점","작품의 별점·평점 원문 표시를 선택합니다."],chapterLabel:["chapterLabel","회차 표시","외전·프롤로그·12화 등 회차 원문 문구를 선택합니다. 숫자로 바꾸지 않습니다."],seasonLabel:["seasonLabel","시즌 이름","회차가 속한 시즌의 원문 이름이나 제목을 선택합니다."],seasonNumber:["seasonNumber","시즌 번호","회차가 속한 시즌의 번호 표시를 선택합니다."],images:["images","웹툰 이미지","본문 루트를 먼저 저장하고 그 루트 안의 img 이미지 요소를 여러 개 선택하세요. 표시되는 이미지 주소를 사용합니다.","imageUrl",true]};
     return Object.fromEntries(Object.entries(keys).map(([kind,fields])=>{

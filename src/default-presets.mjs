@@ -14,6 +14,8 @@ const definitions = Object.freeze([
   },
   {id:"sbxh9-webtoon-v3",name:"sbxh9 웹툰 기본",origin:"https://sbxh9.com",contentType:"webtoon"},
   {id:"toki32-webtoon-v3",name:"toki32 웹툰 기본",origin:"https://toki32.com",contentType:"webtoon"},
+  {id:"sbxh9-manhwa-v3",name:"sbxh9 만화 기본",origin:"https://sbxh9.com",contentType:"manhwa"},
+  {id:"toki32-manhwa-v3",name:"toki32 만화 기본",origin:"https://toki32.com",contentType:"manhwa"},
 ]);
 const locator = (
   selector,
@@ -31,7 +33,7 @@ const row = (selector, options = {}) =>
   locator(selector, { ...options, relativeTo: "rows" });
 
 function configFor(definition) {
-  if(definition.contentType==="webtoon")return{...defaultWebtoonPreset(definition.origin),name:definition.name};
+  if(["webtoon","manhwa"].includes(definition.contentType))return{...defaultWebtoonPreset(definition.origin,definition.contentType),name:definition.name};
   return {
     version: 2,
     name: definition.name,

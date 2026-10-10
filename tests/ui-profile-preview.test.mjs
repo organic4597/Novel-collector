@@ -17,6 +17,7 @@ async function setup(t, initialBooks) {
   t.after(() => dom.window.close());
   const w = dom.window,
     calls = [];
+  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
   let books = initialBooks,
     handler = async () => ({ status: "pending" });
   let bookHandler = async (value) => structuredClone(value);
@@ -61,6 +62,7 @@ async function setup(t, initialBooks) {
     w,
     calls,
     card: () => w.document.querySelector(".library-card"),
+    profile:()=>{w.CollectorLibrary.openProfile(books[0]);return w.document.getElementById('library-profile-panel');},
     setBooks: (next) => {
       books = next;
     },
@@ -133,7 +135,7 @@ test("library renders the real publicBook flat metadata contract for every profi
         app.card().textContent,
         /원본 사이트의 접근 확인이 필요합니다/,
       );
-      app.card().querySelector(".metadata-retry").click();
+      app.profile().querySelector("#library-profile-metadata").click();
       await tick();
       assert.equal(
         app.calls.filter((call) => call.path === "/api/books/11/metadata")
@@ -155,14 +157,14 @@ test("flat profile status and error take precedence over legacy nested metadata"
   assert.match(app.card().textContent, /작품 정보를 불러오지 못/);
   assert.match(app.card().textContent, /현재 원본 사이트를 연결할 수 없습니다/);
   assert.doesNotMatch(app.card().textContent, /이전 상태 설명/);
-  assert.ok(app.card().querySelector(".metadata-retry"));
+  assert.equal(app.profile().querySelector("#library-profile-metadata").hidden,false);
 });
 
 test("pending profile is visible immediately without source requests or chapter actions", async (t) => {
   const { w, calls, card } = await setup(t, [book()]);
   assert.match(card().textContent, /작품 정보.*불러오는 중/);
   assert.match(card().textContent, /본문 수집 대기/);
-  assert.equal(card().querySelector(".secondary").disabled, true);
+  card().click();assert.equal(w.document.getElementById('library-content-tab').disabled,true);
   assert.equal(card().querySelector('input[type="checkbox"]').disabled, true);
   assert.equal(card().querySelector("a.export-link"), null);
   assert.equal(card().querySelector(".book-actions .quiet"), null);
@@ -203,7 +205,7 @@ test("completed profile previews synopsis, writer, tags, expected chapters and c
   ])
     assert.match(app.card().textContent, text);
   assert.equal(app.card().querySelector(".book-actions .quiet"), null);
-  assert.equal(app.card().querySelector(".secondary").disabled, true);
+  app.profile();assert.equal(app.w.document.getElementById('library-content-tab').disabled,true);
   assert.match(
     app.card().querySelector("img").getAttribute("src"),
     /^\/api\/books\/11\/thumbnail/,
@@ -216,7 +218,7 @@ test("completed profile previews synopsis, writer, tags, expected chapters and c
 
 test("failed and deferred profiles show clear status and explicit retry only", async (t) => {
   for (const state of ["failed", "deferred"]) {
-    const { card, calls } = await setup(t, [
+    const { card, calls, profile } = await setup(t, [
       book(state, {
         metadata: { state, error: "원본 사이트의 접근 확인이 필요합니다." },
       }),
@@ -227,7 +229,7 @@ test("failed and deferred profiles show clear status and explicit retry only", a
     );
     assert.match(card().textContent, /원본 사이트의 접근 확인이 필요합니다/);
     assert.equal(
-      card().querySelector(".metadata-retry").textContent,
+      profile().querySelector("#library-profile-metadata").textContent,
       "작품 정보 다시 불러오기",
     );
     assert.equal(calls.length, 1);
@@ -245,10 +247,10 @@ test("metadata retry deduplicates clicks through response and library refresh", 
     app.setBooks([book()]);
     return { status: "pending" };
   });
-  const button = app.card().querySelector(".metadata-retry");
+  const button = app.profile().querySelector("#library-profile-metadata");
   button.click();
   button.dispatchEvent(new app.w.Event("click"));
-  assert.equal(app.card().querySelector(".metadata-retry").disabled, true);
+  assert.equal(button.disabled, true);
   assert.equal(
     app.calls.filter((call) => call.path.endsWith("/metadata")).length,
     1,
@@ -260,7 +262,7 @@ test("metadata retry deduplicates clicks through response and library refresh", 
   assert.equal(request.options.method, "POST");
   assert.deepEqual(JSON.parse(request.options.body), {});
   assert.match(app.card().textContent, /작품 정보.*불러오는 중/);
-  assert.equal(app.card().querySelector(".metadata-retry"), null);
+  assert.equal(button.hidden,true);
 });
 
 test("metadata retry waits for an already running library refresh and keeps its button locked", async (t) => {
@@ -274,15 +276,12 @@ test("metadata retry waits for an already running library refresh and keeps its 
     return [book()];
   });
   const refresh = app.w.CollectorLibrary.refresh();
-  app.card().querySelector(".metadata-retry").click();
+  const button=app.profile().querySelector("#library-profile-metadata");button.click();
   await tick();
-  assert.equal(app.card().querySelector(".metadata-retry").disabled, true);
+  assert.equal(button.disabled, true);
   const posts = app.calls.filter((call) => call.path.endsWith("/metadata"));
   assert.equal(posts.length, 1);
-  app
-    .card()
-    .querySelector(".metadata-retry")
-    .dispatchEvent(new app.w.Event("click"));
+  button.dispatchEvent(new app.w.Event("click"));
   assert.equal(
     app.calls.filter((call) => call.path.endsWith("/metadata")).length,
     1,
@@ -291,7 +290,7 @@ test("metadata retry waits for an already running library refresh and keeps its 
   release();
   await refresh;
   await tick();
-  assert.equal(app.card().querySelector(".metadata-retry"), null);
+  assert.equal(button.hidden,true);
   assert.equal(
     app.calls.filter((call) => call.path === "/api/books").length,
     2,
@@ -324,9 +323,9 @@ test("metadata errors can retry again and late retry errors cannot restore logge
   app.setHandler(async () => {
     throw new Error("요청 실패");
   });
-  app.card().querySelector(".metadata-retry").click();
+  const button=app.profile().querySelector("#library-profile-metadata");button.click();
   await tick();
-  assert.equal(app.card().querySelector(".metadata-retry").disabled, false);
+  assert.equal(button.disabled, false);
   assert.match(
     app.w.document.getElementById("library-error").textContent,
     /요청 실패/,
@@ -338,7 +337,7 @@ test("metadata errors can retry again and late retry errors cannot restore logge
         reject = fail;
       }),
   );
-  app.card().querySelector(".metadata-retry").click();
+  button.click();
   app.logout();
   reject(new Error("private late error"));
   await tick();
@@ -363,7 +362,7 @@ test("legacy chapter controls require stored content or actual failed chapters",
   ]);
   await app.w.CollectorLibrary.refresh();
   assert.match(
-    app.card().querySelector(".book-actions .quiet").textContent,
+    app.profile().querySelector("#library-profile-retry").textContent,
     /실패 회차/,
   );
   app.setBooks([
@@ -375,8 +374,8 @@ test("legacy chapter controls require stored content or actual failed chapters",
   ]);
   await app.w.CollectorLibrary.refresh();
   assert.match(
-    app.card().querySelector(".book-actions .quiet").textContent,
+    app.profile().querySelector("#library-profile-retry").textContent,
     /누락 회차/,
   );
-  assert.equal(app.card().querySelector(".secondary").disabled, false);
+  assert.equal(app.w.document.getElementById('library-content-tab').disabled,false);
 });

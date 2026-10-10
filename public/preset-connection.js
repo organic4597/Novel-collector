@@ -15,7 +15,7 @@
     const selected=new CustomEvent("preset:source",{detail:url.href,cancelable:true});
     if(!document.dispatchEvent(selected))return;
     link.href=url.href;link.hidden=false;
-    const kind=/^\/(?:novel|webtoon)\/[^/]+\/[^/]+\/?$/.test(url.pathname)?"reader":/^\/(?:novel|webtoon)\/[^/]+\/?$/.test(url.pathname)?"detail":/^\/(?:novel|ing|end)\/?$/.test(url.pathname)?"listing":$("preset-kind").value;
+    const kind=/^\/(?:novel|webtoon|manhwa)\/[^/]+\/[^/]+\/?$/.test(url.pathname)?"reader":/^\/(?:novel|webtoon|manhwa)\/[^/]+\/?$/.test(url.pathname)?"detail":/^\/(?:novel|ing|end|manhwa)\/?$/.test(url.pathname)?"listing":$("preset-kind").value;
     if($("preset-kind").value!==kind){$("preset-kind").value=kind;$("preset-kind").dispatchEvent(new Event("change"));$("preset-source-url").value=url.href;}
     $("preset-connection-error").textContent="";
     window.open(url.href,"_blank","noopener,noreferrer");

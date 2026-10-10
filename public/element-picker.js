@@ -6,17 +6,17 @@
     if (location.protocol !== "https:" || window.CollectorUI) {
       alert("원본 HTTPS 작품 페이지에서 이 북마크를 실행하세요."); return;
     }
-    const webtoonReader=/^\/webtoon\/[^/]+\/[^/]+\/?$/.test(location.pathname);
-    const webtoonDetail=/^\/webtoon\/[^/]+\/?$/.test(location.pathname);
-    const webtoonListing=/^\/(ing|end)\/?$/.test(location.pathname);
+    const webtoonReader=/^\/(?:webtoon|manhwa)\/[^/]+\/[^/]+\/?$/.test(location.pathname);
+    const webtoonDetail=/^\/(?:webtoon|manhwa)\/[^/]+\/?$/.test(location.pathname);
+    const webtoonListing=/^\/(ing|end|manhwa)\/?$/.test(location.pathname);
     const novelReader=/^\/novel\/\d+\/\d+\/?$/.test(location.pathname),novelDetail=/^\/novel\/\d+\/?$/.test(location.pathname);
-    const sourceType=webtoonReader||webtoonDetail||webtoonListing?"webtoon":novelReader||novelDetail||/^\/novel\/?$/.test(location.pathname)?"novel":null;
+    const sourceType=webtoonReader||webtoonDetail||webtoonListing?location.pathname.startsWith("/manhwa")?"manhwa":"webtoon":novelReader||novelDetail||/^\/novel\/?$/.test(location.pathname)?"novel":null;
     const contentType=options.preset?.contentType||options.contentType||sourceType||"novel";
-    if(!["novel","webtoon"].includes(contentType)){alert("콘텐츠 유형은 novel 또는 webtoon이어야 합니다.");return;}
+    if(!["novel","webtoon","manhwa"].includes(contentType)){alert("지원하는 콘텐츠 유형을 선택하세요.");return;}
     if(sourceType&&(contentType!==sourceType||options.preset&&(options.preset.contentType||"novel")!==sourceType)){
       alert("소설(novel)과 웹툰(webtoon) 프리셋의 원본 페이지 유형이 다릅니다. 올바른 원본 페이지에서 다시 실행하세요.");return;
     }
-    const version=contentType==="webtoon"||options.preset?.version===3?3:2;
+    const version=contentType!=="novel"||options.preset?.version===3?3:2;
     window.__NC_ELEMENT_PICKER__?.close?.();
     const definitions = {
       listing: [["items","작품 카드 (반복)","text",true],["title","제목"],["author","작가"],["genres","장르","text",true],["tags","태그","text",true],["platform","공급처"],["episodeCount","회차 수"],["publication","연재 상태"],["thumbnail","표지","src"],["url","작품 링크","href"],["updatedLabel","업데이트 표시"],["nextPageButton","다음 페이지 버튼"]],
@@ -26,11 +26,11 @@
     if(version===3){
       definitions.listing=[["items","작품 카드 (반복)","text",true],["title","제목"],["url","작품 링크","href"],["authors","작가","text",true],["genres","장르","text",true],["tags","태그","text",true],["platform","공급처"],["episodeCount","회차 수"],["thumbnail","표지","imageUrl"],["publication","연재 상태"],["updatedLabel","업데이트 표시"],["rating","평점"],["actions.nextPage","다음 페이지 버튼"],["actions.loadMore","이전 회차 더 보기"]];
       definitions.detail=[["title","작품 제목"],["authors","작가","text",true],["genres","장르","text",true],["tags","태그","text",true],["platform","공급처"],["episodeCount","회차 수"],["synopsis","줄거리"],["thumbnail","표지","imageUrl"],["publication","연재 상태"],["rows","회차 행 (반복)","text",true],["chapterTitle","회차 제목"],["chapterUrl","본문 링크","href"],["chapterLabel","회차 표시"],["notReady","준비중 표시"],["expectedChapters","전체 회차 수"],["seasonLabel","시즌 표시"],["seasonNumber","시즌 번호"],["actions.loadMore","이전 회차 더 보기"],["actions.nextPage","다음 페이지 버튼"]];
-      definitions.reader=contentType==="webtoon"?[["root","이미지 본문 루트"],["images","본문 이미지 (반복)","imageUrl",true],["notice","로딩·오류 안내"]]:definitions.reader;
+      definitions.reader=contentType!=="novel"?[["root","이미지 본문 루트"],["images","본문 이미지 (반복)","imageUrl",true],["notice","로딩·오류 안내"]]:definitions.reader;
     }
-    const typeLabel=contentType==="webtoon"?"웹툰":"소설";
+    const typeLabel=contentType==="manhwa"?"만화":contentType==="webtoon"?"웹툰":"소설";
     const labels = {listing:typeLabel+" 목록",detail:typeLabel+" 정보·회차 목록",reader:"회차 본문"};
-    const patterns=contentType==="webtoon"?{listing:location.pathname.replace(/\/$/,"")==="/end"?"/end":"/ing",detail:"/webtoon/{workId}",reader:"/webtoon/{workId}/{episodeId}"}:{listing:"/novel",detail:"/novel/{workId}",reader:"/novel/{workId}/{episodeId}"};
+    const patterns=contentType!=="novel"?{listing:contentType==="manhwa"?"/manhwa":location.pathname.replace(/\/$/,"")==="/end"?"/end":"/ing",detail:`/${contentType}/{workId}`,reader:`/${contentType}/{workId}/{episodeId}`}:{listing:"/novel",detail:"/novel/{workId}",reader:"/novel/{workId}/{episodeId}"};
     const detected=webtoonReader||novelReader?"reader":webtoonDetail||novelDetail?"detail":!sourceType&&version===3&&["listing","detail","reader"].includes(options.kind)?options.kind:"listing";
     const storageKey="nc-preset-v2:"+(options.storageKey||"default");
     const host=document.createElement("div"); host.id="nc-element-picker";
@@ -53,7 +53,7 @@
     document.documentElement.append(outline);
     const $=id=>ui.getElementById(id), drafts={listing:{},detail:{},reader:{}}, fixed=[];
     const pagePatterns=Object.fromEntries(Object.entries(patterns).map(([kind,path])=>[kind,version===3?[path]:path]));
-    let sources=contentType==="webtoon"?{ongoing:"/ing",completed:"/end"}:undefined,pending=null,restoreFrame=null;
+    let sources=contentType==="manhwa"?{ongoing:"/manhwa",completed:"/manhwa"}:contentType==="webtoon"?{ongoing:"/ing",completed:"/end"}:undefined,pending=null,restoreFrame=null;
     let target=null, selected=null, selecting=true, frame=null, point=null, closed=false;
     const originalCursor=document.documentElement.style.cursor;
     function error(message=""){$("error").textContent=message;}
@@ -228,7 +228,7 @@
       const kind=$("kind").value;$("field").replaceChildren();
       for(const [key,label] of definitions[kind]){const option=document.createElement("option");option.value=key;option.textContent=label;$("field").append(option);}
       $("pattern").value=version===3?pagePatterns[kind].join("\n"):pagePatterns[kind];fieldChanged();renderFields();
-      if(kind==="reader"&&contentType==="webtoon"){$("field").value="images";fieldChanged();}
+      if(kind==="reader"&&contentType!=="novel"){$("field").value="images";fieldChanged();}
       if(kind!==detected)error("이 유형은 다른 원본 페이지에서 지정하세요. 현재 페이지: "+labels[detected]);
     }
     function fieldChanged(){

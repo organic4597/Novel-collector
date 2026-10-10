@@ -154,3 +154,26 @@ test("hiding discovery stops background revalidation without a new source reques
   await tick();assert.equal(reads,1);
   assert.equal(d.querySelector('[data-id="1"] .discover-title-link').textContent,"작품 1");
 });
+
+test("ranking shows all fifty source ranks independently of hidden normal-list episode filters",async t=>{
+  const f=await fixture(t),d=f.w.document;
+  d.getElementById("discover-min").value="100";
+  d.getElementById("discover-unknown").checked=false;
+  f.setHandler(async()=>({items:Array.from({length:50},(_,index)=>({...f.item(index+1,null),rank:index+1,contentType:"novel"})),page:1,maxPage:1,total:50,ranking:true}));
+  d.getElementById("discover-ranking-tab").click();await tick();
+  assert.equal(d.querySelectorAll("#discover-list .discover-card").length,50);
+  assert.equal(d.getElementById("discover-form").hidden,true);
+  assert.equal(d.getElementById("discover-min").value,"100");
+  assert.equal(d.getElementById("discover-unknown").checked,false);
+});
+
+test("a repeated ranking filter change during a pending load does not leave loading cards stranded",async t=>{
+  const f=await fixture(t),d=f.w.document,replies=[];
+  f.setHandler(()=>new Promise(resolve=>replies.push(resolve)));
+  d.getElementById("discover-ranking-tab").click();await tick();
+  d.getElementById("discover-rank-period").dispatchEvent(new f.w.Event("change"));await tick();
+  for(const reply of replies)reply({items:[{...f.item(1,null),rank:1,contentType:"novel"}],page:1,maxPage:1,total:1,ranking:true});
+  await tick();
+  assert.equal(d.querySelectorAll("#discover-list .is-loading").length,0);
+  assert.equal(d.querySelector("#discover-list .discover-title-link")?.textContent,"작품 1");
+});

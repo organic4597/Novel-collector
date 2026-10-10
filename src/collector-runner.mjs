@@ -1,5 +1,6 @@
 import { ChapterTiming } from "./timing.mjs";
 import { cleanMessage } from "./store.mjs";
+import { isImageType } from "./webtoon-source.mjs";
 
 function abortIfNeeded(signal) {
   if (signal?.aborted)
@@ -27,7 +28,7 @@ const delay = (ms, signal) =>
   });
 
 export async function runCollection(job, hooks, signal, bookId) {
-  const webtoon=job.contentType==="webtoon";
+  const webtoon=isImageType(job.contentType);
   if (this.collectionRun)
     throw new Error("이 브라우저에서 수집 작업이 이미 진행 중입니다.");
   const operation = { pooled: !!this.contextPool };

@@ -208,9 +208,9 @@ test("authenticated webtoon dashboard shows type-specific reservations, stored i
   await page.keyboard.press("Escape");
   await page.locator("#nav-library").click();await page.locator("#library-content-type").selectOption("webtoon");
   await page.locator("#books-list .library-card").waitFor();assert.equal(await page.locator("#books-list .library-card").count(),1);
-  const zipLink=page.locator("#books-list a.export-link");assert.equal(await zipLink.innerText(),"작품 ZIP 받기");
+  await page.locator("#books-list .library-card").click();const zipLink=page.locator("#library-profile-download");assert.equal(await zipLink.innerText(),"작품 ZIP 받기");
   assert.equal((await page.request.get(base+await zipLink.getAttribute("href"))).status(),200);
-  await page.locator("#books-list .book-actions button").filter({hasText:"회차 열기"}).click();
+  await page.locator("#library-content-tab").click();
   await page.locator("#reader-text .webtoon-reader-image").first().waitFor();assert.equal(await page.locator("#reader-text .webtoon-reader-image").count(),3);
   assert.equal((await page.request.get(base+await page.locator("#reader-text a").getAttribute("href"))).status(),200);
   await page.waitForFunction(()=>[...document.querySelectorAll(".webtoon-reader-image")].every(image=>image.complete&&image.naturalWidth>0));

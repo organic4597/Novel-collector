@@ -1,3 +1,4 @@
+import {updateChannel} from './update-channels.mjs';
 export function createUpdatesRouter({updates,activity}){
   return async({request,response,url,send,readBody})=>{
     if(!url.pathname.startsWith("/api/updates/"))return false;const name=url.pathname.slice("/api/updates/".length);
@@ -11,9 +12,12 @@ export function createUpdatesRouter({updates,activity}){
       send(response,200,activity?.query({after,scope:"update",limit:100})||{items:[],latestId:0,hasMore:false});return true;
     }
     const input=request.method==="POST"?await readBody(request):{};
-    if(Object.keys(input).some(k=>name!=="apply"||k!=="version"))throw Object.assign(new Error("업데이트 입력을 확인하세요."),{status:400});
+    const fields=name==='apply'?['version','channel','commit']:name==='check'?['channel']:[];
+    if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).some(k=>!fields.includes(k)))throw Object.assign(new Error("업데이트 입력을 확인하세요."),{status:400});
+    const channel=updateChannel(input.channel??url.searchParams.get('channel')??'stable');
+    if(name==='apply'&&(typeof input.version!=='string'||channel!=='stable'&&!/^[a-f0-9]{40}$/.test(input.commit||'')||channel==='stable'&&input.commit!=null))throw Object.assign(new Error("업데이트 버전과 패치를 확인하세요."),{status:400});
     let result;
-    try{result=name==="status"?await updates.status():name==="check"?await updates.check({force:true}):await updates.apply(input.version);}
+    try{result=name==="status"?await updates.status({channel}):name==="check"?await updates.check({force:true,channel}):await updates.apply({...input,channel});}
     catch(error){
       if(name==="apply")activity?.add({scope:"update",level:"error",message:"업데이트 요청 실패: "+error.message,
         details:{step:error.step||"REQUEST_APPLY",errorCode:error.errorCode||error.code,status:error.status||500}});

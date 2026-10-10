@@ -6,7 +6,7 @@
   let bindings=[],bindingAvailable=false,checks={},readRevision=0,dirty=false;
   const pageKinds=["listing","detail","reader"];
   function bindingData(value){
-    if(!value||value.version!==1||!Array.isArray(value.bindings)||value.bindings.length>100||value.bindings.some(item=>!item||typeof item.presetId!=="string"||!item.presetId||typeof item.origin!=="string"||!["novel","webtoon"].includes(item.contentType)||(item.validated!==undefined&&typeof item.validated!=="boolean")))throw Error("프리셋 적용 상태를 확인하지 못했습니다.");
+    if(!value||value.version!==1||!Array.isArray(value.bindings)||value.bindings.length>100||value.bindings.some(item=>!item||typeof item.presetId!=="string"||!item.presetId||typeof item.origin!=="string"||!["novel","webtoon","manhwa"].includes(item.contentType)||(item.validated!==undefined&&typeof item.validated!=="boolean")))throw Error("프리셋 적용 상태를 확인하지 못했습니다.");
     return value.bindings;
   }
   const bound=(id,origin,contentType)=>bindings.find(item=>item.presetId===id&&item.origin===origin&&item.contentType===contentType);
@@ -14,11 +14,11 @@
   const random=()=>Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,"0")).join("");
   const typeOf=config=>config.contentType||"novel";
   const hasFields=()=>Object.values(workspace.pages).some(page=>Object.keys(page.fields).length||Object.keys(page.actions||{}).length);
-  const empty=(name="sbxh9 수집 프리셋",origin="https://sbxh9.com",contentType="novel",version=contentType==="webtoon"?3:2)=>{
+  const empty=(name="sbxh9 수집 프리셋",origin="https://sbxh9.com",contentType="novel",version=contentType!=="novel"?3:2)=>{
     if(version===2)return{version:2,name,origin,pages:Object.fromEntries(Object.entries(patterns).map(([kind,pagePattern])=>[kind,{pagePattern,fields:{}}]))};
-    const paths=contentType==="webtoon"?{listing:["/ing","/end"],detail:["/webtoon/{workId}"],reader:["/webtoon/{workId}/{episodeId}"]}:Object.fromEntries(Object.entries(patterns).map(([kind,path])=>[kind,[path]]));
+    const paths=contentType!=="novel"?{listing:contentType==="manhwa"?["/manhwa"]:["/ing","/end"],detail:[`/${contentType}/{workId}`],reader:[`/${contentType}/{workId}/{episodeId}`]}:Object.fromEntries(Object.entries(patterns).map(([kind,path])=>[kind,[path]]));
     const pages=Object.fromEntries(Object.entries(paths).map(([kind,pagePatterns])=>[kind,{pagePatterns,fields:{}}]));
-    pages.listing.sources=contentType==="webtoon"?{ongoing:"/ing",completed:"/end"}:{ongoing:"/novel"};
+    pages.listing.sources=contentType==="manhwa"?{ongoing:"/manhwa",completed:"/manhwa"}:contentType==="webtoon"?{ongoing:"/ing",completed:"/end"}:{ongoing:"/novel"};
     return{version:3,contentType,name,origin,catalogOrder:"newest-first",pages};
   };
   const formatError=()=>Error("프리셋 설정 형식을 확인하세요. 허용된 선택자·경로만 저장합니다.");
@@ -26,7 +26,7 @@
   function path(value){if(typeof value!=="string"||!value.startsWith("/")||value.startsWith("//")||value.length>300||/[?#\\\x00-\x1f<>]/.test(value))throw formatError();return value;}
   function validateV3(input){
     exact(input,["version","contentType","name","origin","catalogOrder","pages"]);
-    if(!["novel","webtoon"].includes(input.contentType)||typeof input.name!=="string"||!input.name.trim()||input.name.length>80||/[\x00-\x1f]/.test(input.name))throw formatError();
+    if(!["novel","webtoon","manhwa"].includes(input.contentType)||typeof input.name!=="string"||!input.name.trim()||input.name.length>80||/[\x00-\x1f]/.test(input.name))throw formatError();
     const origin=new URL(input.origin);if(origin.protocol!=="https:"||origin.username||origin.password||origin.port||origin.pathname!=="/"||origin.search||origin.hash)throw formatError();
     if(!["oldest-first","newest-first"].includes(input.catalogOrder))throw formatError();
     exact(input.pages,["listing","detail","reader"]);const definitions=window.CollectorPresetGuide.definitionsFor(input);
@@ -36,7 +36,7 @@
       if(!Array.isArray(page.pagePatterns)||!page.pagePatterns.length||page.pagePatterns.length>8)throw formatError();page.pagePatterns.forEach(path);
       exact(page.fields,allowed.filter(key=>!key.startsWith("actions.")));
       if(page.sources!==undefined){exact(page.sources,["ongoing","completed","search"]);Object.values(page.sources).forEach(path);}
-      if(kind==="listing"&&input.contentType==="webtoon"&&page.sources===undefined)throw formatError();
+      if(kind==="listing"&&input.contentType!=="novel"&&page.sources===undefined)throw formatError();
       if(page.actions!==undefined)exact(page.actions,allowed.filter(key=>key.startsWith("actions.")).map(key=>key.slice(8)));
       for(const [key,l] of [...Object.entries(page.fields),...Object.entries(page.actions||{}).map(([key,l])=>["actions."+key,l])]){
         exact(l,["selector","shadowPath","attribute","multiple","relativeTo"]);
@@ -88,7 +88,7 @@
   }
   function row(record){
     const el=UI.node("article","preset-card"),identity=UI.node("div");
-    identity.append(UI.node("h3","",record.name),UI.node("p","muted",`${record.contentType==="webtoon"?"웹툰":"소설"} · ${record.origin} · ${record.fieldCount}개 고정 항목 · ${record.pages?"3개 페이지 유형":"이전 형식 (불러오면 3개 유형으로 변환)"}`));
+    identity.append(UI.node("h3","",record.name),UI.node("p","muted",`${record.contentType==="manhwa"?"만화":record.contentType==="webtoon"?"웹툰":"소설"} · ${record.origin} · ${record.fieldCount}개 고정 항목 · ${record.pages?"3개 페이지 유형":"이전 형식 (불러오면 3개 유형으로 변환)"}`));
     const buttons=UI.node("div","heading-actions");for(const [action,label] of [["load","불러오기"],["export","JSON 보기"],["remove","삭제"]]){
       const applied=bound(record.id,record.origin,record.contentType||"novel");
       const button=UI.node("button",action==="remove"?"danger":"secondary",label);button.type="button";button.disabled=saving||(action==="remove"&&!!applied);if(action==="remove"&&applied)button.title="적용을 해제한 뒤 삭제하세요.";button.onclick=()=>void act(record.id,action);buttons.append(button);
@@ -233,7 +233,7 @@
   $("preset-content-type").onchange=()=>{
     const contentType=$("preset-content-type").value;
     if(editing||hasFields()){$("preset-content-type").value=typeOf(workspace);message("","다른 유형은 새 프리셋에서 지정하세요.");return;}
-    adopt(empty(contentType==="webtoon"?"sbxh9 웹툰 프리셋":"sbxh9 소설 프리셋",workspace.origin,contentType,3));message();
+    adopt(empty(contentType==="manhwa"?"sbxh9 만화 프리셋":contentType==="webtoon"?"sbxh9 웹툰 프리셋":"sbxh9 소설 프리셋",workspace.origin,contentType,3));message();
   };
   function settingsChanged(){
     if(workspace.version!==3)return;
@@ -253,7 +253,7 @@
   $("preset-bookmarklet").onclick=event=>{event.preventDefault();message("이 링크를 북마크바로 끌어 등록한 뒤 원본 페이지에서 실행하세요.");};
   $("preset-kind").addEventListener("change",bookmarklet);$("preset-name").addEventListener("change",bookmarklet);document.addEventListener("preset:guide",bookmarklet);
   document.addEventListener("preset:source",event=>{
-    const url=new URL(event.detail),sourceType=/^\/(?:webtoon(?:\/|$)|ing\/?$|end\/?$)/.test(url.pathname)?"webtoon":/^\/novel(?:\/|$)/.test(url.pathname)?"novel":null;
+    const url=new URL(event.detail),sourceType=/^\/manhwa(?:\/|$)/.test(url.pathname)?"manhwa":/^\/(?:webtoon(?:\/|$)|ing\/?$|end\/?$)/.test(url.pathname)?"webtoon":/^\/novel(?:\/|$)/.test(url.pathname)?"novel":null;
     if((editing||hasFields())&&((sourceType&&sourceType!==typeOf(workspace))||url.origin!==workspace.origin)){
       event.preventDefault();message("","원본의 유형·사이트가 다릅니다. 새 프리셋을 만들어 지정하세요.");return;
     }

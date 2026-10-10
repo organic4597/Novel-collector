@@ -187,7 +187,7 @@ export class ExtractionPresets {
   bind(id){return this.serialized(async()=>{const config=validateRunnablePreset(this.get(id).config);if(!this.sourceValidated(id))throw Object.assign(Error("세 페이지의 원본 검증을 완료한 뒤 적용하세요."),{status:409});const next=new Map(this.bindings),key=config.contentType+":"+config.origin;next.set(key,{origin:config.origin,contentType:config.contentType,presetId:id});await this.store.atomic(this.bindingPath,{version:1,bindings:[...next.values()]});this.bindings=next;return this.listBindings();});}
   unbind(id){return this.serialized(async()=>{this.get(id);const next=new Map([...this.bindings].filter(([,value])=>value.presetId!==id));await this.store.atomic(this.bindingPath,{version:1,bindings:[...next.values()]});this.bindings=next;return this.listBindings();});}
   snapshot({origin,contentType="novel",presetId=null}){
-    if(!["novel","webtoon"].includes(contentType))throw bad("콘텐츠 유형을 확인하세요.");
+    if(!["novel","webtoon","manhwa"].includes(contentType))throw bad("콘텐츠 유형을 확인하세요.");
     let normalized;try{normalized=new URL(origin).origin;}catch{throw bad("예약 원천 주소를 확인하세요.");}const id=presetId||this.bindings.get(contentType+":"+normalized)?.presetId;
     if(!id)return null;if(!this.sourceValidated(id))throw Object.assign(Error("프리셋의 최신 설정을 원본에서 다시 검증하세요."),{status:409});const presetSnapshot=validateRunnablePreset(this.get(id).config);
     if(presetSnapshot.origin!==normalized||presetSnapshot.contentType!==contentType)throw bad("프리셋 원천과 콘텐츠 유형이 예약과 다릅니다.");
@@ -196,7 +196,7 @@ export class ExtractionPresets {
   async validatePage(id,{pageKind,url},page){
     const config=compilePreset(this.get(id).config);if(!Object.hasOwn(config.pages,pageKind)||!matchesPresetPage(config,pageKind,url))throw bad("검증 페이지가 프리셋 경로와 다릅니다.");
     if(page.url()!==url||!matchesPresetPage(config,pageKind,page.url()))throw bad("검증 페이지의 실제 주소가 다릅니다.");
-    const required=pageKind==="listing"?["items","title","url"]:pageKind==="detail"?["title","rows","chapterUrl"]:["root",config.contentType==="webtoon"?"images":"text"];
+    const required=pageKind==="listing"?["items","title","url"]:pageKind==="detail"?["title","rows","chapterUrl"]:["root",config.contentType!=="novel"?"images":"text"];
     for(const key of required)if(!config.pages[pageKind].fields[key])throw bad(`검증 필수 항목이 없습니다: ${key}`);
     let result;try{result=await page.evaluate(evaluatePresetPage,config.pages[pageKind]);}catch(error){throw Object.assign(Error(/PRESET_SELECTOR_INVALID|PRESET_URL_INVALID/.test(error.message)?"프리셋 선택자·링크 형식을 확인하세요.":"원본에서 필수 추출 영역을 확인하지 못했습니다."),{status:409});}const hash=presetHash(config);
     for(const key of required)if(!result.matches[key])throw Object.assign(Error(`원본에서 필수 항목을 찾지 못했습니다: ${key}`),{status:409});

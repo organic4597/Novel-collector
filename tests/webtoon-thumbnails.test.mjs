@@ -59,11 +59,11 @@ async function routeResult(page, url = covers[0], resourceType = "image") {
   return action;
 }
 
-test("public listing capture allows only ordinary Naver cover image requests", async () => {
+test("public listing capture allows only validated source cover image requests", async () => {
   const page = new ListingPage();
   const capture = await watchListingThumbnails(page, { lookup: publicLookup });
   assert.equal(await routeResult(page), "continue");
-  assert.equal(await routeResult(page, covers[1]), "fallback");
+  assert.equal(await routeResult(page, covers[1]), "continue");
   assert.equal(
     await routeResult(page, "https://evil.example/cover.jpg"),
     "fallback",
@@ -74,10 +74,16 @@ test("public listing capture allows only ordinary Naver cover image requests", a
   assert.equal(page.handler, null);
   const privatePage = new ListingPage();
   const privateCapture = await watchListingThumbnails(privatePage, {
-    lookup: async () => [{ address: "192.168.1.168", family: 4 }],
+    lookup: async () => [{ address: "192.168.99.12", family: 4 }],
   });
   assert.equal(await routeResult(privatePage), "abort");
   await privateCapture.close();
+});
+test('listing cover routes absorb late already-handled abort and fallback rejections on close',async()=>{
+  const page=new ListingPage(),capture=await watchListingThumbnails(page,{lookup:async()=>[{address:'192.168.99.12',family:4}]});
+  await assert.doesNotReject(page.handler({request:()=>({url:()=>covers[0],resourceType:()=> 'image'}),abort:()=>Promise.reject(Error('Route is already handled!'))}));
+  await assert.doesNotReject(page.handler({request:()=>({url:()=> 'https://evil.example/cover.jpg',resourceType:()=> 'image'}),fallback:()=>Promise.reject(Error('Route is already handled!'))}));
+  await capture.close();
 });
 
 test("listing responses reuse the disk thumbnail cache without a second image fetch", async () => {
@@ -344,7 +350,7 @@ test("new CDN redirects revalidate host, path and DNS before another request", a
           address:
             hostname === "image-comic.pstatic.net"
               ? "8.8.8.8"
-              : "192.168.1.168",
+              : "192.168.99.12",
           family: 4,
         },
       ],

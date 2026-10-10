@@ -23,7 +23,7 @@ async function finishPublicResponse(response) {
   }
 }
 export function watchNormalDiscoveryResponses(owner, page, source) {
-  const sourceUrl=new URL(source),webtoon=/^\/(?:ing|end)\/?$/.test(sourceUrl.pathname)||sourceUrl.searchParams.get("kind")==="webtoon";
+  const sourceUrl=new URL(source),webtoon=/^\/(?:ing|end|manhwa)\/?$/.test(sourceUrl.pathname)||["webtoon","manhwa"].includes(sourceUrl.searchParams.get("kind"));
   const origin = new URL(owner.transportUrl(source)).origin;
   const inFlight = new Set();
   const pending = new Set();

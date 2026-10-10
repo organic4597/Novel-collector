@@ -1,6 +1,6 @@
 import { validateThumbnailUrl } from "./thumbnail-cache.mjs";
 import { canonicalWorkInput } from "./source-links.mjs";
-import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
+import { isWebtoonUrl, webtoonSource, isImageType } from "./webtoon-source.mjs";
 
 export function normalizeWorkSource(value) {
   if(isWebtoonUrl(value))return webtoonSource(value);
@@ -64,7 +64,7 @@ export function sanitizeSourceMetadata(metadata) {
     publicationRaw: text(metadata.publicationRaw),
     synopsis: text(metadata.synopsis, 50000),
     thumbnailUrl,
-    ...(metadata.contentType==="webtoon"?{contentType:"webtoon"}:{}),
+    ...(isImageType(metadata.contentType)?{contentType:metadata.contentType}:{}),
     ...(Array.isArray(metadata.authors)?{authors:labels(metadata.authors),author:labels(metadata.authors).join(", ")}:{}),
   };
   const count = metadata.expectedChapterCount ?? metadata.expectedChapters;

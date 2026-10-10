@@ -3,9 +3,19 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { isPublicAddress } from "./collector.mjs";
 
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+export function readListingCoverSources(page,doc=document){
+  const fields=page?.fields;if(!fields?.items||!fields.url||!fields.thumbnail)return[];
+  const resolve=(scope,locator)=>{for(const selector of locator.shadowPath||[]){const host=scope.querySelector(selector);scope=host?.shadowRoot||(host?.__novelShadow?.host===host?host.__novelShadow:null);if(!scope)return[];}return locator.selector===':scope'&&scope.nodeType===1?[scope]:[...scope.querySelectorAll(locator.selector)];};
+  return resolve(doc,fields.items).slice(0,1000).flatMap(row=>{
+    const link=resolve(fields.url.relativeTo?row:doc,fields.url)[0],image=resolve(fields.thumbnail.relativeTo?row:doc,fields.thumbnail)[0];
+    const href=link?.getAttribute('href'),raw=fields.thumbnail.attribute==='imageUrl'?(image?.currentSrc||image?.getAttribute('data-src')||image?.getAttribute('src')):image?.getAttribute(fields.thumbnail.attribute);
+    if(!href||!raw)return[];try{return[{url:new URL(href,doc.URL).href,thumbnailUrl:new URL(raw,doc.URL).href}];}catch{return[];}
+  });
+}
 export function isListingThumbnail(value) {
   try {
-    return validateThumbnailUrl(value).hostname === "image-comic.pstatic.net";
+    const host=validateThumbnailUrl(value).hostname;
+    return host === "image-comic.pstatic.net" || host === "mana.apihost93.com" || host === "11toon8.com" || /^user\d+\.quicksharefiles\.top$/i.test(host);
   } catch {
     return false;
   }
@@ -13,10 +23,12 @@ export function isListingThumbnail(value) {
 
 export async function watchListingThumbnails(
   page,
-  { lookup = dnsLookup, assertAvailable = () => {} } = {},
+  { lookup = dnsLookup, assertAvailable = () => {}, listingPage=null } = {},
 ) {
   const responses = new Map();
   const addresses = new Map();
+  const sources=new Map();
+  let sourceRead=null,sourceReadAt=0;
   let closed = false;
   const routeImage = async (route) => {
     const request = route.request();
@@ -24,9 +36,13 @@ export async function watchListingThumbnails(
       request.resourceType() !== "image" ||
       !isListingThumbnail(request.url())
     )
-      return route.fallback();
+      return route.fallback().catch(()=>{});
     try {
       assertAvailable();
+      if(listingPage&&typeof page.evaluate==='function'){
+        if(!sourceRead&&Date.now()-sourceReadAt>150){sourceReadAt=Date.now();sourceRead=page.evaluate(readListingCoverSources,listingPage).then(items=>{for(const item of items)sources.set(item.url,item.thumbnailUrl);}).catch(()=>{}).finally(()=>{sourceRead=null;});}
+        await sourceRead;
+      }
       const host = new URL(request.url()).hostname;
       if (!addresses.has(host)) {
         let timeout;
@@ -50,7 +66,7 @@ export async function watchListingThumbnails(
         !resolved.length ||
         resolved.some((item) => !isPublicAddress(item.address))
       )
-        return route.abort();
+        return route.abort().catch(()=>{});
       await route.continue();
     } catch {
       await route.abort().catch(() => {});
@@ -81,6 +97,7 @@ export async function watchListingThumbnails(
     responses.clear();
   };
   return {
+    restore(items){return items.map(item=>item.thumbnailUrl?item:{...item,thumbnailUrl:sources.get(item.url)||null});},
     async save(items, store) {
       const deadline = Date.now() + 2000;
       let totalBytes = 0;
@@ -101,6 +118,7 @@ export async function watchListingThumbnails(
           const mimeType = validateImage(
             bytes,
             response.headers()["content-type"],
+            {allowHeaderMismatch:new URL(item.thumbnailUrl).hostname==='mana.apihost93.com'},
           );
           totalBytes += bytes.length;
           if (totalBytes > 16 * MAX_IMAGE_BYTES) break;
@@ -134,13 +152,15 @@ export function validateThumbnailUrl(value) {
       (/^user\d+\.quicksharefiles\.top$/i.test(url.hostname) &&
         /^\/comics\/covers\/[\w-]+\.(?:jpe?g|png|webp|gif)$/i.test(
           url.pathname,
-        ))
+        )) ||
+      (url.hostname === "mana.apihost93.com" && /^\/board_uploads\/\d{4}\/\d{2}\/\d{2}\/[\w-]+\.(?:jpe?g|png|webp|gif)$/i.test(url.pathname)) ||
+      (url.hostname === "11toon8.com" && /^\/data\/toon_category\/[\w-]+\.(?:jpe?g|png|webp|gif)$/i.test(url.pathname))
     )
   )
     throw new Error("지원하지 않는 썸네일 주소입니다.");
   return url;
 }
-export function validateImage(bytes, mime) {
+export function validateImage(bytes, mime, {allowHeaderMismatch=false}={}) {
   const type = String(mime || "")
     .split(";")[0]
     .trim()
@@ -166,7 +186,7 @@ export function validateImage(bytes, mime) {
               magic.subarray(8, 12).toString() === "WEBP"
             ? "image/webp"
             : null;
-  if (!actual || actual !== type)
+  if (!actual || actual !== type && !allowHeaderMismatch)
     throw new Error("허용된 이미지 형식이 아닙니다.");
   return actual;
 }
@@ -256,7 +276,7 @@ export async function fetchThumbnail(
     }
     return {
       ...result,
-      mimeType: validateImage(result.bytes, result.mimeType),
+      mimeType: validateImage(result.bytes, result.mimeType,{allowHeaderMismatch:url.hostname==='mana.apihost93.com'}),
     };
   }
   throw new Error("썸네일을 가져오지 못했습니다.");

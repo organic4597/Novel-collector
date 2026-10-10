@@ -7,6 +7,7 @@
     known = new Map(),
     attempted = new Set();
   let items = [],
+    rankingMode=false,
     page = 1,
     maxPage = 1,
     loading = false,
@@ -84,6 +85,7 @@
   }
   function metadata(item) {
     const id = String(item.id);
+    const previous=items.find(value=>String(value.id)===id);if(previous?.rank)item={...item,rank:previous.rank,contentType:previous.contentType};
     known.set(id, item);
     if (selected.has(id)) selected.set(id, item);
     items = items.map((entry) => (String(entry.id) === id ? item : entry));
@@ -101,6 +103,7 @@
     return { min, max };
   }
   function visibleItems() {
+    if(rankingMode)return items.map(display);
     const { min, max } = bounds();
     return items.map(display).filter((item) => {
       if (item.episodeCount === null || item.episodeCount === undefined)
@@ -183,7 +186,8 @@
       else selected.delete(id); selectionState();
     });
     e.link.href = "/?work=" + encodeURIComponent(id);
-    e.link.addEventListener("click", event => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); window.DiscoveryDetails?.open(e.item); });
+    const openItem=()=>e.item.rank?window.DiscoveryDetails?.openRanking(e.item):window.DiscoveryDetails?.open(e.item);
+    e.link.addEventListener("click", event => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; event.preventDefault(); openItem(); });
     const heading = UI.node("h2"); heading.append(e.link);
     const content = UI.node("div", "discover-content"); content.append(heading, e.author, e.tags, e.count, e.meta, e.button);
     e.button.addEventListener("click", async () => {
@@ -193,7 +197,7 @@
       finally { checking = false; render(); scheduleAuto(); }
     });
     el.append(e.cover, content);
-    el.addEventListener("click", event => { if (!event.target.closest("a, button, input, label, select")) window.DiscoveryDetails?.open(e.item); });
+    el.addEventListener("click", event => { if (!event.target.closest("a, button, input, label, select"))openItem(); });
     return e;
   }
   function patchCard(e, item) {
@@ -208,17 +212,18 @@
     const knownCount = Number.isSafeInteger(item.episodeCount) && item.episodeCount >= 0;
     text(e.count, pending.has(e.id) ? "회차 확인 중…" : knownCount ? "총 " + UI.count(item.episodeCount) + "화" : "회차 확인 전");
     const rating = Number.isFinite(item.rating) && item.rating >= 0 && item.rating <= 5 ? "평점 " + item.rating.toFixed(1) + " / 5" : "평점 미확인";
-    text(e.meta, ({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + " · " + rating + (item.updatedLabel ? " · " + item.updatedLabel : ""));
+    text(e.meta, (item.rank?`${({novel:"소설",webtoon:"웹툰",manhwa:"만화"})[item.contentType]} ${item.rank}위 · `:"")+({ ongoing: "연재 중", completed: "완결" }[item.publication] || "연재 상태 미확인") + " · " + rating + (item.updatedLabel ? " · " + item.updatedLabel : ""));
     text(e.button, knownCount ? "회차 다시 확인" : "회차 확인"); e.button.disabled = checking || pending.has(e.id);
-    const source = typeof item.thumbnail === "string" && /^\/api\/discover\/(?:\d{1,15}|webtoon-[a-f0-9]{32})\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
+    const source = typeof item.thumbnail === "string" && /^\/api\/discover\/(?:\d{1,15}|(?:webtoon|manhwa)-[a-f0-9]{32})\/thumbnail$/.test(item.thumbnail) ? item.thumbnail : null;
     if (source !== e.imageSource) { e.image?.remove(); e.image = null; e.imageSource = source;e.fallback.hidden=false;
       if (source) { const img = UI.node("img"); img.src = source; img.alt = ""; img.loading = "lazy"; img.decoding = "async"; img.width = 160; img.height = 224;
         img.addEventListener("error", () => {img.remove();e.fallback.hidden=false;}, { once: true });img.addEventListener("load",()=>{e.fallback.hidden=true;},{once:true});e.image = img; e.cover.append(img); }
     }
   }
   function queryFor(target) {
+    if(rankingMode)return new URLSearchParams({kind:$("discover-rank-kind").value,period:$("discover-rank-period").value,page:String(target)});
     const author=$("discover-search-type").value==="author",value=$("discover-query").value.trim();
-    return new URLSearchParams({ ...($("discover-content-type")?.value==="webtoon"?{contentType:"webtoon"}:{}),page: String(target), query:author?"":value,author:author?value:"",genre: $("discover-genre").value,
+    return new URLSearchParams({ ...(["webtoon","manhwa"].includes($("discover-content-type")?.value)?{contentType:$("discover-content-type").value}:{}),page: String(target), query:author?"":value,author:author?value:"",genre: $("discover-genre").value,
       platform: $("discover-platform").value, publication: $("discover-publication").value, sort: $("discover-sort").value });
   }
   function rememberPage(key, data, complete) {
@@ -236,8 +241,8 @@
   }
   async function load(target = 1, options = {}) {
     if (!authenticated() || document.hidden) return;
-    const query = queryFor(target), key = query.toString(), cached = pageSnapshots.get(key);
-    if (pendingLoad?.key === key) return;
+    const query = queryFor(target), key = (rankingMode?"rank:":"list:")+query.toString(), cached = pageSnapshots.get(key);
+    if (pendingLoad?.key === key && pendingLoad.dataEpoch === dataEpoch) return;
     if (pendingLoad) { pendingLoad.controller.abort(); pendingLoad = null; loading = false; }
     clearTimeout(refreshTimer);
     if (!options.revalidate) refreshChecks = 0;
@@ -258,8 +263,8 @@
     pendingLoad = request; interruptedPage = null; loading = !request.background;
     const current = () => pendingLoad === request && active && authenticated() && request.generation === UI.generation() && request.dataEpoch === dataEpoch;
     if (!cached) {
-      items = []; loadedCount = 0; loadingCount = 40;
-      loadingCards = Array.from({ length: 40 }, () => {
+      items = []; loadedCount = 0; loadingCount = rankingMode?50:40;
+      loadingCards = Array.from({ length: loadingCount }, () => {
         const card = UI.node("article", "discover-card is-loading"); card.setAttribute("aria-hidden", "true"); card.append(UI.node("div", "discover-cover"));
         const content = UI.node("div", "discover-content"); for (let line = 0; line < 4; line++) content.append(UI.node("div", "discover-loading-line")); card.append(content); return card;
       });
@@ -273,7 +278,8 @@
       if (!request.background || complete) {
         items = received.map(item => data.stale && known.has(String(item.id)) ? { ...item, ...known.get(String(item.id)) } : item);
         page = data.page || target; maxPage = Math.max(1, data.maxPage || 1); loadedCount = data.loadedCount ?? items.length;
-        loadingCount = Number.isSafeInteger(data.total) ? Math.min(40, Math.max(0, data.total - (page - 1) * 40)) : 40;
+        const size=rankingMode?50:40;
+        loadingCount = Number.isSafeInteger(data.total) ? Math.min(size, Math.max(0, data.total - (page - 1) * size)) : size;
         for (const item of items) if (item.episodeCount != null) { known.set(String(item.id), item); if (selected.has(String(item.id))) selected.set(String(item.id), item); }
         rememberPage(key, { ...data, items }, complete);
       }
@@ -286,7 +292,7 @@
       }
     };
     try {
-      const data = await UI.api("/api/discover?" + query, { force: !!options.force, headers: { Accept: "application/x-ndjson" }, signal: request.controller.signal }, 60000, data => apply(data));
+      const data = await UI.api((rankingMode?"/api/discover/rankings?":"/api/discover?") + query, { force: !!options.force, headers: { Accept: rankingMode?"application/json":"application/x-ndjson" }, signal: request.controller.signal }, 60000, data => apply(data));
       apply(data, true);
     } catch (error) {
       if (current() && !request.controller.signal.aborted && !error.cancelled) {
@@ -353,6 +359,7 @@
     return task;
   }
   function observeVisible() {
+    if(rankingMode)return;
     if (
       loading ||
       !active ||
@@ -439,7 +446,7 @@
     $("discover-query").placeholder=$("discover-search-type").value==="author"?"작가 이름으로 검색":"제목으로 검색";
   });
   function searchSortOptions(){
-    const webtoon=$("discover-content-type")?.value==="webtoon",search=!!$("discover-query").value.trim();
+    const webtoon=["webtoon","manhwa"].includes($("discover-content-type")?.value),search=!!$("discover-query").value.trim();
     const current=$("discover-sort").value;
     const values=[["updated","최신순"],["new","신작순"],["bookmarks","북마크순"],["views","조회순"],["rating","평점순"],["episodes","화수순"]]
       .filter(([value])=>!webtoon||!search||!["new","rating"].includes(value));
@@ -450,9 +457,9 @@
   $("discover-content-type")?.addEventListener("change",()=>{
     version++;dataEpoch++;pendingLoad?.controller.abort();pendingLoad=null;stopAuto();selected.clear();known.clear();attempted.clear();items=[];
     page=1;maxPage=1;loading=false;pageIncomplete=false;
-    const webtoon=$("discover-content-type").value==="webtoon";
+    const webtoon=["webtoon","manhwa"].includes($("discover-content-type").value),manhwa=$("discover-content-type").value==="manhwa";
     searchSortOptions();
-    $("discover-publication").replaceChildren(...(webtoon?[["ongoing","연재 중"],["completed","완결"]]:[["all","전체"],["ongoing","연재 중"],["completed","완결"]]).map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
+    $("discover-publication").replaceChildren(...(manhwa?[["all","전체"]]:webtoon?[["ongoing","연재 중"],["completed","완결"]]:[["all","전체"],["ongoing","연재 중"],["completed","완결"]]).map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
     $("discover-format").replaceChildren(...(webtoon?[["cbz","회차 CBZ · 작품 ZIP"]]:[["txt","TXT"],["epub","EPUB"]]).map(([value,label])=>{const option=UI.node("option","",label);option.value=value;return option;}));
     for(const [id,label]of [["discover-genre","전체 장르"],["discover-platform","전체 플랫폼"]]){$(id).replaceChildren(option("",label));delete $(id).dataset.sourceChoices;}
     load(1,{force:true});
@@ -513,8 +520,8 @@
       const jobs = [...selected.values()].map((item) => ({
         url: item.url,
         title: item.title,
-        format: item.contentType==="webtoon"?"cbz":$("discover-format").value,
-        ...(item.contentType==="webtoon"?{contentType:"webtoon"}:{}),
+        format: ["webtoon","manhwa"].includes(item.contentType)?"cbz":["txt","epub"].includes($("discover-format").value)?$("discover-format").value:"txt",
+        ...(["webtoon","manhwa"].includes(item.contentType)?{contentType:item.contentType}:{}),
         executor: "server",
         startAt: null,
         startEpisode: null,
@@ -583,7 +590,7 @@
   });
 
   document.addEventListener("collector:mutated", event => {
-    if (!/^\/api\/discover\/(?:\d+|webtoon-[a-f0-9]{32})\/(overview|refresh)$/.test(event.detail?.path || "")) return;
+    if (!/^\/api\/discover\/(?:\d+|(?:webtoon|manhwa)-[a-f0-9]{32})\/(overview|refresh)$/.test(event.detail?.path || "")) return;
     dataEpoch++; for (const entry of pageSnapshots.values()) entry.dirty = true;
   });
   $("add-batch-button").addEventListener("click", () => {
@@ -660,4 +667,13 @@
       metadata(item);selected.set(id,item);selectionState();render();
     },
   };
+  function rankingTab(value){
+    rankingMode=value;dataEpoch++;pendingLoad?.controller.abort();pendingLoad=null;loading=false;items=[];known.clear();selected.clear();stopAuto();page=1;maxPage=1;pageIncomplete=false;
+    $("discover-view").classList.toggle("is-ranking",value);
+    $("discover-form").hidden=value;$("discover-rank-controls").hidden=!value;
+    $("discover-list-tab").setAttribute("aria-selected",String(!value));$("discover-ranking-tab").setAttribute("aria-selected",String(value));load(1,{force:true});
+  }
+  $("discover-list-tab")?.addEventListener("click",()=>rankingTab(false));$("discover-ranking-tab")?.addEventListener("click",()=>rankingTab(true));
+  for(const id of ["discover-rank-period","discover-rank-kind"])$(id)?.addEventListener("change",()=>{dataEpoch++;known.clear();selected.clear();attempted.clear();stopAuto();load(1,{force:true});});
+  $("discover-rank-refresh")?.addEventListener("click",()=>load(1,{force:true}));
 })();

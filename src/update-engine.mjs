@@ -64,6 +64,10 @@ export async function restorePrivate(root,id){
   }
 }
 function validOperation(path){if(runtimePaths.has(path))return path;return sourcePath(path);}
+export async function validateStagedVersion(stage,version){
+  let text;try{text=await readFile(join(stage,"src","version.mjs"),"utf8");}catch(cause){throw Object.assign(Error("준비된 소스의 앱 버전을 확인할 수 없습니다."),{code:"STAGED_VERSION_MISMATCH",cause});}
+  if(text.match(/^export const APP_VERSION\s*=\s*["']([0-9.]+)["'];?\s*$/m)?.[1]!==version)throw Object.assign(Error("준비된 소스의 앱 버전이 선택한 업데이트와 다릅니다."),{code:"STAGED_VERSION_MISMATCH"});
+}
 export async function validateStagedRuntime(stage,{files={},runtimes=[]}={}){
   for(const path of [...Object.keys(files),...runtimes]){
     validOperation(path);const source=await safePath(stage,path);
@@ -84,7 +88,7 @@ export async function rollback(root,journal,{move=renameRetry}={}){
   }
   await rm(join(root,".updates","transaction.json"),{force:true});
 }
-export async function activate(root,{id,stage,files,runtimes=[],version},{move=renameRetry,onStep=()=>{}}={}){
+export async function activate(root,{id,stage,files,runtimes=[],version,channel="stable",commit=null,baseVersion=version},{move=renameRetry,onStep=()=>{}}={}){
   await validateStagedRuntime(stage,{files,runtimes});
   const previous=await sourceManifest(root);await assertUnmodified(root,previous);
   const removes=previous.observed?[]:Object.keys(previous.files).filter(p=>!Object.hasOwn(files,p));
@@ -105,7 +109,7 @@ export async function activate(root,{id,stage,files,runtimes=[],version},{move=r
       }catch(e){throw Object.assign(Error(`교체 실패: ${item.path} (${e.code||"MOVE_FAILED"})`),{code:e.code||"MOVE_FAILED",relativePath:item.path,cause:e});}
       await onStep(item.path);
     }
-    await atomicJson(join(root,".updates","installed-version.json"),{version});await atomicJson(join(root,".updates","managed-source.json"),{files});return journal;
+    await atomicJson(join(root,".updates","installed-version.json"),{version,channel,commit,baseVersion});await atomicJson(join(root,".updates","managed-source.json"),{files});return journal;
   }catch(e){await rollback(root,journal);throw e;}
 }
 export function transactionId(){return Date.now()+"-"+randomUUID();}

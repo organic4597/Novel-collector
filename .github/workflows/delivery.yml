@@ -1,15 +1,23 @@
 name: Novel Collector Delivery
 on:
   push:
-    branches: [develop]
+    branches: [develop, hotfix/**]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Formal release mode
+        required: true
+        type: choice
+        options: [release]
 permissions:
   contents: write
   actions: read
 concurrency:
-  group: novel-collector-develop-delivery
+  group: novel-collector-delivery-${{ github.ref_name }}
   cancel-in-progress: false
 jobs:
   validate-and-publish:
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref_name == 'develop' && inputs.mode == 'release')
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -20,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
@@ -30,6 +38,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Prepare verified version and commit
+        if: github.event_name == 'workflow_dispatch'
         run: node tools/ci-release.mjs prepare
       - name: Install test dependencies
         run: |
@@ -44,5 +53,9 @@ jobs:
           export BROWSER_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           export CAPTCHA_PYTHON="$PWD/.venv-captcha/bin/python"
           sudo --preserve-env=BROWSER_PATH,CAPTCHA_PYTHON "$(command -v node)" --test --test-concurrency=4 tests/*.test.mjs
+      - name: Publish push update channel artifact
+        if: github.event_name == 'push'
+        run: node tools/ci-release.mjs channel
       - name: Publish pinned non-latest validation release
+        if: github.event_name == 'workflow_dispatch'
         run: node tools/ci-release.mjs publish

@@ -484,7 +484,7 @@
           <span id="update-notice-text"></span
           ><button id="update-banner-history" class="secondary" type="button">
             변경 내역</button
-          ><button id="update-banner-apply" class="primary" type="button">
+          ><button id="update-banner-apply" class="primary" type="button" aria-controls="update-options" aria-expanded="false">
             업데이트
           </button>
         </div>
@@ -665,6 +665,7 @@
             ><select id="preset-content-type">
               <option value="novel">소설</option>
               <option value="webtoon">웹툰</option>
+              <option value="manhwa">만화</option>
             </select>
             <p class="field-help">
               저장한 프리셋의 유형은 그대로 유지합니다. 다른 유형을 지정하려면
@@ -1115,12 +1116,23 @@
               </svg>
             </div>
           </div>
+          <div class="discovery-tabs" role="tablist" aria-label="작품 찾기 방식">
+            <button id="discover-list-tab" role="tab" aria-selected="true" class="secondary" type="button">일반 목록</button>
+            <button id="discover-ranking-tab" role="tab" aria-selected="false" class="secondary" type="button">TOP 50 랭킹</button>
+          </div>
+          <div id="discover-rank-controls" class="ranking-controls" hidden>
+            <label for="discover-rank-period">조회 기간<select id="discover-rank-period"><option value="hour">시간별</option><option value="day">일간</option><option value="week">주간</option><option value="month">월간</option></select></label>
+            <label for="discover-rank-kind">작품 카테고리<select id="discover-rank-kind"><option value="all">전체 · 카테고리별 TOP 50</option><option value="webtoon">웹툰</option><option value="manhwa">만화</option><option value="novel">소설</option></select></label>
+            <button id="discover-rank-refresh" type="button" class="secondary">랭킹 새로고침</button>
+            <p class="ranking-hint">선택한 기간과 카테고리의 원본 순위를 표시합니다.</p>
+          </div>
           <form id="discover-form" class="discover-filters">
             <div class="filter-type">
               <label for="discover-content-type">작품 유형</label
               ><select id="discover-content-type">
                 <option value="novel">소설</option>
                 <option value="webtoon">웹툰</option>
+                <option value="manhwa">만화</option>
               </select>
             </div>
             <div class="filter-target">
@@ -1811,9 +1823,9 @@
           <section class="update-settings" id="settings-update">
             <h2>프로그램 업데이트</h2>
             <p class="field-help">
-              하루 한 번 GitHub 정식 릴리스를 확인합니다. 업데이트 버튼을 누르면
-              준비·로컬 백업·교체·재시작을 진행합니다. DB·계정·프로필을 새 설치
-              자료로 덮어쓰지 않습니다.
+              하루 한 번 GitHub 정식 릴리스를 확인합니다. 업데이트 메뉴에서
+              정식·실험판·핫픽스와 적용할 버전을 선택하세요. 적용 전에 로컬 백업을
+              만들며 DB·계정·프로필은 유지합니다.
             </p>
             <p>
               현재 <strong id="update-current">—</strong> · 최신
@@ -1824,15 +1836,14 @@
               <span id="update-checked">—</span>
             </p>
             <div class="heading-actions">
-              <button id="update-check" class="secondary" type="button">
-                지금 확인</button
-              ><button
+              <button
                 id="update-apply"
                 class="primary"
                 type="button"
-                disabled=""
+                aria-controls="update-options"
+                aria-expanded="false"
               >
-                업데이트</button
+                업데이트 ▾</button
               ><button id="update-history-open" class="secondary" type="button">
                 버전별 변경 내역</button
               ><a
@@ -1841,6 +1852,21 @@
                 rel="noopener noreferrer"
                 >릴리스 페이지</a
               >
+            </div>
+            <div id="update-options" class="update-options" hidden="">
+              <label for="update-channel">업데이트 모드</label>
+              <select id="update-channel" aria-describedby="update-channel-help">
+                <option value="stable">정식 (stable)</option>
+                <option value="develop">실험판 (develop)</option>
+                <option value="hotfix">핫픽스 (hotfix)</option>
+              </select>
+              <p id="update-channel-help" class="field-help">검증된 정식 릴리스를 선택합니다.</p>
+              <label for="update-candidate">적용할 버전·수정본</label>
+              <select id="update-candidate" aria-describedby="update-candidate-summary" disabled="">
+                <option value="">먼저 업데이트를 확인하세요.</option>
+              </select>
+              <p id="update-candidate-summary" class="field-help"></p>
+              <button id="update-check" class="primary" type="button">지금 확인</button>
             </div>
             <p id="update-progress" role="status" class="field-help"></p>
             <p id="update-error" role="alert" class="error-text"></p>
@@ -2135,7 +2161,19 @@ https://newtoki1.org/novel/30458"
           ×
         </button>
       </div>
-      <div class="reader-layout">
+      <div class="library-dialog-tabs" role="tablist" aria-label="보관함 작품 보기">
+        <button id="library-info-tab" class="secondary" role="tab" aria-controls="library-profile-panel" aria-selected="true" type="button">작품 상세 정보</button>
+        <button id="library-content-tab" class="secondary" role="tab" aria-controls="library-content-panel" aria-selected="false" type="button">회차별 내용보기</button>
+      </div>
+      <section id="library-profile-panel" role="tabpanel" aria-labelledby="library-info-tab" class="library-profile-panel">
+        <div class="library-profile-cover"><img id="library-profile-cover" alt="작품 표지" hidden></div>
+        <div><p id="library-profile-author" class="book-author"></p><p id="library-profile-meta" class="muted"></p><div id="library-profile-tags" class="discover-tags"></div>
+          <h3>작품 소개</h3><p id="library-profile-synopsis" class="work-synopsis"></p>
+          <div class="heading-actions"><a id="library-profile-download" class="export-link" download>TXT 받기</a><button id="library-profile-retry" class="secondary" type="button">실패 회차만 재수집</button><button id="library-profile-metadata" class="quiet" type="button">작품 정보 다시 불러오기</button><a id="library-profile-source" class="export-link" target="_blank" rel="noopener noreferrer">원본 소개 페이지</a></div>
+          <p id="library-profile-error" class="error-text" role="alert"></p>
+        </div>
+      </section>
+      <div id="library-content-panel" class="reader-layout" role="tabpanel" aria-labelledby="library-content-tab">
         <aside class="chapter-sidebar">
           <p id="chapter-count" class="muted"></p>
           <div id="chapter-list" class="chapter-list"></div>

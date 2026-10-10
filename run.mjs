@@ -98,6 +98,12 @@ export async function dependenciesReady(rootDir) {
   } catch { return false; }
 }
 const pythonProbe = modules => `import sys,json\n${modules ? "import cv2,numpy\n" : ""}print(json.dumps({"executable":sys.executable,"version":list(sys.version_info[:3])${modules ? ',"opencv":cv2.__version__,"numpy":numpy.__version__' : ""}}))`;
+export async function readStartupIdentity(rootDir,version){
+  const {installedIdentity}=await import("./src/update-channels.mjs");
+  const {readJson}=await import("./src/update-files.mjs");
+  const record=await readJson(path.join(rootDir,".updates","installed-version.json"));
+  return installedIdentity(record?.version===version?record:null,version);
+}
 async function probePython(command, prefix, modules, run, options) {
   try {
     const result = await run(command, [...prefix, "-c", pythonProbe(modules)], { ...options, capture: true, timeoutMs: 15000 });
@@ -231,7 +237,9 @@ async function main() {
   Object.assign(process.env, env);
   await Promise.all(["data", "secrets", "profile/config", "profile/cache"].map(dir => mkdir(path.join(ROOT, dir), { recursive: true, mode: 0o700 })));
   const { startServer } = await import("./src/server.mjs");
-  const runtime = await startServer({ rootDir: ROOT });
+  const { APP_VERSION } = await import("./src/version.mjs");
+  const startupIdentity=await readStartupIdentity(ROOT,APP_VERSION);
+  const runtime = await startServer({ rootDir: ROOT,startupIdentity });
   const address = runtime.app.address();
   console.info(`[Launcher] Novel Collector 실행 중 · http://${address.address.includes(":") ? `[${address.address}]` : address.address}:${address.port}`);
 }

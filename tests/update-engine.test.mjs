@@ -4,7 +4,7 @@ import { mkdtemp,mkdir,writeFile,readFile,rm,symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
-import { extractSource,activate,privateBackup,restorePrivate,rollback,transactionId,sourceManifest } from "../src/update-engine.mjs";
+import { extractSource,activate,privateBackup,restorePrivate,rollback,transactionId,sourceManifest,validateStagedVersion } from "../src/update-engine.mjs";
 import { renameRetry,atomicJson,readJson } from "../src/update-files.mjs";
 import { recover } from "../tools/recover-update.mjs";
 const sources={"run.mjs":"export const updated=true;","package.json":JSON.stringify({name:"novel-collector"}),"package-lock.json":"{}","src/server.mjs":"export const server=true;","src/updates.mjs":"export const updates=true;","tools/update.mjs":"export const updater=true;"};
@@ -52,4 +52,27 @@ test("a modified managed source is refused, and Windows sharing violations are r
   const root=await fixture(t),id=transactionId(),stage=join(root,".updates",id,"source"),files=await extractSource(await zip(),stage);
   await atomicJson(join(root,".updates","managed-source.json"),{files:{"run.mjs":"a".repeat(64)}});await assert.rejects(activate(root,{id,stage,files,version:"1.0.0.1"}));
   let attempts=0;await renameRetry("old","new",{platform:"win32",move:async()=>{if(++attempts<3)throw Object.assign(Error("busy"),{code:"EPERM"});}});assert.equal(attempts,3);
+});
+
+test("same-version activation records the selected channel commit and rollback restores identity and private state",async t=>{
+  const root=await fixture(t),previous={version:"1.0.0.1",channel:"develop",commit:"a".repeat(40),baseVersion:"1.0.0.1"};
+  await atomicJson(join(root,".updates","installed-version.json"),previous);
+  const id=transactionId(),stage=join(root,".updates",id,"source"),files=await extractSource(await zip(),stage);
+  await privateBackup(root,join(root,".updates","backups",id));
+  const identity={version:"1.0.0.1",channel:"hotfix",commit:"b".repeat(40),baseVersion:"1.0.0.1"};
+  const journal=await activate(root,{id,stage,files,...identity});
+  assert.deepEqual(await readJson(join(root,".updates","installed-version.json")),identity);
+  await writeFile(join(root,"data","user.json"),"FAILED_START_DATA");
+  await rollback(root,journal);await restorePrivate(root,id);
+  assert.deepEqual(await readJson(join(root,".updates","installed-version.json")),previous);
+  assert.equal(await readFile(join(root,"data","user.json"),"utf8"),"PRIVATE_data");
+});
+
+test("staged APP_VERSION must match the selected artifact before runtime commands",async t=>{
+  const root=await fixture(t);await mkdir(join(root,"src"));
+  await writeFile(join(root,"src","version.mjs"),'export const APP_VERSION = "1.0.0.1";');
+  await validateStagedVersion(root,"1.0.0.1");
+  await assert.rejects(validateStagedVersion(root,"1.0.0.2"),{code:"STAGED_VERSION_MISMATCH"});
+  await rm(join(root,"src","version.mjs"));
+  await assert.rejects(validateStagedVersion(root,"1.0.0.1"),{code:"STAGED_VERSION_MISMATCH"});
 });

@@ -62,7 +62,7 @@ const originalControls = [
     null,
     null,
     null,
-    ["novel", "webtoon"],
+    ["novel", "webtoon", "manhwa"],
   ],
   ["preset-name", "input", "", false, null, null, "80", null],
   ["preset-source-ongoing", "input", "", false, null, null, "300", null],
@@ -148,7 +148,7 @@ const originalControls = [
     null,
     null,
     null,
-    ["novel", "webtoon"],
+    ["novel", "webtoon", "manhwa"],
   ],
   [
     "discover-search-type",

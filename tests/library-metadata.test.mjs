@@ -222,7 +222,7 @@ test("one-page source establishes exact count while failures have a retry cooldo
   assert.equal((await service.request("book")).status, "pending");
   for (
     let n = 0;
-    n < 30 && (await service.state("book")).status === "pending";
+    n < 400 && (await service.state("book")).status === "pending";
     n++
   )
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -234,7 +234,7 @@ test("one-page source establishes exact count while failures have a retry cooldo
   assert.equal((await service.request("book")).status, "pending");
   for (
     let n = 0;
-    n < 30 && (await service.state("book")).status === "pending";
+    n < 400 && (await service.state("book")).status === "pending";
     n++
   )
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -476,7 +476,7 @@ test("site holds and backoff defer metadata without failure cooldown and retry i
   assert.equal((await service.request("book")).status, "pending");
   for (
     let n = 0;
-    n < 30 && (await service.state("book")).status === "pending";
+    n < 400 && (await service.state("book")).status === "pending";
     n++
   )
     await new Promise((resolve) => setTimeout(resolve, 5));

@@ -2,7 +2,7 @@ import {APP_VERSION, UPDATE_REPOSITORY, compareVersions, repositoryName} from ".
 
 const records=[
   {
-  "version": "1.0.0.15",
+  "version": "1.0.0.16",
   "title": "웹툰 목차·표지·다운로드 복구와 릴리스 게시 확인 안정화",
   "groups": [
     {

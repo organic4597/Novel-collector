@@ -10,9 +10,9 @@ import {JSDOM} from "jsdom";
 
 test("release history distinguishes published versions, installed version and development notes without ghost links",()=>{
   const history=releaseHistory("1.0.0.11");assert.equal(history.records.find(record=>record.version==="1.0.0.11").status,"current");
-  const pending=history.records.find(record=>record.version==="1.0.0.15");assert.equal(pending.status,"development");assert.equal(pending.url,null);
+  const pending=history.records.find(record=>record.version==="1.0.0.16");assert.equal(pending.status,"development");assert.equal(pending.url,null);
   assert.equal(history.records.some(record=>["1.0.0.8","1.0.0.9"].includes(record.version)),false);
-  const installed=releaseHistory("1.0.0.15").records[0];assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.15$/);
+  const installed=releaseHistory("1.0.0.16").records[0];assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.16$/);
   history.records[1].groups[0].items[0]="changed";assert.notEqual(releaseHistory("1.0.0.11").records[1].groups[0].items[0],"changed");
   assert.match(releaseNotesFor("1.0.0.11"),/웹툰.*검색/);assert.match(releaseNotesFor("1.0.0.12"),/버전별/);assert.match(releaseNotesFor("1.0.0.13"),/설치/);assert.match(releaseNotesFor("1.0.0.14"),/썸네일/);assert.throws(()=>releaseNotesFor("unknown"),/기능 내역/);
 });

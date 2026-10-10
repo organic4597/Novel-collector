@@ -10,11 +10,23 @@ import {releaseNotesFor} from "../src/release-history.mjs";
 const exec=promisify(execFile);
 const repo=repositoryName(process.env.GITHUB_REPOSITORY);
 const git=async(...args)=>(await exec("git",args,{maxBuffer:16*1024*1024})).stdout.trim();
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 export function nextVersion(values){
   const versions=values.filter(value=>/^\d+\.\d+\.\d+\.\d+$/.test(value)).sort(compareVersions);
   if(!versions.length)throw Error("기준 버전이 필요합니다.");const parts=versionParts(versions.at(-1));parts[3]++;return parts.join(".");
 }
 export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path)&&path!=="tests/cicd.test.mjs");}
+export async function verifyPublishedAssetDigest(readReleases,{version,assetName,expectedDigest,attempts=15,delayMs=2000,delay=wait}){
+  for(let attempt=1;attempt<=attempts;attempt++){
+    const releases=await readReleases();
+    const release=(Array.isArray(releases)?releases:[]).find(value=>value?.tag_name===version);
+    const asset=release?.assets?.find(value=>value?.name===assetName);
+    if(asset?.digest===expectedDigest)return;
+    if(asset?.digest)throw Error("게시된 ZIP 체크섬이 일치하지 않습니다.");
+    if(attempt<attempts)await delay(delayMs);
+  }
+  throw Error("게시된 ZIP 체크섬을 확인하지 못했습니다.");
+}
 async function api(path){return JSON.parse((await exec("gh",["api",path],{maxBuffer:16*1024*1024})).stdout);}
 async function envValue(name,value){await appendFile(process.env.GITHUB_ENV,`${name}=${value}\n`);}
 async function prepare(){
@@ -45,8 +57,7 @@ async function publish(){
   await git("tag","-a",version,"-m",`Novel Collector develop validation ${version}`);await git("push","origin",`refs/tags/${version}`);
   const notes=(summary?summary+"\n\n":"")+`검증용 develop 게시본입니다. 운영 검증 성공 후 같은 커밋을 main·release로 승격하고 최신 정식 릴리스로 지정합니다.\n\n커밋: ${commit}\nCI: ${process.env.GITHUB_RUN_ID}`;
   await exec("gh",["release","create",version,zip,tar,sums,manifestPath,"--repo",repo,"--verify-tag","--draft","--title",`Novel Collector ${version} develop validation`,"--notes",notes]);
-  const releases=await api(`repos/${repo}/releases`),release=releases.find(value=>value.tag_name===version);
-  const asset=release?.assets.find(value=>value.name===base+".zip");if(asset?.digest!=="sha256:"+zipSha256)throw Error("게시된 ZIP 체크섬이 일치하지 않습니다.");
+  await verifyPublishedAssetDigest(()=>api(`repos/${repo}/releases?per_page=100`),{version,assetName:base+".zip",expectedDigest:"sha256:"+zipSha256});
   await exec("gh",["release","edit",version,"--repo",repo,"--draft=false","--latest=false"]);
   console.info(`운영 검증 대기: ${version} (${commit})`);
 }

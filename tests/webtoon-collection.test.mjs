@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FolderStore, validateJob } from "../src/store.mjs";
@@ -128,16 +128,20 @@ test("webtoon collection stores original ordered duplicate images, authors and C
   assert.equal(chapter.images.length,3);assert.equal(chapter.images[0].sha256,chapter.images[2].sha256);
   assert.notEqual(chapter.images[0].sha256,chapter.images[1].sha256);
   assert.ok(!JSON.stringify(chapter).includes("private-image-token"));assert.ok(await verifyWebtoonChapter(f.store,book.id,chapter));
+  const prepared=f.store.path("books",book.id,"chapters",chapter.id,`archive-${chapter.hash}.cbz`),preparedAt=(await stat(prepared)).mtimeMs;
   const downloads=new LibraryDownloads({store:f.store,rootDir:join(f.root,"downloads")});t.after(()=>downloads.close());
   const cbz=await JSZip.loadAsync(await readFile((await downloads.chapterCbz(book.id,chapter.id)).path));
   assert.deepEqual(Object.keys(cbz.files),["0001.png","0002.gif","0003.png"]);
   assert.deepEqual(await cbz.file("0001.png").async("nodebuffer"),png);
   assert.deepEqual(await cbz.file("0002.gif").async("nodebuffer"),gif);
+  assert.equal((await stat(prepared)).mtimeMs,preparedAt);
   const zip=await JSZip.loadAsync(await readFile((await downloads.bookZip(book.id)).path));assert.deepEqual(Object.keys(zip.files),chapters.map(c=>`${book.title} ${String(c.number).padStart(4,"0")}.cbz`));
   const replay=await f.collector.run({...f.job,resumeCatalog:true},f.hooks,new AbortController().signal);
   assert.equal(replay.skipped,2);assert.equal(replay.completed,0);
   await writeFile(f.store.path("books",book.id,"chapters",chapter.id,chapter.images[0].filename),gif);
-  await assert.rejects(downloads.chapterCbz(book.id,chapter.id),{code:"CHAPTER_INCOMPLETE"});
+  assert.equal(await verifyWebtoonChapter(f.store,book.id,chapter),false);
+  const cached=await JSZip.loadAsync(await readFile((await downloads.chapterCbz(book.id,chapter.id)).path));
+  assert.deepEqual(await cached.file("0001.png").async("nodebuffer"),png);
 });
 test("missing image responses leave partial checkpoints and never create complete chapters or CBZ",async t=>{
   const f=await imageFixture(t,{broken:true}),result=await f.collector.run(f.job,f.hooks,new AbortController().signal);
@@ -211,6 +215,8 @@ test("authenticated webtoon dashboard shows type-specific reservations, stored i
   await page.locator("#books-list .library-card").click();const zipLink=page.locator("#library-profile-download");assert.equal(await zipLink.innerText(),"작품 ZIP 받기");
   const [bookDownload]=await Promise.all([page.waitForEvent("download"),zipLink.click()]);
   assert.equal(bookDownload.suggestedFilename(),"합성 웹툰-1-2.zip");
+  assert.match(await page.locator("#bundle-progress").textContent(),/2회차.*준비 완료/);
+  await page.locator('[data-close="bundle-dialog"]').click();
   await page.locator("#library-content-tab").click();
   await page.locator("#reader-text .webtoon-reader-image").first().waitFor();assert.equal(await page.locator("#reader-text .webtoon-reader-image").count(),3);
   const [chapterDownload]=await Promise.all([page.waitForEvent("download"),page.locator("#reader-text a").click()]);

@@ -10,7 +10,7 @@ import {JSDOM} from "jsdom";
 
 test("release history distinguishes published versions, installed version and development notes without ghost links",()=>{
   const history=releaseHistory("1.0.0.11");assert.equal(history.records.find(record=>record.version==="1.0.0.11").status,"current");
-  const pending=history.records.find(record=>record.version==="1.0.2");assert.equal(pending.status,"development");assert.equal(pending.url,null);
+  const pending=history.records.find(record=>record.version==="1.1.0");assert.equal(pending.status,"development");assert.equal(pending.url,null);
   assert.equal(history.records.some(record=>["1.0.0.8","1.0.0.9"].includes(record.version)),false);
   const installed=releaseHistory("1.0.0.17").records.find(record=>record.version==="1.0.0.17");assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.17$/);
   assert.equal(releaseHistory("1.0.1").records.find(record=>record.version==="1.0.0.17").status,"previous");

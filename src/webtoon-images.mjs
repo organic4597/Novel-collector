@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile, readFile, rename, rm, stat } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { validateRunnablePreset, matchesPresetPage, evaluatePresetPage } from "./preset-runtime.mjs";
 import { isImageType } from "./webtoon-source.mjs";
@@ -110,9 +111,13 @@ export async function extractWebtoonImages(page,job,chapter,signal,onProgress=()
     }throw error;
   }finally{page.off("response",received);await Promise.allSettled([...pending]);await rm(scratch,{recursive:true,force:true});}
 }
-export async function verifyWebtoonChapter(store,bookId,chapter){
+function completeImageRecord(chapter){
   if(!chapter?.complete||!isImageType(chapter.contentType)||!Array.isArray(chapter.images)||!chapter.images.length||
     chapter.images.length!==chapter.expectedImages||chapter.images.length>WEBTOON_LIMITS.images||chapter.hash!==digest(JSON.stringify(chapter.images)))return false;
+  return chapter.images.every((image,index)=>image.index===index+1&&/^\d{4}-[a-f0-9]{16}\.(png|jpg|gif|webp)$/.test(image.filename)&&Object.hasOwn(extensions,image.mimeType));
+}
+export async function verifyWebtoonChapter(store,bookId,chapter){
+  if(!completeImageRecord(chapter))return false;
   let total=0;
   for(const [index,image]of chapter.images.entries()){
     if(image.index!==index+1||!/^\d{4}-[a-f0-9]{16}\.(png|jpg|gif|webp)$/.test(image.filename)||!extensions[image.mimeType])return false;
@@ -122,30 +127,60 @@ export async function verifyWebtoonChapter(store,bookId,chapter){
   }
   return total===chapter.size;
 }
-async function writeZip(zip,path,signal){
+async function archiveInfo(path){
+  try{const info=await stat(path);return info.isFile()&&info.size>0?info:null;}catch(error){if(error.code==="ENOENT")return null;throw error;}
+}
+async function* archiveChunks(path){for await(const chunk of createReadStream(path,{highWaterMark:1024*1024}))yield chunk;}
+async function writeZip(zip,path,signal,onUpdate){
   await mkdir(path.slice(0,path.lastIndexOf("/")),{recursive:true,mode:0o700});const temporary=path+"."+randomUUID()+".tmp";
-  try{await pipeline(zip.generateNodeStream({streamFiles:true,compression:"STORE"}),createWriteStream(temporary,{mode:0o600,flags:"wx"}),{signal});await rename(temporary,path);}
+  try{await pipeline(zip.generateNodeStream({streamFiles:true,compression:"STORE"},onUpdate),createWriteStream(temporary,{mode:0o600,flags:"wx",highWaterMark:1024*1024}),{signal});await rename(temporary,path);}
   catch(error){await rm(temporary,{force:true});throw error;}
 }
 export async function webtoonCbz(store,rootDir,bookId,chapter,signal,bookTitle=null){
-  if(!await verifyWebtoonChapter(store,bookId,chapter))throw fail("완전히 저장되고 해시 검증된 웹툰 회차만 내려받을 수 있습니다.","CHAPTER_INCOMPLETE");
+  if(!completeImageRecord(chapter))throw fail("완전히 저장된 웹툰 회차만 내려받을 수 있습니다.","CHAPTER_INCOMPLETE");
   const title=downloadTitle(bookTitle??(await store.getBook(bookId))?.title);
-  const path=`${rootDir}/webtoon/${bookId}/${chapter.id}-${chapter.hash}.cbz`,zip=new JSZip();
-  for(const image of chapter.images)zip.file(`${String(image.index).padStart(4,"0")}.${extensions[image.mimeType]}`,
-    createReadStream(store.path("books",bookId,"chapters",chapter.id,image.filename)),{binary:true});
-  await writeZip(zip,path,signal);
-  return{path,mimeType:"application/vnd.comicbook+zip",filename:`${title} ${String(chapter.number).padStart(4,"0")}.cbz`,etag:`"${chapter.hash}"`};
+  const path=store.path("books",bookId,"chapters",chapter.id,`archive-${chapter.hash}.cbz`);
+  const output={path,mimeType:"application/vnd.comicbook+zip",filename:`${title} ${String(chapter.number).padStart(4,"0")}.cbz`,etag:`"${chapter.hash}"`};
+  return store.locked("cbz:"+bookId+":"+chapter.id+":"+chapter.hash,async()=>{
+    signal?.throwIfAborted();
+    if(await archiveInfo(path))return output;
+    const legacy=rootDir&&`${rootDir}/webtoon/${bookId}/${chapter.id}-${chapter.hash}.cbz`;
+    if(legacy&&await archiveInfo(legacy))return{...output,path:legacy};
+    const zip=new JSZip(),streams=[];
+    try{
+      for(const image of chapter.images){const stream=Readable.from(archiveChunks(store.path("books",bookId,"chapters",chapter.id,image.filename)),{objectMode:false,highWaterMark:1024*1024});streams.push(stream);
+        zip.file(`${String(image.index).padStart(4,"0")}.${extensions[image.mimeType]}`,stream,{binary:true});}
+      await writeZip(zip,path,signal);return output;
+    }finally{for(const stream of streams)stream.destroy();}
+  });
 }
-export async function webtoonZip(store,rootDir,bookId,signal,maxBytes=3*1024**3){
+export async function webtoonZip(store,rootDir,bookId,signal,maxBytes=3*1024**3,onProgress=()=>{}){
   const book=await store.getBook(bookId),chapters=await store.listChapters(bookId);
   if(!book||!isImageType(book.contentType)||!chapters.length)throw fail("저장된 이미지 회차가 없습니다.","NO_STORED_IMAGES");
   if(new Set(chapters.map(chapter=>chapter.number)).size!==chapters.length)throw fail("저장된 회차 번호가 중복돼 ZIP을 만들 수 없습니다. 목차와 저장 회차를 확인하세요.","ARCHIVE_NAME_CONFLICT");
   const title=downloadTitle(book.title);
-  const zip=new JSZip();let size=0;
-  for(const meta of chapters){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);if(chapter?.hash!==meta.hash||chapter?.number!==meta.number)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");const file=await webtoonCbz(store,rootDir,bookId,chapter,signal,title);
-    size+=(await stat(file.path)).size+Buffer.byteLength(file.filename)*2+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");
-    zip.file(file.filename,createReadStream(file.path),{binary:true});}
   const revision=digest(JSON.stringify({title,chapters:chapters.map(c=>[c.id,c.number,c.hash])})),path=`${rootDir}/webtoon/${bookId}/${revision}.zip`;
-  await writeZip(zip,path,signal);
-  return{path,filename:`${title}-${chapters[0].number}-${chapters.at(-1).number}.zip`,mimeType:"application/zip",etag:`"${revision}"`};
+  const output={path,filename:`${title}-${chapters[0].number}-${chapters.at(-1).number}.zip`,mimeType:"application/zip",etag:`"${revision}"`,chapterCount:chapters.length};
+  return store.locked("zip:"+rootDir+":"+bookId+":"+revision,async()=>{
+    signal?.throwIfAborted();const cached=await archiveInfo(path);
+    if(cached){if(cached.size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");await onProgress({phase:"ready",processed:chapters.length,total:chapters.length});return output;}
+    const zip=new JSZip(),streams=[];let size=0;
+    try{
+      await onProgress({phase:"chapters",processed:0,total:chapters.length});
+      for(const [index,meta]of chapters.entries()){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);
+        if(chapter?.hash!==meta.hash||chapter?.number!==meta.number)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");
+        const file=await webtoonCbz(store,rootDir,bookId,chapter,signal,title);
+        size+=(await stat(file.path)).size+Buffer.byteLength(file.filename)*2+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");
+        const stream=Readable.from(archiveChunks(file.path),{objectMode:false,highWaterMark:1024*1024});streams.push(stream);zip.file(file.filename,stream,{binary:true});
+        await onProgress({phase:"chapters",processed:index+1,total:chapters.length});
+      }
+      await onProgress({phase:"zip",percent:0,processed:chapters.length,total:chapters.length});
+      let reporting=Promise.resolve(),reported=0,lastReport=0;
+      try{await writeZip(zip,path,signal,metadata=>{
+        const percent=Math.max(0,Math.min(100,Math.floor(metadata.percent)));if(percent<=reported||percent<100&&Date.now()-lastReport<1000)return;
+        reported=percent;lastReport=Date.now();reporting=reporting.then(()=>onProgress({phase:"zip",percent,processed:chapters.length,total:chapters.length}));reporting.catch(()=>{});
+      });}finally{await reporting;}
+      return output;
+    }finally{for(const stream of streams)stream.destroy();}
+  });
 }

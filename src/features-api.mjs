@@ -123,8 +123,12 @@ export function createFeatureRouter({
       const id = safeId(parts[2]),
         book = await store.getBook(id);
       if (!book) throw fail("작품을 찾을 수 없습니다.", 404);
-      if(parts[3]==="export"&&parts[4]==="zip"&&parts.length===5&&["GET","HEAD"].includes(method)){
+      if(parts[3]==="export"&&parts[4]==="zip"&&parts.length===5&&["GET","HEAD","POST"].includes(method)){
         if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
+        if(method==="POST"){
+          const input=await readBody(request);if(!input||typeof input!=="object"||Array.isArray(input)||Object.keys(input).length)throw fail("ZIP 준비 입력을 확인하세요.",400);
+          send(response,202,await downloads.requestBookZip(id));return true;
+        }
         streamDownload(request,response,await downloads.bookZip(id));return true;
       }
       if(parts[3]==="chapters"&&parts[4]&&isImageType(book.contentType)&&["GET","HEAD"].includes(method)){

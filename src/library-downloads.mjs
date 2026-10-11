@@ -73,6 +73,7 @@ function sanitizedState(value) {
     error: value.error ?? null,
     createdAt: value.createdAt ?? null,
     completedAt: value.completedAt ?? null,
+    ...(value.kind==="book-zip"?{kind:value.kind,bookId:value.bookId,phase:value.phase||"catalog",percent:value.percent??null}:{}),
   };
 }
 
@@ -87,6 +88,7 @@ export class LibraryDownloads {
     this.store = store;
     this.rootDir = resolve(rootDir);
     this.bookWork = new Map();
+    this.zipObservers = new Map();
     this.states = new Map();
     this.queue = [];
     this.running = null;
@@ -113,7 +115,17 @@ export class LibraryDownloads {
       if (this.bookWork.get(bookId) === operation) this.bookWork.delete(bookId);
     }
   }
-  async bookZip(bookId){safeId(bookId);this.checkOpen();return webtoonZip(this.store,this.rootDir,bookId,this.controller.signal,this.maxArchiveBytes);}
+  async bookZip(bookId,onProgress=()=>{}){
+    safeId(bookId);this.checkOpen();const key="zip:"+bookId;
+    if(this.bookWork.has(key)){
+      const observers=this.zipObservers.get(key);observers.add(onProgress);
+      try{return await this.bookWork.get(key);}finally{observers.delete(onProgress);}
+    }
+    const observers=new Set([onProgress]);this.zipObservers.set(key,observers);
+    const operation=webtoonZip(this.store,this.rootDir,bookId,this.controller.signal,this.maxArchiveBytes,progress=>Promise.all([...observers].map(observer=>observer(progress))));
+    this.bookWork.set(key,operation);
+    try{return await operation;}finally{if(this.bookWork.get(key)===operation){this.bookWork.delete(key);this.zipObservers.delete(key);}}
+  }
   async chapterCbz(bookId,chapterId){safeId(bookId);safeId(chapterId);this.checkOpen();return webtoonCbz(this.store,this.rootDir,bookId,
     await this.store.readChapter(bookId,chapterId),this.controller.signal);}
   async bookFile(bookId){return isImageType((await this.store.getBook(bookId))?.contentType)?this.bookZip(bookId):this.bookTxt(bookId);}
@@ -231,6 +243,15 @@ export class LibraryDownloads {
     return this.enqueueBundle(unique);
   }
 
+  async requestBookZip(bookId){
+    safeId(bookId);this.checkOpen();const book=await this.store.getBook(bookId);
+    if(!book||!isImageType(book.contentType))throw fail("저장된 웹툰·만화 작품을 선택하세요.",400);
+    if(book.storedChapterCount===0)throw fail("저장된 회차가 없습니다.",409);
+    const existing=[...this.states.values()].find(state=>state.kind==="book-zip"&&state.bookId===bookId&&state.status==="preparing");
+    if(existing)return sanitizedState(existing);
+    return this.enqueueBundle([bookId],"book-zip");
+  }
+
   async requestAllBundle() {
     this.checkOpen();
     const books = await this.store.listBooks();
@@ -250,7 +271,7 @@ export class LibraryDownloads {
     return this.enqueueBundle(unique);
   }
 
-  async enqueueBundle(unique) {
+  async enqueueBundle(unique,kind=null) {
     this.checkOpen();
     for (const [id, state] of this.states) {
       if (this.states.size < 100) break;
@@ -266,7 +287,8 @@ export class LibraryDownloads {
       id,
       status: "preparing",
       processed: 0,
-      total: unique.length,
+      total: kind==="book-zip"?0:unique.length,
+      ...(kind==="book-zip"?{kind,bookId:unique[0],phase:"catalog"}:{}),
       createdAt: new Date().toISOString(),
     });
     this.states.set(id, state);
@@ -276,7 +298,7 @@ export class LibraryDownloads {
       this.states.delete(id);
       throw error;
     }
-    this.queue.push({ id, bookIds: unique });
+    this.queue.push({ id, bookIds: unique,kind });
     const reply = { ...state };
     this.pump();
     return reply;
@@ -300,7 +322,7 @@ export class LibraryDownloads {
   pump() {
     if (this.closed || this.running || !this.queue.length) return;
     const next = this.queue.shift();
-    this.running = this.prepareBundle(next)
+    this.running = (next.kind==="book-zip"?this.prepareBookZip(next):this.prepareBundle(next))
       .catch(() => {
         console.error(
           "[LibraryDownloads] 파일 준비 상태를 저장하지 못했습니다. 서버 디스크와 권한을 확인하세요.",
@@ -340,7 +362,7 @@ export class LibraryDownloads {
         // Open each TXT only when JSZip consumes it, avoiding thousands of open files.
         const stream = Readable.from(fileChunks(file.path));
         streams.push(stream);
-        zip.file(filename, stream, { binary: true });
+        zip.file(filename, stream, { binary: true,compression:file.mimeType==="application/zip"?"STORE":"DEFLATE" });
         await this.updateState(id, { processed: streams.length });
       }
       await pipeline(
@@ -376,6 +398,17 @@ export class LibraryDownloads {
     }
   }
 
+  async prepareBookZip({id,bookIds}){
+    try{
+      const file=await this.bookZip(bookIds[0],progress=>this.updateState(id,progress));this.checkOpen();
+      const revision=file.etag?.replaceAll('"','');if(!/^[a-f0-9]{64}$/.test(revision||""))throw fail("ZIP 준비 정보를 확인할 수 없습니다.",500);
+      await this.store.atomic(join(this.rootDir,"jobs",id,"archive.json"),{bookId:bookIds[0],revision});
+      const total=file.chapterCount??this.states.get(id).total;await this.updateState(id,{status:"ready",phase:"ready",processed:total,total,filename:file.filename,completedAt:new Date().toISOString()});
+    }catch(error){
+      await this.updateState(id,{status:"failed",error:this.closed?"서버 종료로 파일 준비가 중단됐습니다. 다시 요청하세요.":error.status&&error.status<500?error.message:"파일 준비에 실패했습니다. 다시 요청하거나 서버 로그를 확인하세요.",completedAt:new Date().toISOString()});
+    }
+  }
+
   async getBundle(id) {
     safeId(id);
     const remembered = this.states.get(id);
@@ -399,6 +432,12 @@ export class LibraryDownloads {
   async bundleFile(id) {
     const state = await this.getBundle(id);
     if (state?.status !== "ready") return null;
+    if(state.kind==="book-zip"){
+      const reference=await json(join(this.rootDir,"jobs",safeId(id),"archive.json"));
+      if(!reference||reference.bookId!==state.bookId||!/^[a-f0-9]{64}$/.test(reference.revision||""))return null;
+      const path=join(this.rootDir,"webtoon",safeId(reference.bookId),reference.revision+".zip");
+      return await exists(path)?{path,filename:state.filename,mimeType:"application/zip",etag:`"${reference.revision}"`}:null;
+    }
     const path = join(this.rootDir, "jobs", safeId(id), "bundle.zip");
     return (await exists(path))
       ? { path, filename: state.filename, mimeType: "application/zip" }

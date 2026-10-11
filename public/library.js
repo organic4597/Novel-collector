@@ -499,8 +499,13 @@
     }
   }
   function updateBundle() {
+    const bookZip=bundle?.kind==="book-zip";
+    $("bundle-dialog-heading").textContent=bookZip?"작품 ZIP 내려받기":"선택 작품 내려받기";
+    $("bundle-note").textContent=bookZip?"저장된 회차 CBZ를 재사용해 작품 ZIP을 준비합니다. 준비된 ZIP은 다음 다운로드에서 재사용합니다.":"소설은 TXT, 웹툰·만화는 작품 ZIP을 준비하여 묶습니다.";
     $("bundle-progress").textContent =
-      bundle?.status === "ready"
+      bookZip
+        ? bundle.status==="ready"?`${count(bundle.total)}회차 작품 ZIP 준비 완료`:bundle.phase==="zip"?`작품 ZIP 파일 저장 중${Number.isFinite(bundle.percent)?" · "+count(bundle.percent)+"%":"…"}`:bundle.phase==="catalog"?"저장 회차를 확인하는 중…":bundle.phase==="ready"?"다운로드 파일을 연결하는 중…":`회차 CBZ 준비 중 · ${count(bundle.processed)} / ${count(bundle.total)}회차`
+        : bundle?.status === "ready"
         ? `${count(bundle.total)}개 작품 파일 준비 완료`
         : `파일 준비 중 · ${count(bundle?.processed)} / ${count(bundle?.total)}`;
     const ready = bundle?.status === "ready";
@@ -524,21 +529,22 @@
       bundle = { ...bundle, ...result };
       updateBundle();
       if (bundle.status === "ready")
-        UI.toast("ZIP 파일이 준비됐습니다. 내려받기 버튼을 눌러 저장하세요.");
+        if(bundle.kind==="book-zip"&&$("bundle-dialog").open)$("bundle-download-link").click();
+        else UI.toast("ZIP 파일이 준비됐습니다. 내려받기 버튼을 눌러 저장하세요.");
     } catch (exception) {
       $("bundle-error").textContent = textError(exception);
     }
     if (bundle?.status === "preparing" && UI.authenticated())
       bundleTimer = setTimeout(pollBundle, 2000);
   }
-  async function prepareBundle(ids = [], all = false) {
+  async function prepareBundle(ids = [], all = false, bookId = null) {
     if (bundleRequest) return;
-    if (!all && (!ids.length || ids.length > 200)) {
+    if (!all && !bookId && (!ids.length || ids.length > 200)) {
       error("작품을 1개 이상, 최대 200개 선택하세요.");
       return;
     }
     if (bundle?.status === "preparing") {
-      $("bundle-dialog").showModal();
+      if(!$("bundle-dialog").open)$("bundle-dialog").showModal();
       return;
     }
     const generation = UI.generation();
@@ -548,16 +554,19 @@
     $("bundle-error").textContent = "";
     $("bundle-download-link").hidden = true;
     $("bundle-progress").textContent = "파일 준비 요청 중…";
-    $("bundle-dialog").showModal();
+    $("bundle-dialog-heading").textContent=bookId?"작품 ZIP 내려받기":"선택 작품 내려받기";
+    if(!$("bundle-dialog").open)$("bundle-dialog").showModal();
     try {
-      const result = await api("/api/downloads", {
+      const result = await api(bookId?`/api/books/${encodeURIComponent(bookId)}/export/zip`:"/api/downloads", {
         method: "POST",
-        body: JSON.stringify(all ? { all: true } : { bookIds: ids }),
+        body: JSON.stringify(bookId?{}:all ? { all: true } : { bookIds: ids }),
       });
       if (generation !== UI.generation()) return;
       bundle = result;
       updateBundle();
-      if (bundle.status === "preparing") bundleTimer = setTimeout(pollBundle, 2000);
+      if (bundle.status === "preparing") {
+        if(bookId)await pollBundle();else bundleTimer = setTimeout(pollBundle, 2000);
+      }else if(bookId&&bundle.status==="ready")$("bundle-download-link").click();
     } catch (exception) {
       $("bundle-error").textContent = textError(exception);
     } finally {
@@ -732,6 +741,10 @@
   $("library-info-tab").onclick=()=>void readerTab(true);$("library-content-tab").onclick=()=>void readerTab(false);
   for(const id of ["library-info-tab","library-content-tab"])$(id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight"].includes(event.key)){event.preventDefault();const detail=id!=="library-info-tab";if(!detail&&$("library-content-tab").disabled)return;void readerTab(detail);$(detail?"library-info-tab":"library-content-tab").focus();}});
   $("library-profile-cover").onerror=()=>{$("library-profile-cover").hidden=true;};
+  $("library-profile-download").addEventListener("click",event=>{
+    if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||!profileBook||!["webtoon","manhwa"].includes(profileBook.contentType))return;
+    event.preventDefault();void prepareBundle([],false,profileBook.id||profileBook.bookId);
+  });
   $("library-profile-retry").onclick=()=>{if(profileBook)void retryBook(profileBook);};
   $("library-profile-metadata").onclick=()=>{if(profileBook)void retryMetadata(profileBook);};
   $("failures-dialog").addEventListener("close", () => {
@@ -758,5 +771,5 @@
       failureContext = null;
     }
   });
-  window.CollectorLibrary = { refresh, retryJob,openProfile:book=>openBook(book,{details:true}),openBook,find:url=>books.find(book=>book.url===url&&storedChapters(book)>0) };
+  window.CollectorLibrary = { refresh, retryJob,prepareBookZip:bookId=>prepareBundle([],false,bookId),openProfile:book=>openBook(book,{details:true}),openBook,find:url=>books.find(book=>book.url===url&&storedChapters(book)>0) };
 })();

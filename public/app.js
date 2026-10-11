@@ -626,6 +626,10 @@ function jobCard(job, queued, inHistory = false) {
     number(job.completed) + number(job.skipped) > 0) {
     const download = node("a", "export-link", "작품 ZIP 받기");
     download.href = `/api/books/${encodeURIComponent(job.bookId)}/export/zip`;
+    download.addEventListener("click",event=>{
+      if(event.ctrlKey||event.metaKey||event.shiftKey||event.altKey||!window.CollectorLibrary?.prepareBookZip)return;
+      event.preventDefault();void window.CollectorLibrary.prepareBookZip(job.bookId);
+    });
     download.setAttribute("download", "");
     actions.append(download);
   }

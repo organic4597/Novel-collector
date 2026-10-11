@@ -1,6 +1,7 @@
 import { ChapterTiming } from "./timing.mjs";
 import { cleanMessage } from "./store.mjs";
 import { isImageType } from "./webtoon-source.mjs";
+import { webtoonCbz } from "./webtoon-images.mjs";
 
 function abortIfNeeded(signal) {
   if (signal?.aborted)
@@ -236,7 +237,11 @@ export async function runCollection(job, hooks, signal, bookId) {
             throw new Error("회차 본문 크기가 제한을 초과했습니다.");
           sourceFailed = false;
           await hooks.requestSuccess?.();
-          if(webtoon)await this.store.writeWebtoonChapter(bookId,chapter.id,{...chapter,...imageChapter});
+           if(webtoon){
+             const saved=await this.store.writeWebtoonChapter(bookId,chapter.id,{...chapter,...imageChapter});
+             try{await hooks.report({phase:"회차 CBZ 준비 중"});await webtoonCbz(this.store,null,bookId,saved,signal,displayTitle);}
+             catch(error){abortIfNeeded(signal);await hooks.event("warn",`${chapter.number}화 이미지 저장 완료 · CBZ 준비는 다운로드에서 다시 시도합니다 (${cleanMessage(error.message)})`);}
+           }
           else await this.store.writeChapter(bookId, chapter.id, {
             ...chapter,
             text,

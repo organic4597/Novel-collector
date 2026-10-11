@@ -23,7 +23,7 @@
   function validate(value){
     if(!value||typeof value.currentVersion!=="string"||!Array.isArray(value.records)||value.records.length>100)throw Error("업데이트 내역 형식을 확인하지 못했습니다.");
     for(const record of value.records){
-      if(!/^\d+\.\d+\.\d+\.\d+$/.test(record.version)||typeof record.title!=="string"||!Array.isArray(record.groups)||record.groups.length>20||
+      if(!/^\d+\.\d+\.\d+(?:\.\d+)?$/.test(record.version)||typeof record.title!=="string"||!Array.isArray(record.groups)||record.groups.length>20||
         !["current","available","previous","development"].includes(record.status)||record.date!=null&&!/^\d{4}-\d{2}-\d{2}$/.test(record.date))throw Error("업데이트 내역 형식을 확인하지 못했습니다.");
       if(record.url){const url=new URL(record.url);if(url.origin!=="https://github.com"||url.username||url.password||url.search||url.hash||!new RegExp("^/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/releases/tag/"+record.version.replace(/\./g,"\\.")+"$").test(url.pathname))throw Error("릴리스 주소 형식을 확인하지 못했습니다.");}
       for(const group of record.groups)if(typeof group.title!=="string"||!Array.isArray(group.items)||group.items.length>100||group.items.some(item=>typeof item!=="string"||item.length>3000))throw Error("업데이트 내역 형식을 확인하지 못했습니다.");

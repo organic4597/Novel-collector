@@ -10,6 +10,7 @@ export const WEBTOON_LIMITS=Object.freeze({imageBytes:8*1024**2,chapterBytes:512
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
 const fail=(message,code="WEBTOON_IMAGE_ERROR")=>Object.assign(Error(message),{code});
 const extensions={"image/png":"png","image/jpeg":"jpg","image/gif":"gif","image/webp":"webp"};
+const downloadTitle=value=>String(value||"웹툰").replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g,"_").replace(/^\.+/,"").trim().slice(0,100)||"웹툰";
 async function imageBody(response,signal,timeout){
   let timer,onAbort;
   try{return await Promise.race([response.body(),new Promise((_,reject)=>{
@@ -126,22 +127,25 @@ async function writeZip(zip,path,signal){
   try{await pipeline(zip.generateNodeStream({streamFiles:true,compression:"STORE"}),createWriteStream(temporary,{mode:0o600,flags:"wx"}),{signal});await rename(temporary,path);}
   catch(error){await rm(temporary,{force:true});throw error;}
 }
-export async function webtoonCbz(store,rootDir,bookId,chapter,signal){
+export async function webtoonCbz(store,rootDir,bookId,chapter,signal,bookTitle=null){
   if(!await verifyWebtoonChapter(store,bookId,chapter))throw fail("완전히 저장되고 해시 검증된 웹툰 회차만 내려받을 수 있습니다.","CHAPTER_INCOMPLETE");
+  const title=downloadTitle(bookTitle??(await store.getBook(bookId))?.title);
   const path=`${rootDir}/webtoon/${bookId}/${chapter.id}-${chapter.hash}.cbz`,zip=new JSZip();
   for(const image of chapter.images)zip.file(`${String(image.index).padStart(4,"0")}.${extensions[image.mimeType]}`,
     createReadStream(store.path("books",bookId,"chapters",chapter.id,image.filename)),{binary:true});
   await writeZip(zip,path,signal);
-  return{path,mimeType:"application/vnd.comicbook+zip",filename:`${String(chapter.number).padStart(4,"0")}_${chapter.id}.cbz`,etag:`"${chapter.hash}"`};
+  return{path,mimeType:"application/vnd.comicbook+zip",filename:`${title} ${String(chapter.number).padStart(4,"0")}.cbz`,etag:`"${chapter.hash}"`};
 }
 export async function webtoonZip(store,rootDir,bookId,signal,maxBytes=3*1024**3){
   const book=await store.getBook(bookId),chapters=await store.listChapters(bookId);
   if(!book||!isImageType(book.contentType)||!chapters.length)throw fail("저장된 이미지 회차가 없습니다.","NO_STORED_IMAGES");
+  if(new Set(chapters.map(chapter=>chapter.number)).size!==chapters.length)throw fail("저장된 회차 번호가 중복돼 ZIP을 만들 수 없습니다. 목차와 저장 회차를 확인하세요.","ARCHIVE_NAME_CONFLICT");
+  const title=downloadTitle(book.title),now=new Date(),date=String(now.getFullYear()).slice(-2).padStart(2,"0")+String(now.getDate()).padStart(2,"0");
   const zip=new JSZip();let size=0;
-  for(const meta of chapters){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);if(chapter?.hash!==meta.hash)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");const file=await webtoonCbz(store,rootDir,bookId,chapter,signal);
-    size+=(await stat(file.path)).size+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");
+  for(const meta of chapters){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);if(chapter?.hash!==meta.hash||chapter?.number!==meta.number)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");const file=await webtoonCbz(store,rootDir,bookId,chapter,signal,title);
+    size+=(await stat(file.path)).size+Buffer.byteLength(file.filename)*2+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");
     zip.file(file.filename,createReadStream(file.path),{binary:true});}
-  const revision=digest(JSON.stringify(chapters.map(c=>[c.id,c.hash]))),path=`${rootDir}/webtoon/${bookId}/${revision}.zip`;
+  const revision=digest(JSON.stringify({title,chapters:chapters.map(c=>[c.id,c.number,c.hash])})),path=`${rootDir}/webtoon/${bookId}/${revision}.zip`;
   await writeZip(zip,path,signal);
-  return{path,filename:`${String(book.title||"웹툰").replace(/[<>:"/\\|?*\x00-\x1f]/g,"_").slice(0,100)}_[${bookId}].zip`,mimeType:"application/zip",etag:`"${revision}"`};
+  return{path,filename:`${title}-[${date}].zip`,mimeType:"application/zip",etag:`"${revision}"`};
 }

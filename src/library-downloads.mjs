@@ -318,14 +318,19 @@ export class LibraryDownloads {
     const streams = [];
     try {
       const zip = new JSZip();
+      const names = new Set();
       let plannedBytes = 0;
       for (const bookId of bookIds) {
         this.checkOpen();
         const file = await this.bookFile(bookId);
         this.checkOpen();
+        let filename = file.filename, suffix = 1;
+        while (names.has(filename.toLowerCase()))
+          filename = file.filename.replace(/(\.[^.]+)$/, ` (${++suffix})$1`);
+        names.add(filename.toLowerCase());
         plannedBytes +=
           (await stat(file.path)).size +
-          Buffer.byteLength(file.filename) * 2 +
+          Buffer.byteLength(filename) * 2 +
           512;
         if (plannedBytes > this.maxArchiveBytes)
           throw fail(
@@ -335,7 +340,7 @@ export class LibraryDownloads {
         // Open each TXT only when JSZip consumes it, avoiding thousands of open files.
         const stream = Readable.from(fileChunks(file.path));
         streams.push(stream);
-        zip.file(file.filename, stream, { binary: true });
+        zip.file(filename, stream, { binary: true });
         await this.updateState(id, { processed: streams.length });
       }
       await pipeline(

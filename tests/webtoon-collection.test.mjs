@@ -133,7 +133,7 @@ test("webtoon collection stores original ordered duplicate images, authors and C
   assert.deepEqual(Object.keys(cbz.files),["0001.png","0002.gif","0003.png"]);
   assert.deepEqual(await cbz.file("0001.png").async("nodebuffer"),png);
   assert.deepEqual(await cbz.file("0002.gif").async("nodebuffer"),gif);
-  const zip=await JSZip.loadAsync(await readFile((await downloads.bookZip(book.id)).path));assert.deepEqual(Object.keys(zip.files),chapters.map(c=>`${String(c.number).padStart(4,"0")}_${c.id}.cbz`));
+  const zip=await JSZip.loadAsync(await readFile((await downloads.bookZip(book.id)).path));assert.deepEqual(Object.keys(zip.files),chapters.map(c=>`${book.title} ${String(c.number).padStart(4,"0")}.cbz`));
   const replay=await f.collector.run({...f.job,resumeCatalog:true},f.hooks,new AbortController().signal);
   assert.equal(replay.skipped,2);assert.equal(replay.completed,0);
   await writeFile(f.store.path("books",book.id,"chapters",chapter.id,chapter.images[0].filename),gif);
@@ -209,10 +209,12 @@ test("authenticated webtoon dashboard shows type-specific reservations, stored i
   await page.locator("#nav-library").click();await page.locator("#library-content-type").selectOption("webtoon");
   await page.locator("#books-list .library-card").waitFor();assert.equal(await page.locator("#books-list .library-card").count(),1);
   await page.locator("#books-list .library-card").click();const zipLink=page.locator("#library-profile-download");assert.equal(await zipLink.innerText(),"작품 ZIP 받기");
-  assert.equal((await page.request.get(base+await zipLink.getAttribute("href"))).status(),200);
+  const [bookDownload]=await Promise.all([page.waitForEvent("download"),zipLink.click()]);
+  assert.match(bookDownload.suggestedFilename(),/^합성 웹툰-\[\d{4}\]\.zip$/);
   await page.locator("#library-content-tab").click();
   await page.locator("#reader-text .webtoon-reader-image").first().waitFor();assert.equal(await page.locator("#reader-text .webtoon-reader-image").count(),3);
-  assert.equal((await page.request.get(base+await page.locator("#reader-text a").getAttribute("href"))).status(),200);
+  const [chapterDownload]=await Promise.all([page.waitForEvent("download"),page.locator("#reader-text a").click()]);
+  assert.equal(chapterDownload.suggestedFilename(),"합성 웹툰 0001.cbz");
   await page.waitForFunction(()=>[...document.querySelectorAll(".webtoon-reader-image")].every(image=>image.complete&&image.naturalWidth>0));
   await page.keyboard.press("Escape");assert.equal(await page.locator("#reader-dialog").evaluate(n=>n.open),false);
   for(const width of [1280,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}

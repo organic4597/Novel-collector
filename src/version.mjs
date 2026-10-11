@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.0.17";
+export const APP_VERSION = "1.0.1";
 export const UPDATE_REPOSITORY = "organic4597/Novel-collector";
 
 export const isReleaseVersion=value=>typeof value==="string"&&/^\d{1,6}\.\d{1,6}\.\d{1,6}(?:\.\d{1,6})?$/.test(value);

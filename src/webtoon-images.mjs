@@ -140,12 +140,12 @@ export async function webtoonZip(store,rootDir,bookId,signal,maxBytes=3*1024**3)
   const book=await store.getBook(bookId),chapters=await store.listChapters(bookId);
   if(!book||!isImageType(book.contentType)||!chapters.length)throw fail("저장된 이미지 회차가 없습니다.","NO_STORED_IMAGES");
   if(new Set(chapters.map(chapter=>chapter.number)).size!==chapters.length)throw fail("저장된 회차 번호가 중복돼 ZIP을 만들 수 없습니다. 목차와 저장 회차를 확인하세요.","ARCHIVE_NAME_CONFLICT");
-  const title=downloadTitle(book.title),now=new Date(),date=String(now.getFullYear()).slice(-2).padStart(2,"0")+String(now.getDate()).padStart(2,"0");
+  const title=downloadTitle(book.title);
   const zip=new JSZip();let size=0;
   for(const meta of chapters){signal?.throwIfAborted();const chapter=await store.readChapter(bookId,meta.id);if(chapter?.hash!==meta.hash||chapter?.number!==meta.number)throw fail("웹툰 회차가 다운로드 준비 중 변경됐습니다.","CHECKPOINT_CONFLICT");const file=await webtoonCbz(store,rootDir,bookId,chapter,signal,title);
     size+=(await stat(file.path)).size+Buffer.byteLength(file.filename)*2+512;if(size>maxBytes)throw fail("웹툰 작품 ZIP이 3 GB 상한을 초과했습니다.","ARCHIVE_SIZE_LIMIT");
     zip.file(file.filename,createReadStream(file.path),{binary:true});}
   const revision=digest(JSON.stringify({title,chapters:chapters.map(c=>[c.id,c.number,c.hash])})),path=`${rootDir}/webtoon/${bookId}/${revision}.zip`;
   await writeZip(zip,path,signal);
-  return{path,filename:`${title}-[${date}].zip`,mimeType:"application/zip",etag:`"${revision}"`};
+  return{path,filename:`${title}-${chapters[0].number}-${chapters.at(-1).number}.zip`,mimeType:"application/zip",etag:`"${revision}"`};
 }

@@ -210,7 +210,7 @@ test("authenticated webtoon dashboard shows type-specific reservations, stored i
   await page.locator("#books-list .library-card").waitFor();assert.equal(await page.locator("#books-list .library-card").count(),1);
   await page.locator("#books-list .library-card").click();const zipLink=page.locator("#library-profile-download");assert.equal(await zipLink.innerText(),"작품 ZIP 받기");
   const [bookDownload]=await Promise.all([page.waitForEvent("download"),zipLink.click()]);
-  assert.match(bookDownload.suggestedFilename(),/^합성 웹툰-\[\d{4}\]\.zip$/);
+  assert.equal(bookDownload.suggestedFilename(),"합성 웹툰-1-2.zip");
   await page.locator("#library-content-tab").click();
   await page.locator("#reader-text .webtoon-reader-image").first().waitFor();assert.equal(await page.locator("#reader-text .webtoon-reader-image").count(),3);
   const [chapterDownload]=await Promise.all([page.waitForEvent("download"),page.locator("#reader-text a").click()]);

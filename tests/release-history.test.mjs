@@ -14,7 +14,7 @@ test("release history distinguishes published versions, installed version and de
   assert.equal(history.records.some(record=>["1.0.0.8","1.0.0.9"].includes(record.version)),false);
   const installed=releaseHistory("1.0.0.17").records.find(record=>record.version==="1.0.0.17");assert.equal(installed.status,"current");assert.match(installed.url,/1\.0\.0\.17$/);
   assert.equal(releaseHistory("1.0.1").records.find(record=>record.version==="1.0.0.17").status,"previous");
-  assert.match(releaseNotesFor("1.0.1"),/yydd/);assert.match(releaseNotesFor("1.0.1"),/patch/);
+  assert.match(releaseNotesFor("1.0.1"),/시작회차-끝회차/);assert.match(releaseNotesFor("1.0.1"),/patch/);
   history.records[1].groups[0].items[0]="changed";assert.notEqual(releaseHistory("1.0.0.11").records[1].groups[0].items[0],"changed");
   assert.match(releaseNotesFor("1.0.0.11"),/웹툰.*검색/);assert.match(releaseNotesFor("1.0.0.12"),/버전별/);assert.match(releaseNotesFor("1.0.0.13"),/설치/);assert.match(releaseNotesFor("1.0.0.17"),/드롭다운/);assert.throws(()=>releaseNotesFor("unknown"),/기능 내역/);
 });

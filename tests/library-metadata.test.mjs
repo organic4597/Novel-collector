@@ -101,7 +101,7 @@ test("registration persists only safe source metadata and preserves chapter coun
   await service.close();
   await discovery.close();
 });
-test("hydration fetches one source page, returns pending immediately and survives restart", async (t) => {
+test("hydration fetches one source page, returns pending immediately and survives restart", {timeout:10000}, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "library-hydrate-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const store = await new FolderStore(join(root, "store")).init();
@@ -151,13 +151,7 @@ test("hydration fetches one source page, returns pending immediately and survive
   assert.equal((await service.request("book")).status, "pending");
   assert.equal(await service.thumbnail("book"), null);
   release();
-  for (
-    let n = 0;
-    n < 50 && (await service.state("book")).status === "pending";
-    n++
-  )
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  const result = await service.state("book");
+  const result = await service.wait("book");
   assert.equal(result.status, "completed", failure?.stack || result.error);
   assert.equal(result.book.expectedChapterCount, 516);
   assert.equal(result.book.url, "https://newtoki1.org/novel/63206");

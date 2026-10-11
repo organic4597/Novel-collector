@@ -562,6 +562,7 @@ test("detail fixture paginates exactly and the normal search uses public form va
     assert.equal(list.items.length, 1);
     assert.equal(list.items[0].episodeCount, 3);
     await d.close();
+    await Promise.allSettled([...d.pageCache.refreshes.values()]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

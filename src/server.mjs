@@ -659,6 +659,12 @@ export function createApp({
       let content;
       try {
         content = await readFile(join(publicDir, filename));
+        if (filename === "index.html") {
+          const html = content.toString("utf8"), assets = /((?:src|href)="\/)([A-Za-z0-9_.-]+\.(?:js|css))"/g;
+          const files = [...new Set([...html.matchAll(assets)].map(match => match[2]))];
+          const versions = new Map(await Promise.all(files.map(async file => [file, createHash("sha256").update(await readFile(join(publicDir, file))).digest("hex")])));
+          content = Buffer.from(html.replace(assets, (_match, prefix, file) => `${prefix}${file}?v=${versions.get(file)}"`));
+        }
       } catch (error) {
         if (error.code === "ENOENT")
           throw HTTP_ERROR("대시보드 파일을 찾을 수 없습니다.", 404);

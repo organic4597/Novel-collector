@@ -9,6 +9,12 @@ on:
         required: true
         type: choice
         options: [release]
+      bump:
+        description: Semantic version bump (patch fixes, minor features, major breaking changes)
+        required: true
+        type: choice
+        default: patch
+        options: [patch, minor, major]
 permissions:
   contents: write
   actions: read
@@ -39,6 +45,8 @@ jobs:
           python-version: '3.11'
       - name: Prepare verified version and commit
         if: github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_BUMP: ${{ inputs.bump }}
         run: node tools/ci-release.mjs prepare
       - name: Install test dependencies
         run: |

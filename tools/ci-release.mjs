@@ -5,27 +5,29 @@ import {createHash} from "node:crypto";
 import {resolve,join} from "node:path";
 import {pathToFileURL} from "node:url";
 import {MANAGED_SOURCE} from "../src/update-files.mjs";
-import {versionParts,compareVersions,repositoryName} from "../src/version.mjs";
+import {versionParts,compareVersions,repositoryName,isReleaseVersion} from "../src/version.mjs";
 import {releaseNotesFor} from "../src/release-history.mjs";
 const exec=promisify(execFile);
 const repo=repositoryName(process.env.GITHUB_REPOSITORY);
 const git=async(...args)=>(await exec("git",args,{maxBuffer:16*1024*1024})).stdout.trim();
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-export function nextVersion(values){
-  const versions=values.filter(value=>/^\d+\.\d+\.\d+\.\d+$/.test(value)).sort(compareVersions);
-  if(!versions.length)throw Error("기준 버전이 필요합니다.");const parts=versionParts(versions.at(-1));parts[3]++;return parts.join(".");
+export function nextVersion(values,bump="patch"){
+  const index=["major","minor","patch"].indexOf(bump);if(index<0)throw Error("정식 버전 상승은 major, minor, patch 중에서 선택하세요.");
+  const versions=values.filter(isReleaseVersion).sort(compareVersions);
+  if(!versions.length)throw Error("기준 버전이 필요합니다.");const parts=versionParts(versions.at(-1)).slice(0,3);parts[index]++;parts.fill(0,index+1);
+  const version=parts.join(".");if(!isReleaseVersion(version))throw Error("지원하는 버전 범위를 초과했습니다.");return version;
 }
 export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path)&&path!=="tests/cicd.test.mjs");}
 export function channelNameForBranch(branch){
   if(branch==="develop")return "develop";
-  if(/^hotfix\/\d+\.\d+\.\d+\.\d+$/.test(branch||""))return "hotfix";
+  if(branch?.startsWith("hotfix/")&&isReleaseVersion(branch.slice(7)))return "hotfix";
   throw Error("업데이트 채널 브랜치를 확인하세요.");
 }
 export function channelArtifactNames({channel,baseVersion,commit}){
   if(!/^[a-f0-9]{40}$/i.test(commit||""))throw Error("채널 커밋 형식이 올바르지 않습니다.");
   if(channel==="develop")return {zipName:`develop-${commit}.zip`,manifestName:`develop-${commit}.json`};
   if(channel==="hotfix"){
-    if(!/^\d+\.\d+\.\d+\.\d+$/.test(baseVersion||""))throw Error("hotfix baseVersion이 필요합니다.");
+    if(!isReleaseVersion(baseVersion))throw Error("hotfix baseVersion이 필요합니다.");
     return {zipName:`hotfix-${baseVersion}-${commit}.zip`,manifestName:`hotfix-${baseVersion}-${commit}.json`};
   }
   throw Error("업데이트 채널을 확인하세요.");
@@ -36,14 +38,14 @@ export function channelPublishedAt(commitTimestamp){
 }
 export function buildChannelManifest({channel,version,commit,baseVersion,baseCommit,runId,repository,sourceSha,zipName,zipSha256,summary,publishedAt}){
   if(!["develop","hotfix"].includes(channel))throw Error("업데이트 채널을 확인하세요.");
-  if(!/^\d+\.\d+\.\d+\.\d+$/.test(version||"")||!/^\d+\.\d+\.\d+\.\d+$/.test(baseVersion||""))throw Error("업데이트 버전을 확인하세요.");
+  if(!isReleaseVersion(version)||!isReleaseVersion(baseVersion))throw Error("업데이트 버전을 확인하세요.");
   for(const [name,value]of Object.entries({commit,baseCommit,sourceSha}))if(!/^[a-f0-9]{40}$/i.test(value||""))throw Error(`${name} 형식이 올바르지 않습니다.`);
   if(!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository||""))throw Error("저장소 형식이 올바르지 않습니다.");
   if(!/^[a-f0-9]{64}$/i.test(zipSha256||""))throw Error("ZIP 체크섬 형식이 올바르지 않습니다.");
   return {schema:1,channel,version,commit,baseVersion,baseCommit,runId:Number(runId),repository,sourceSha,zipName,zipSha256,summary:String(summary||"").slice(0,300),publishedAt};
 }
 export function plannedCandidateEnv({version,commit,sourceSha,sourceRef}){
-  if(!/^\d+\.\d+\.\d+\.\d+$/.test(version||"")||!/^[a-f0-9]{40}$/i.test(commit||"")||!/^[a-f0-9]{40}$/i.test(sourceSha||""))throw Error("검증 후보 정보를 확인하세요.");
+  if(!isReleaseVersion(version)||!/^[a-f0-9]{40}$/i.test(commit||"")||!/^[a-f0-9]{40}$/i.test(sourceSha||""))throw Error("검증 후보 정보를 확인하세요.");
   if(sourceRef!=="refs/heads/develop")throw Error("정식 릴리스는 develop에서만 준비할 수 있습니다.");
   return {CANDIDATE_VERSION:version,CANDIDATE_COMMIT:commit,CANDIDATE_SOURCE_SHA:sourceSha,CANDIDATE_SOURCE_REF:sourceRef};
 }
@@ -64,7 +66,7 @@ export async function verifyPublishedAssetDigest(readReleases,{version,assetName
 }
 async function api(path){return JSON.parse((await exec("gh",["api",path],{maxBuffer:16*1024*1024})).stdout);}
 async function latestStableRelease(){
-  const releases=await api(`repos/${repo}/releases?per_page=100`),release=releases.find(value=>!value.draft&&!value.prerelease&&/^\d+\.\d+\.\d+\.\d+$/.test(value.tag_name||""));
+  const releases=await api(`repos/${repo}/releases?per_page=100`),release=releases.find(value=>!value.draft&&!value.prerelease&&isReleaseVersion(value.tag_name));
   if(!release)throw Error("기준 안정 릴리스를 찾지 못했습니다.");
   return release;
 }
@@ -87,7 +89,7 @@ async function prepare(){
   if(await git("rev-parse","origin/develop")!==process.env.GITHUB_SHA)throw Error("새 develop 커밋이 있어 이전 실행을 중단합니다.");
   await git("merge","--no-edit","origin/main");
   const text=await readFile("src/version.mjs","utf8"),current=text.match(/APP_VERSION = "([\d.]+)"/)?.[1];
-  const version=nextVersion([current,...(await git("tag","--list")).split("\n")]);
+  const version=nextVersion([current,...(await git("tag","--list")).split("\n")],process.env.RELEASE_BUMP||"patch");
   await writeFile("src/version.mjs",text.replace(`APP_VERSION = "${current}"`,`APP_VERSION = "${version}"`));
   for(const file of ["README.md","docs/UPDATE.md"]){const content=await readFile(file,"utf8");await writeFile(file,content.replace(`**${current}**`,`**${version}**`));}
   await git("add","src/version.mjs","README.md","docs/UPDATE.md");
@@ -100,7 +102,7 @@ async function channel(){
   if(sourceHead!==eventSha)throw Error("체크아웃 커밋이 이벤트 커밋과 다릅니다.");
   await git("fetch","origin","--tags");
   const version=(await readFile("src/version.mjs","utf8")).match(/APP_VERSION = "([\d.]+)"/)?.[1];
-  if(!/^\d+\.\d+\.\d+\.\d+$/.test(version||""))throw Error("APP_VERSION을 확인하세요.");
+  if(!isReleaseVersion(version))throw Error("APP_VERSION을 확인하세요.");
   const release=channel==="develop"?await latestStableRelease():await releaseByTag(branch.slice("hotfix/".length));
   const baseVersion=release.tag_name,baseCommit=await git("rev-list","-n","1",baseVersion);
   if(channel==="hotfix"){
@@ -121,7 +123,7 @@ async function channel(){
 }
 async function publish(){
   const version=process.env.CANDIDATE_VERSION,commit=process.env.CANDIDATE_COMMIT;
-  if(!/^\d+\.\d+\.\d+\.\d+$/.test(version||"")||await git("rev-parse","HEAD")!==commit)throw Error("검증 커밋과 버전이 일치하지 않습니다.");
+  if(!isReleaseVersion(version)||await git("rev-parse","HEAD")!==commit)throw Error("검증 커밋과 버전이 일치하지 않습니다.");
   await git("fetch","origin","develop");
   if(await git("rev-parse","origin/develop")!==process.env.CANDIDATE_SOURCE_SHA)throw Error("검증 중 develop이 변경돼 게시를 중단합니다.");
   if(process.env.CANDIDATE_SOURCE_REF!=="refs/heads/develop")throw Error("검증 후보 브랜치가 develop이 아닙니다.");

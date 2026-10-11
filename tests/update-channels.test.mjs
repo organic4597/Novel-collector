@@ -12,13 +12,13 @@ import {parseRelease} from '../src/update-network.mjs';
 import {channelCandidates,installedIdentity,resolveUpdateRelease,validateUpdateTarget} from '../src/update-channels.mjs';
 const repository='example/Novel-collector',commit='a'.repeat(40),baseCommit='b'.repeat(40);
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
-function fixture(channel='develop',change={}){
-  const zipName=channel==='develop'?`develop-${commit}.zip`:`hotfix-${APP_VERSION}-${commit}.zip`,zip=Buffer.from('fixture zip');
-  const manifest={schema:1,channel,version:APP_VERSION,commit,baseVersion:APP_VERSION,baseCommit,runId:'123',repository,sourceSha:commit,zipName,zipSha256:hash(zip),summary:'검증된 패치',publishedAt:'2026-10-10T00:00:00Z',...change};
-  const bytes=Buffer.from(JSON.stringify(manifest)),prefix=`https://github.com/${repository}/releases/download/${APP_VERSION}/`;
+function fixture(channel='develop',change={},version=APP_VERSION){
+  const zipName=channel==='develop'?`develop-${commit}.zip`:`hotfix-${version}-${commit}.zip`,zip=Buffer.from('fixture zip');
+  const manifest={schema:1,channel,version,commit,baseVersion:version,baseCommit,runId:'123',repository,sourceSha:commit,zipName,zipSha256:hash(zip),summary:'검증된 패치',publishedAt:'2026-10-10T00:00:00Z',...change};
+  const bytes=Buffer.from(JSON.stringify(manifest)),prefix=`https://github.com/${repository}/releases/download/${version}/`;
   let assetId=0;const asset=(name,data)=>({id:++assetId,created_at:'2026-10-10T00:00:00Z',name,state:'uploaded',size:data.length,digest:`sha256:${hash(data)}`,browser_download_url:prefix+name});
-  const release={tag_name:APP_VERSION,assets:[asset(zipName,zip),asset(zipName.replace(/zip$/,'json'),bytes)]};
-  const run={id:123,event:'push',status:'completed',conclusion:'success',path:'.github/workflows/delivery.yml',head_sha:commit,head_branch:channel==='develop'?'develop':`hotfix/${APP_VERSION}`,repository:{full_name:repository},head_repository:{full_name:repository}};
+  const release={tag_name:version,assets:[asset(zipName,zip),asset(zipName.replace(/zip$/,'json'),bytes)]};
+  const run={id:123,event:'push',status:'completed',conclusion:'success',path:'.github/workflows/delivery.yml',head_sha:commit,head_branch:channel==='develop'?'develop':`hotfix/${version}`,repository:{full_name:repository},head_repository:{full_name:repository}};
   let manifestBytes=bytes;
   const fetcher=async url=>new Response(url.includes('/git/ref/tags/')?JSON.stringify({object:{type:'commit',sha:baseCommit}}):url.includes('/actions/runs/')?JSON.stringify(run):url.endsWith('.json')?manifestBytes:JSON.stringify(release));
   return {fetcher,release,run,manifest,corrupt:()=>{manifestBytes=Buffer.from('{}');}};
@@ -38,6 +38,15 @@ test('develop and hotfix candidates are pinned to hashed release assets and succ
     assert.equal(candidates.length,1);assert.equal(candidates[0].commit,commit);assert.equal(candidates[0].download.sha256,f.manifest.zipSha256);
     const result=await resolveUpdateRelease(repository,{channel,version:APP_VERSION,commit,installed:installedIdentity(),fetcher:f.fetcher});
     assert.equal(result.release.id,`${channel}:${APP_VERSION}:${commit}`);
+  }
+});
+test('three-part semantic releases preserve develop and hotfix asset selection and stable return',async()=>{
+  const version='1.1.0';
+  for(const channel of ['develop','hotfix']){
+    const f=fixture(channel,{},version),installed=installedIdentity({version});
+    const {release}=await resolveUpdateRelease(repository,{channel,version,commit,installed,fetcher:f.fetcher});
+    assert.equal(release.baseVersion,version);assert.equal(release.download.sha256,f.manifest.zipSha256);
+    assert.equal(validateUpdateTarget({version},{version,installed:{...installed,channel,commit}}).version,version);
   }
 });
 test('manifest identity, digest, hotfix base and CI provenance mismatches are rejected',async()=>{

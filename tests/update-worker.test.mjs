@@ -29,6 +29,15 @@ test("offline update executes real staged Node preflight in a spaced path and pr
   assert.equal(JSON.parse(await readFile(join(root,".updates","job.json"))).state,"completed");assert.equal(JSON.parse(await readFile(join(root,".updates","installed-version.json"))).version,version);
   for(const path of ["data","secrets","profile"])assert.equal(await readFile(join(root,path,"private.txt"),"utf8"),"CANARY_"+path);
 });
+test("a legacy four-part installation upgrades to a three-part semantic release with private state intact",async t=>{
+  const root=await fixture(t),targetVersion="1.1.0";
+  await mkdir(join(root,".updates"));await writeFile(join(root,".updates","installed-version.json"),JSON.stringify({version:"1.0.0.17"}));
+  const bytes=await packageZip(false,targetVersion);
+  await update({root,repository,version:targetVersion,offline:true,hooks:{latest:async()=>({release:{version:targetVersion}}),download:async()=>bytes}});
+  assert.deepEqual(JSON.parse(await readFile(join(root,".updates","installed-version.json"))),{version:targetVersion,channel:"stable",commit:null,baseVersion:targetVersion});
+  assert.equal(JSON.parse(await readFile(join(root,".updates","job.json"))).state,"completed");
+  for(const path of ["data","secrets","profile"])assert.equal(await readFile(join(root,path,"private.txt"),"utf8"),"CANARY_"+path);
+});
 test("preflight failure does not stop or replace the old installation",async t=>{
   const root=await fixture(t),bytes=await packageZip(true);await assert.rejects(update({root,repository,version,offline:true,hooks:{latest:async()=>({release:{version}}),download:async()=>bytes}}));
   assert.equal(await readFile(join(root,"run.mjs"),"utf8"),"OLD_SOURCE");assert.equal(JSON.parse(await readFile(join(root,".updates","job.json"))).state,"failed");

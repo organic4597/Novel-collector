@@ -19,6 +19,13 @@ test("four-component versions compare numerically and repository input cannot re
   for(const value of ["1.0.0-beta","1.0","1.0.0.0.1"])assert.throws(()=>compareVersions(value,"1.0.0.0"));
   assert.throws(()=>repositoryName("https://private.test/example/repo"));
 });
+test("semantic releases upgrade legacy installations without accepting a downgrade",()=>{
+  for(const version of ["1.0.1","1.1.0","2.0.0"])assert.equal(compareVersions(version,"1.0.0.17"),1);
+  assert.equal(compareVersions("1.1.0","1.0.99"),1);
+  assert.equal(compareVersions("1.0.0.17","1.0.1"),-1);
+  const value={...release(),tag_name:"1.1.0",assets:[]};
+  assert.equal(parseRelease(value,repository).version,"1.1.0");
+});
 test("daily checks coalesce, persist across restart and use conditional requests without downloading code",async t=>{
   const dir=await root(t);let now=100000,calls=0;
   const fetcher=async(url,options)=>{calls++;assert.match(url,/api.github.com/);if(calls>1){assert.equal(options.headers["If-None-Match"],"fixture-etag");return new Response(null,{status:304});}return new Response(JSON.stringify(release()),{headers:{etag:"fixture-etag"}});};

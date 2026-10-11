@@ -11,10 +11,28 @@ const zipAssetName="Novel-collector-1.0.0.14.zip";
 const expectedZipDigest="sha256:"+"a".repeat(64);
 const releaseWithDigest=digest=>[{tag_name:"1.0.0.14",assets:[{name:zipAssetName,digest}]}];
 
-test("candidate versions advance numerically without reusing an existing published tag",()=>{
-  assert.equal(nextVersion(["1.0.0.7","1.0.0.9","1.0.0.10"]),"1.0.0.11");
-  assert.equal(nextVersion(["1.0.0.7","invalid","v1.0.0.100"]),"1.0.0.8");
+test("candidate versions use semantic major minor patch bumps and migrate legacy revisions",()=>{
+  assert.equal(nextVersion(["1.0.0.7","1.0.0.9","1.0.0.17"]),"1.0.1");
+  assert.equal(nextVersion(["1.0.0.17"],"minor"),"1.1.0");
+  assert.equal(nextVersion(["1.0.0.17"],"major"),"2.0.0");
+  assert.equal(nextVersion(["1.2.9","1.2.10"],"patch"),"1.2.11");
+  assert.equal(nextVersion(["1.2.9"],"minor"),"1.3.0");
+  assert.equal(nextVersion(["1.2.9"],"major"),"2.0.0");
+  assert.equal(nextVersion(["1.0.0.17","1.0.1"]),"1.0.2");
+  assert.equal(nextVersion(["1.0.0.7","invalid","v1.0.0.100"]),"1.0.1");
+  assert.throws(()=>nextVersion(["1.0.1"],"revision"));
   assert.throws(()=>nextVersion([]));
+});
+test("three-part release candidates and hotfix artifacts retain the same provenance checks",()=>{
+  const commit="a".repeat(40),sourceSha="b".repeat(40);
+  assert.equal(channelNameForBranch("hotfix/1.1.0"),"hotfix");
+  assert.equal(channelArtifactNames({channel:"hotfix",baseVersion:"1.1.0",commit}).zipName,`hotfix-1.1.0-${commit}.zip`);
+  assert.equal(plannedCandidateEnv({version:"1.1.0",commit,sourceSha,sourceRef:"refs/heads/develop"}).CANDIDATE_VERSION,"1.1.0");
+  const manifest={schema:1,channel:"develop-validation",version:"1.1.0",commit,sourceSha,zipSha256:"c".repeat(64)};
+  const run={event:"workflow_dispatch",head_branch:"develop",head_sha:sourceSha,status:"completed",conclusion:"success",path:".github/workflows/delivery.yml"};
+  assert.equal(validCandidate(manifest,run),true);
+  assert.equal(validCandidate({...manifest,version:"1.1.0-beta.1"},run),false);
+  assert.equal(buildChannelManifest({channel:"develop",version:"1.1.0",commit,baseVersion:"1.0.0.17",baseCommit:sourceSha,runId:1,repository:"owner/repo",sourceSha:commit,zipName:`develop-${commit}.zip`,zipSha256:"c".repeat(64),summary:"fixture",publishedAt:"2026-01-01T00:00:00Z"}).version,"1.1.0");
 });
 test("release files exclude automation, local rules and private state while remaining valid for the installed updater",()=>{
   const files=releaseFiles(["run.mjs","src/server.mjs",".github/workflows/delivery.yml","tools/ci-release.mjs","tools/deploy-verified-release.mjs","tests/cicd.test.mjs","AGENTS.md","PATCH-WORKFLOW.md",".ci-local/state.json","data/private.json","secrets/private.txt"]);
@@ -89,6 +107,8 @@ test("delivery workflow keeps push channels separate from explicit formal releas
   assert.match(workflow,/node tools\/ci-release\.mjs channel/);
   assert.match(workflow,/if: github\.event_name == 'push'/);
   assert.match(workflow,/if: github\.event_name == 'workflow_dispatch'/);
+  assert.match(workflow,/options: \[patch, minor, major\]/);
+  assert.match(workflow,/RELEASE_BUMP: \$\{\{ inputs\.bump \}\}/);
 });
 test("formal validation accepts explicit release dispatch but rejects channel manifests",()=>{
   const manifest={schema:1,channel:"develop-validation",version:"1.0.0.17",commit:"a".repeat(40),sourceSha:"b".repeat(40),zipSha256:"c".repeat(64)};

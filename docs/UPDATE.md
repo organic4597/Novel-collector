@@ -8,7 +8,25 @@
 
 프로그램이 실행 중일 때 `organic4597/Novel-collector`의 GitHub 최신 공개 정식 릴리스를 하루 한 번 확인합니다. 확인 시각과 ETag를 `.updates/release-cache.json`에 저장하므로 재시작해도 같은 날 중복 조회하지 않습니다. 네트워크 오류는 기존 프로그램을 중단하지 않으며 다음 확인에서 다시 시도합니다. UI는 로컬 캐시를 읽고 GitHub를 직접 반복 조회하지 않습니다.
 
-`1.0.0.9`보다 `1.0.0.10`이 높다는 식으로 최대 네 자리 버전을 숫자로 비교합니다. draft/prerelease는 대상이 아니며 `UPDATE_REPOSITORY`로 다른 지정 GitHub 저장소를 선택할 수 있습니다. 현재 버전은 `src/version.mjs` 또는 정상 설치 완료 기록입니다.
+새 정식은 세 자리 Semantic Versioning을 사용하며 기존 네 자리 버전도 호환 비교합니다. 예를 들어 `1.0.1`은 기존 `1.0.0.17`보다 높습니다. draft/prerelease는 정식 업데이트 대상이 아니며 `UPDATE_REPOSITORY`로 다른 지정 GitHub 저장소를 선택할 수 있습니다. 현재 버전은 `src/version.mjs` 또는 정상 설치 완료 기록입니다.
+
+## 정식 버전 명명·상승 정책
+
+다음 정식부터 [Semantic Versioning 2.0.0](https://semver.org/)의 기본 형식인 **MAJOR.MINOR.PATCH**를 사용합니다. 각 자리는 0 이상의 정수이며 새 번호에는 앞자리 0이나 네 번째 revision을 붙이지 않습니다.
+
+| 선택 | 상승 기준 | 예시 |
+| --- | --- | --- |
+| `major` | 기존 공개 API·설정·저장 데이터·지원 사용 흐름의 비호환 변경 | `1.2.3` → `2.0.0` |
+| `minor` | 기존 계약과 호환되는 기능 추가, 공개 기능의 사용 중단 예고 | `1.2.3` → `1.3.0` |
+| `patch` | 기능 계약을 바꾸지 않는 오류 수정·호환되는 작은 보완 | `1.2.3` → `1.2.4` |
+
+호환성 판단 대상은 공개 HTTP API, 문서에 안내한 설정·프리셋 계약, 저장 자료를 읽고 업데이트하는 방식, 지원 사용자 기능입니다. 여러 종류의 변경을 한 번에 발행할 때는 `major > minor > patch` 중 가장 높은 변경 수준을 선택하고 변경 내역에 이유를 기록합니다. minor는 patch를 0으로, major는 minor와 patch를 모두 0으로 초기화합니다.
+
+현재 `1.0.0.17`은 기존 게시 기록으로 보존합니다. 다음 정식은 오류 수정이면 `1.0.1`, 기능 추가이면 `1.1.0`, 비호환 변경이면 `2.0.0`이 됩니다. 이미 사용한 태그를 다시 사용하거나 게시된 소스·설치 파일을 덮어쓰지 않습니다. 기존 네 자리 기록은 이전 설치본·태그·채널 수정본의 호환을 위해 계속 읽습니다.
+
+정식 버전은 `APP_VERSION`, 숫자 태그, 릴리스 제목 `Novel Collector <버전>`, 첨부 파일 `Novel-collector-<버전>.zip`, 앱 변경 내역에서 일치해야 합니다. 새 번호의 상세 내역을 `src/release-history.mjs`에 등록한 뒤 발행합니다.
+
+dev 실험판과 기존 핫픽스는 새 정식 SemVer 발행이 아닌 커밋 고정 수정본입니다. 앱 기준 버전과 채널·커밋을 별도로 표시하고 원래 정식 설치 파일은 보존합니다. 핫픽스 내용을 다음 정식에 포함할 때는 오류 수정 기준의 patch 상승을 적용합니다. `alpha`, `beta`, `rc` 및 `+build` 표기는 기본 SemVer의 확장 명칭이지만 현재 업데이터 입력에는 사용하지 않습니다. 실험판을 설치할 때는 기존 dev 채널을 선택합니다.
 
 ## 대시보드
 
@@ -79,10 +97,10 @@ node .updates/recover.mjs .
 
 핫픽스는 정식 태그에서 만든 `hotfix/<기준 정식 버전>` 브랜치를 사용합니다. 예를 들어 `hotfix/1.0.0.17`의 APP_VERSION은 `1.0.0.17`이어야 하며 기준 태그의 커밋을 포함해야 합니다. 검증 후 기존 `1.0.0.17` 릴리스에 `hotfix-1.0.0.17-<SHA>.zip`과 `.json`을 추가합니다. 소스 버전을 올리거나 기존 파일을 덮어쓰지 않습니다. develop의 전체 실험 내용을 핫픽스로 포장하지 않습니다.
 
-정식 배포는 GitHub Actions의 **Novel Collector Delivery → Run workflow → develop → mode=release**에서 명시적으로 실행합니다. 로컬 후보 버전과 커밋을 준비하고 전체 검증 성공 뒤 source branch가 바뀌지 않았는지 확인한 다음 develop·숫자 태그·검증용 릴리스를 게시합니다. 테스트 실패 중에는 후보 커밋을 develop에 먼저 올리지 않아 같은 기준으로 재검증할 수 있습니다. 기존 운영 검증 에이전트는 정식 후보만 업데이터로 확인·승격하며 dev·핫픽스 산출물은 자동 승격하지 않습니다.
+정식 배포는 GitHub Actions의 **Novel Collector Delivery → Run workflow → develop → mode=release**에서 명시적으로 실행합니다. **bump=patch/minor/major**로 변경 수준을 선택하며 기본값은 patch입니다. 자동화는 현재 코드와 기존 숫자 태그의 최고 버전에서 선택한 자리를 올리고 낮은 자리를 초기화해 세 자리 후보를 만듭니다. 로컬 후보 버전과 커밋을 준비하고 전체 검증 성공 뒤 source branch가 바뀌지 않았는지 확인한 다음 develop·숫자 태그·검증용 릴리스를 게시합니다. 테스트 실패 중에는 후보 커밋을 develop에 먼저 올리지 않아 같은 기준으로 재검증할 수 있습니다. 기존 운영 검증 에이전트는 정식 후보만 업데이터로 확인·승격하며 dev·핫픽스 산출물은 자동 승격하지 않습니다.
 
 ```sh
-gh workflow run delivery.yml --repo organic4597/Novel-collector --ref develop -f mode=release
+gh workflow run delivery.yml --repo organic4597/Novel-collector --ref develop -f mode=release -f bump=minor
 ```
 
 ZIP과 manifest는 SHA-256, 파일 크기, 저장소, 성공한 CI 실행의 브랜치·정확한 커밋, 기준 정식 태그를 확인합니다. 업로드 직후 digest가 아직 준비되지 않았다면 제한된 시간만 재조회합니다. 실제 불일치·검증 실패·확인 시간 초과는 적용하지 않습니다. 공식 파일의 이전 이름과 태그를 덮어쓰지 않습니다.

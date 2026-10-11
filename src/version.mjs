@@ -1,6 +1,7 @@
 export const APP_VERSION = "1.0.0.17";
 export const UPDATE_REPOSITORY = "organic4597/Novel-collector";
 
+export const isReleaseVersion=value=>typeof value==="string"&&/^\d{1,6}\.\d{1,6}\.\d{1,6}(?:\.\d{1,6})?$/.test(value);
 export function versionParts(value) {
   if(typeof value!=="string"||!/^v?\d{1,6}\.\d{1,6}\.\d{1,6}(?:\.\d{1,6})?$/.test(value))throw Error("지원하는 릴리스 버전이 아닙니다.");
   const parts=value.replace(/^v/,"").split(".").map(Number);while(parts.length<4)parts.push(0);return parts;

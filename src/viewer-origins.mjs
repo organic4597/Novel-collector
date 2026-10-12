@@ -1,5 +1,5 @@
 import { validateUrl } from "./store.mjs";
-import { DEFAULT_SOURCE_ORIGIN } from "./source-site.mjs";
+import { DEFAULT_SOURCE_ORIGIN,SOURCE_HOSTS } from "./source-site.mjs";
 const fail = () =>
   Object.assign(new Error("허용된 일반 뷰어 주소를 선택하세요."), {
     status: 400,
@@ -59,6 +59,8 @@ export class ViewerOrigins {
     return this.origins.get(sourceHost(host)) || null;
   }
   originFor(host) {
+    if(SOURCE_HOSTS.includes(host))return "https://"+host;
+    if(/^newtoki\d*\./i.test(host))return DEFAULT_SOURCE_ORIGIN;
     return this.get(host) || DEFAULT_SOURCE_ORIGIN;
   }
   resolveWork(value) {

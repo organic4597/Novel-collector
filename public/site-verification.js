@@ -59,13 +59,16 @@
           "CAPTCHA 풀기로 서버 수집 세션을 열어 확인하세요. 완료 후 적용하면 수집 가능 여부를 확인합니다.",
         captcha: true,
       };
-    if (kind === "site_blocked")
+    if (login?.failureKind === "unsupported")return{heading:"자동 확인 경로 확인 필요",reason:"사이트 로그인 화면이나 확인 경로를 자동으로 처리하지 못했습니다.",instructions:"자동 확인이 중단됐습니다. 현재 사이트 계정과 확인 화면을 점검하세요.",settings:true};
+    if (kind === "site_blocked"){
+      const checking=["waiting","running"].includes(login?.state),retry=retryTime(login);
       return {
         heading: "사이트 접근 확인 필요",
         reason: "사이트에서 수집 요청을 아직 허용하지 않고 있습니다.",
         instructions:
-          "접근 상태를 자동으로 다시 확인합니다. 확인하는 동안 수집 요청은 대기합니다.",
+          checking?retry>Date.now()?`${new Date(retry).toLocaleTimeString("ko-KR")}에 접근 상태를 자동으로 다시 확인합니다. 수집 요청은 대기합니다.`:"접근 상태를 자동으로 다시 확인합니다. 확인하는 동안 수집 요청은 대기합니다.":"자동 확인이 중단됐습니다. 계정 설정이나 사이트 확인 화면을 점검하세요.",
       };
+    }
     if (!login?.configured || !login.enabled)
       return {
         heading: "사이트 계정 확인 필요",

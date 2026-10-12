@@ -17,6 +17,13 @@ const action = (w, value) =>
   [...w.document.querySelectorAll("#site-attention-actions button")].find(
     (button) => button.dataset.action === value,
   );
+test("access banner distinguishes scheduled automatic checks from stopped checks",async t=>{
+  const waiting=await fixture(t,{kind:"site_blocked",autoLogin:automatic("waiting",{failureKind:"site_blocked",retryAt:new Date(Date.now()+60000).toISOString()})});
+  assert.match(waiting.w.document.getElementById("site-attention-instructions").textContent,/자동으로 다시 확인/);
+  const stopped=await fixture(t,{kind:"site_blocked",autoLogin:automatic("needs_attention",{failureKind:"site_blocked"})});
+  assert.match(stopped.w.document.getElementById("site-attention-instructions").textContent,/중단/);
+  assert.ok(!stopped.w.document.getElementById("site-attention-instructions").textContent.includes("자동으로 다시 확인"));
+});
 async function fixture(
   t,
   {

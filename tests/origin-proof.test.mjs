@@ -122,19 +122,16 @@ test("failed final viewer persistence leaves held proof state intact across rest
   assert.deepEqual(f.calls, []);
 });
 
-test("different legacy viewer origins start a fresh proof cycle before committing mapping", async (t) => {
+test("main-source held proof cannot switch to another viewer origin mid-cycle", async (t) => {
   const f = await fixture(t);
   await f.browser.open({ host, slot: 1, viewerOrigin: origin });
   await f.browser.check({ reload: false });
-  await f.browser.open({ host, slot: 2, viewerOrigin: "https://toki32.com" });
-  const second = await f.browser.check({ reload: false });
-  assert.equal(second.siteReleased, false);
-  assert.deepEqual(second.pendingSlots, [1]);
-  assert.deepEqual(f.attention.get(host).verifiedSlots, [2]);
+  await assert.rejects(f.browser.open({ host, slot: 2, viewerOrigin: "https://toki32.com" }),{status:400});
+  assert.deepEqual(f.attention.get(host).verifiedSlots, [1]);
   assert.equal(f.viewerOrigins.get(host), null);
-  await f.browser.open({ host, slot: 1, viewerOrigin: "https://toki32.com" });
+  await f.browser.open({ host, slot: 2, viewerOrigin: origin });
   assert.equal((await f.browser.check({ reload: false })).siteReleased, true);
-  assert.equal(f.viewerOrigins.get(host), "https://toki32.com");
+  assert.equal(f.viewerOrigins.get(host), origin);
 });
 
 test("unknown older partial proof resets when an explicit viewer proves its next profile", async (t) => {

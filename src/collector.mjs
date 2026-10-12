@@ -134,8 +134,10 @@ export function readReaderDocument(doc = document) {
     /일일.{0,12}인증|(?:인증|로그인|보안\s*확인|캡차|captcha).{0,20}(?:필요|완료|진행|해\s*주세요)|(?:인증|로그인)\s*후\s*(?:다시|이용|열어)/i.test(
       notice,
     );
+  const imageReady=!!imageRoot&&visible(imageRoot)&&[...imageRoot.querySelectorAll("img")].some(image=>visible(image)&&image.complete&&image.naturalWidth>0);
   return {
     text,
+    imageReady,
     notice,
     challenge,
     novelCaptcha: [...doc.querySelectorAll('[aria-label="퍼즐 슬라이더"]')].some(visible),
@@ -391,7 +393,7 @@ export class Collector {
           return;
         }
         const url = new URL(request.url());
-        if (this.viewerOrigins && /^newtoki\d*\./i.test(url.hostname)) {
+        if (/^newtoki\d*\./i.test(url.hostname)) {
           await route.abort();
           return;
         }
@@ -549,7 +551,7 @@ export class Collector {
       attention,
     });
   }
-  async chapterText(page, chapter, signal, { onProgress = this.onCaptchaProgress } = {}) {
+  async chapterText(page, chapter, signal, { onProgress = this.onCaptchaProgress, imageProof = false } = {}) {
     const limit = this.captchaSupport ? this.captchaMaxAttempts : 1;
     for (let attempt = 1; attempt <= limit; attempt++) {
       abortIfNeeded(signal);
@@ -561,7 +563,7 @@ export class Collector {
       });
       if (monitor) this.captchaReaders.set(page, monitor);
       try {
-        return await this.readChapterText(page, chapter, signal);
+        return await this.readChapterText(page, chapter, signal, { imageProof });
       } catch (error) {
         abortIfNeeded(signal);
         if (error.captchaCode) error.captchaAttempts = attempt;
@@ -584,7 +586,7 @@ export class Collector {
     }
   }
 
-  async readChapterText(page, chapter, signal) {
+  async readChapterText(page, chapter, signal, { imageProof = false } = {}) {
     await this.navigate(page, chapter.url, signal);
     let deadline = Date.now() + this.contentTimeoutMs;
     let resumed = false;
@@ -627,7 +629,7 @@ export class Collector {
           "authentication",
         );
       }
-      if (reader.text) return reader.text;
+      if (imageProof ? reader.imageReady : reader.text) return reader.text;
       if (/아직 준비되지|본문이 없습니다|삭제된/.test(reader.notice))
         throw new Error("사이트에 회차 본문이 준비되지 않았습니다.");
       await delay(500, signal);
@@ -704,10 +706,10 @@ export class Collector {
       const failed = failedIds.has(chapter.id);
        const record=await this.store.readChapter(bookId, chapter.id);
        const saved = isImageType(job.contentType)?record?.presetHash===job.presetHash&&await verifyWebtoonChapter(this.store,bookId,record):record?.text;
-      if (selected && !failed && saved)
-        throw new Error(
-          "이미 정상 저장된 회차는 실패 재시도에 선택할 수 없습니다.",
-        );
+      if (selected && !failed && saved){
+        await hooks?.event?.("info",`${chapter.number}화 · 이미 복구된 저장 회차를 실패 재시도에서 제외`);
+        continue;
+      }
       if (failedIds.size ? failed : !saved) chapters.push(chapter);
     }
     return {

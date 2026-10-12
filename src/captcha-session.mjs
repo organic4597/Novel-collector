@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { validateViewerOrigin } from "./site-browser.mjs";
+import { SOURCE_HOSTS } from "./source-site.mjs";
 
 const fail = (message, status = 409) =>
   Object.assign(new Error(message), { status });
 const validateHost = (host) => {
   if (
     typeof host !== "string" ||
-    !/^newtoki\d+\.(org|com|net|me|co|io|site|tv)$/.test(host)
+    !(SOURCE_HOSTS.includes(host)||/^newtoki\d+\.(org|com|net|me|co|io|site|tv)$/.test(host))
   )
     throw fail("지원하는 사이트를 선택하세요.", 400);
   return host;

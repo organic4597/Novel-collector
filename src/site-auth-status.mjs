@@ -13,7 +13,8 @@ export function siteAuthStatus(site, { accounts, autoAuth, recovery } = {}) {
           queued?.state,
         )) ||
         (["idle", "ready"].includes(state.state) &&
-          ["waiting", "failed"].includes(queued?.state)));
+           ["waiting", "failed"].includes(queued?.state))||
+         (["site_blocked","verification","rate"].includes(state.failureKind)&&["waiting","running"].includes(queued?.state)));
     const failureKind = deferred ? queued.failureKind : state.failureKind;
     return {
       ...site,
@@ -26,8 +27,8 @@ export function siteAuthStatus(site, { accounts, autoAuth, recovery } = {}) {
           ? site.kind === "captcha"
             ? "CAPTCHA 응답 확인"
             : queued.state === "waiting"
-              ? "수집 브라우저 종료 대기"
-              : "자동 인증 준비 확인 필요"
+              ? queued.retryAt?"접근 상태 자동 재확인 대기":"수집 브라우저 종료 대기"
+              : queued.state==="running"?"접근 상태 자동 재확인 진행 중":"자동 인증 준비 확인 필요"
           : state.phase,
         error:
           deferred && queued.state === "failed"
@@ -40,7 +41,8 @@ export function siteAuthStatus(site, { accounts, autoAuth, recovery } = {}) {
           "authentication",
           "site_blocked",
           "rate",
-          "verification",
+           "verification",
+           "unsupported",
         ].includes(failureKind)
           ? { failureKind }
           : {}),

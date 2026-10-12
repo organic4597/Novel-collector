@@ -9,6 +9,7 @@ import { ensureSiteLogin } from "../src/site-login.mjs";
 
 const host = "newtoki1.org";
 const probe = `https://${host}/novel/21104/111`;
+const liveProbe=probe.replace(host,"sbxh9.com");
 function fixture(
   t,
   {
@@ -192,7 +193,7 @@ test("internal automatic authentication receives only the reserved source page a
   let invoked = 0;
   const result = await f.browser.authenticate(async (page, target) => {
     assert.equal(page, f.page);
-    assert.deepEqual(target, { host, viewerHost: host, slot: 1 });
+    assert.deepEqual(target, { host, viewerHost: "sbxh9.com", slot: 1 });
     invoked++;
     return { password: "test-only-secret", pendingToken: "private-test-token" };
   });
@@ -214,7 +215,7 @@ test("open requires a held host, reserves one slot and launches its actual persi
   const state = await f.browser.open({ host, slot: 1 });
   assert.equal(state.open, true);
   assert.equal(state.slot, 1);
-  assert.equal(state.url, probe);
+  assert.equal(state.url, liveProbe);
   assert.equal(state.width, 1280);
   assert.equal(state.height, 900);
   assert.deepEqual(state.pendingSlots, [1, 2]);
@@ -225,15 +226,15 @@ test("open requires a held host, reserves one slot and launches its actual persi
   );
   assert.deepEqual(
     f.calls.find((call) => call[0] === "goto"),
-    ["goto", probe, 45000],
+    ["goto", liveProbe, 45000],
   );
   assert.ok(
     !f.calls.some((call) =>
       ["click", "text", "key", "scroll"].includes(call[0]),
     ),
   );
-  f.page.currentUrl = `${probe}?private_token=do-not-display#secret`;
-  assert.equal((await f.browser.status()).url, probe);
+  f.page.currentUrl = `${liveProbe}?private_token=do-not-display#secret`;
+  assert.equal((await f.browser.status()).url, liveProbe);
 });
 
 test("trusted viewer saves its origin only after every canonical slot proves actual body", async (t) => {
@@ -588,10 +589,10 @@ test("reused body verification retains the navigation HTTP failure and Retry-Aft
   f.setBody(
     "<div data-theme-novel-content><p>본문처럼 보이는 오류 화면</p></div>",
   );
-  f.page.goto = async () => ({
+  f.page.goto = async url => {f.page.currentUrl=url;return{
     status: () => 429,
     headers: () => ({ "retry-after": "900" }),
-  });
+  };};
   await f.browser.open({ host, slot: 1 });
   await assert.rejects(f.browser.check({ reload: false }), {
     kind: "rate",

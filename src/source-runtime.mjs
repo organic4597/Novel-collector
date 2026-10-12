@@ -4,20 +4,15 @@ import { AutoRecovery } from "./auto-recovery.mjs";
 import { CaptchaSession } from "./captcha-session.mjs";
 import { DEFAULT_SOURCE_ORIGIN, sourceGateHost } from "./source-site.mjs";
 
-export function activeSourceStatus(origins) {
-  const origin = origins?.originFor("newtoki1.org") || DEFAULT_SOURCE_ORIGIN;
+export function activeSourceStatus() {
+  const origin = DEFAULT_SOURCE_ORIGIN;
   return { origin, host: new URL(origin).hostname, legacyDisabled: true };
 }
 export function createSourceAuthentication(options) {
   return new SiteAutoAuth({
     ...options,
     gateHostFor: sourceGateHost,
-    accountHostFor: (host) =>
-      new URL(
-        options.viewerOrigins.resolve(
-          `https://${sourceGateHost(host)}/novel/1`,
-        ),
-      ).hostname,
+    accountHostFor: sourceGateHost,
     loginFromCatalog: true,
   });
 }

@@ -2,15 +2,16 @@ import { randomUUID } from "node:crypto";
 import { siteAccountHost } from "./site-accounts.mjs";
 import { ensureSiteLogin } from "./site-login.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
+import { webtoonSource } from "./webtoon-source.mjs";
 
 const fail = (message, status) => Object.assign(new Error(message), { status });
 const failureKind = (error) => {
   if (error.httpStatus === 429 || error.kind === "rate") return "rate";
   if (error.kind === "captcha" || error.attentionKind === "captcha")
     return "captcha";
+  if(error.kind==="unsupported")return "unsupported";
   if (
     error.kind === "site_blocked" ||
-    error.kind === "unsupported" ||
     error.attentionKind === "site_blocked"
   )
     return "site_blocked";
@@ -35,7 +36,10 @@ async function prepareCatalogLogin(page, host, signal) {
   };
   interrupted();
   const current = new URL(page.url());
-  const work = /^\/novel\/(\d+)\/\d+\/?$/.exec(current.pathname)?.[1];
+  const reader=/^\/(novel|webtoon|manhwa)\/([^/]+)\/([^/]+)\/?$/.exec(current.pathname);
+  let work=reader?.[2];
+  if(reader?.[1]==="novel"&&(!/^\d+$/.test(work+"")||!/^\d+$/.test(reader[3])))work=null;
+  if(reader&&reader[1]!=="novel"){try{webtoonSource(current.origin+current.pathname);}catch{work=null;}}
   if (
     current.protocol !== "https:" ||
     current.hostname !== host ||
@@ -48,7 +52,7 @@ async function prepareCatalogLogin(page, host, signal) {
       kind: "unsupported",
       attentionKind: "site_blocked",
     });
-  const target = `${current.origin}/novel/${work}`;
+  const target = `${current.origin}/${reader[1]}/${work}`;
   const response = await page.goto(target, {
     waitUntil: "domcontentloaded",
     timeout: 20000,

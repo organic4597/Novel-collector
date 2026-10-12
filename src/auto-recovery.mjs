@@ -1,4 +1,5 @@
 const RETRYABLE_PROOF = new Set(["captcha", "verification", "rate"]);
+const RETRYABLE_ACCESS = new Set(["site_blocked", "verification", "rate"]);
 const retryTime = (value) =>
   Number.isFinite(Date.parse(value)) ? Date.parse(value) : 0;
 
@@ -11,6 +12,7 @@ export class AutoRecovery {
     maxWaitMs = 90000,
     captchaDelaysMs = [120000, 300000, 600000, 900000],
     captchaMaxAttempts = 5,
+    accessRetryMs = 60000,
     clock = Date.now,
     onState = () => {},
   }) {
@@ -22,7 +24,7 @@ export class AutoRecovery {
       ) ||
       !Number.isSafeInteger(captchaMaxAttempts) ||
       captchaMaxAttempts < 1 ||
-      captchaMaxAttempts > 5
+      captchaMaxAttempts > 5||!Number.isSafeInteger(accessRetryMs)||accessRetryMs<1||accessRetryMs>900000
     )
       throw new Error("자동 본문 확인 횟수와 대기 시간을 확인하세요.");
     Object.assign(this, {
@@ -33,6 +35,7 @@ export class AutoRecovery {
       maxWaitMs,
       captchaDelaysMs: [...captchaDelaysMs],
       captchaMaxAttempts,
+      accessRetryMs,
       clock,
       onState,
     });
@@ -75,7 +78,7 @@ export class AutoRecovery {
       this.closed ||
       this.suspended.has(site?.host) ||
       !site?.held ||
-      !["authentication", "unknown", "captcha"].includes(site.kind ?? "unknown")
+      !["authentication", "unknown", "captcha","site_blocked"].includes(site.kind ?? "unknown")
     )
       return;
     const existing = this.pending.get(site.host);
@@ -89,7 +92,7 @@ export class AutoRecovery {
     }
     if (
       !force &&
-      ["needs_attention", "failed"].includes(this.status(site.host).state)
+      ["needs_attention", "failed"].includes(this.status(site.host).state)&&!RETRYABLE_ACCESS.has(this.status(site.host).failureKind)
     )
       return;
     if (this.states.size >= 1000 && !this.states.has(site.host)) {
@@ -173,7 +176,7 @@ export class AutoRecovery {
       if (
         !entry.force &&
         ["needs_attention", "failed"].includes(state.state) &&
-        !(entry.captcha && RETRYABLE_PROOF.has(state.failureKind))
+        !(entry.captcha && RETRYABLE_PROOF.has(state.failureKind))&&!RETRYABLE_ACCESS.has(state.failureKind)
       ) {
         this.finish(entry, {
           state: "needs_attention",
@@ -184,7 +187,8 @@ export class AutoRecovery {
       if (this.deferCooldown(entry, state)) return;
       const active = [...this.scheduler.active.values()].some((value) => {
         try {
-          return new URL(value.job.url).hostname === host;
+          const activeHost=new URL(value.job.url).hostname;
+          return (this.autoAuth.gateHost?.(activeHost)||activeHost) === host;
         } catch {
           return false;
         }
@@ -242,6 +246,11 @@ export class AutoRecovery {
       });
       this.schedule(entry, this.pollMs);
       return;
+    }
+    if(!entry.captcha&&RETRYABLE_ACCESS.has(result.failureKind)){
+      const until=Math.max(this.clock()+this.accessRetryMs,retryTime(result.retryAt));entry.attempts=0;
+      this.update(entry,{state:"waiting",failureKind:result.failureKind,retryAt:new Date(until).toISOString()});
+      this.schedule(entry,Math.max(this.pollMs,until-this.clock()));return;
     }
     if (
       !entry.captcha ||

@@ -58,6 +58,7 @@ export function publicTestState(host, state = {}) {
       "site_blocked",
       "rate",
       "verification",
+      "unsupported",
     ].includes(state.failureKind)
   )
     output.failureKind = state.failureKind;
@@ -69,6 +70,7 @@ export function publicTestState(host, state = {}) {
         rate: "사이트 요청 대기 시간을 기다립니다.",
         site_blocked: "사이트 접근 상태를 확인하고 있습니다.",
         verification: "본문 상태를 아직 확인할 수 없습니다.",
+        unsupported: "자동 확인이 지원하는 사이트 로그인 화면과 경로를 확인하세요.",
       }[output.failureKind] || "사이트 로그인 확인에 실패했습니다.";
   if (Array.isArray(state.pendingSlots))
     output.pendingSlots = [

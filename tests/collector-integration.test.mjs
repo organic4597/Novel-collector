@@ -625,6 +625,28 @@ test("failed overwrite retry reads its failed reader even when an older valid fi
   );
 });
 
+test("stale explicit retry completes remaining failures then finishes without further source navigation", async (t) => {
+  const f = await fixture(t);
+  const bookId = makeBookId(base);
+  const chapters = [1, 2].map(number => ({ id: chapterIdFor(chapterUrl(number)), number, url: chapterUrl(number), title: `${number}화` }));
+  await f.store.writeCatalog(bookId, { title: bookTitle, chapters, expectedChapters: 2 });
+  const saved = await f.store.writeChapter(bookId, chapters[0].id, { ...chapters[0], text: textFor(1) });
+  await f.store.recordFailure(bookId, chapters[1], { message: "synthetic failure", code: "CHAPTER_ERROR" });
+  const retry = { ...f.job, retryOnlyFailed: true, retryChapterIds: chapters.map(chapter => chapter.id) };
+  const result = await f.collector.run(retry, f.hooks);
+  assert.equal(result.status, "completed");
+  assert.equal(result.completed, 1);
+  assert.deepEqual(f.browser.visited, [chapterUrl(2)]);
+  assert.deepEqual(await f.store.readChapter(bookId, saved.id), saved);
+  assert.deepEqual(await f.store.listFailures(bookId), []);
+  f.browser.visited.length = 0;
+  const recovered = await f.collector.run(retry, f.hooks);
+  assert.equal(recovered.status, "completed");
+  assert.equal(recovered.total, 0);
+  assert.deepEqual(f.browser.visited, []);
+  assert.match(await readFile((await f.store.getExport(f.job.id, "txt")).path, "utf8"), /2화 마지막 문단/);
+});
+
 test("EPUB jobs always produce TXT and ETA excludes cached chapters", async (t) => {
   const f = await fixture(t, { format: "epub" });
   const bookId = makeBookId(f.job.url);

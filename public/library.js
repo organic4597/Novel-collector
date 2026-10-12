@@ -610,8 +610,17 @@
     );
     $("failures-dialog").showModal();
   }
-  function retryJob(job) {
-    failuresDialog({ type: "job", id: job.id, title: job.title }, job.failedChapters);
+  async function retryJob(job) {
+    const generation=UI.generation(),view=UI.view?.();
+    try{
+      let failures=job.failedChapters;
+      if(job.bookId){const current=await api(`/api/books/${encodeURIComponent(job.bookId)}/failures`);
+        if(generation!==UI.generation()||!UI.authenticated()||view!==UI.view?.())return;
+        if(Array.isArray(current)){const previous=new Set((job.failedChapters||[]).map(chapter=>chapter.id));failures=previous.size?current.filter(chapter=>previous.has(chapter.id)):current;}
+        if(!failures?.length){UI.toast("현재 실패 회차가 없습니다. 이미 복구된 저장 회차는 재수집하지 않습니다.");return;}
+      }
+      failuresDialog({ type: "job", id: job.id, title: job.title }, failures);
+    }catch(exception){if(generation===UI.generation()&&UI.authenticated())UI.toast(textError(exception));}
   }
   async function retryBook(book) {
     const id = book.id || book.bookId;

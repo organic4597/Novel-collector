@@ -3,6 +3,8 @@ import { Collector, makeBookId, readReaderDocument } from "./collector.mjs";
 import { validateUrl } from "./store.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 import { startBrowserScreencast } from "./captcha-live.mjs";
+import { SOURCE_HOSTS,sourceGateHost,DEFAULT_SOURCE_ORIGIN } from "./source-site.mjs";
+import { isWebtoonUrl,webtoonSource } from "./webtoon-source.mjs";
 
 const WIDTH = 1280,
   HEIGHT = 900;
@@ -62,7 +64,7 @@ export function validateViewerOrigin(value) {
 function validateTarget(host, slot) {
   if (
     typeof host !== "string" ||
-    !/^newtoki\d+\.(org|com|net|me|co|io|site|tv)$/.test(host) ||
+    !(SOURCE_HOSTS.includes(host)||/^newtoki\d+\.(org|com|net|me|co|io|site|tv)$/.test(host)) ||
     ![1, 2].includes(slot)
   )
     throw fail("지원하는 사이트와 브라우저 슬롯 1 또는 2를 선택하세요.", 400);
@@ -71,7 +73,8 @@ function validateTarget(host, slot) {
 function validProbe(value, host) {
   try {
     const url = new URL(validateUrl(value));
-    return url.hostname === host && /^\/novel\/\d+\/\d+\/?$/.test(url.pathname)
+    const image=isWebtoonUrl(url.href)&&!!webtoonSource(url.href).episodeId;
+    return sourceGateHost(url.hostname) === sourceGateHost(host) && (image||/^\/novel\/\d+\/\d+\/?$/.test(url.pathname))
       ? url.href
       : null;
   } catch {
@@ -135,6 +138,7 @@ export class SiteBrowser {
   }
 
   async held(host) {
+    if(typeof this.attention.get==="function")return this.attention.get(host);
     const snapshot = await this.attention.snapshot();
     return snapshot.sites?.find((site) => site.host === host) || null;
   }
@@ -148,7 +152,7 @@ export class SiteBrowser {
       } catch {
         continue;
       }
-      if (jobHost !== site.host) continue;
+      if (sourceGateHost(jobHost) !== sourceGateHost(site.host)) continue;
       const direct =
         validProbe(job.currentChapterUrl, site.host) ||
         validProbe(job.url, site.host);
@@ -289,9 +293,11 @@ export class SiteBrowser {
       const site = await this.held(host);
       if (!site?.held || !site.requiredSlots?.includes(slot))
         throw fail("이 사이트는 해당 슬롯의 인증 대기 상태가 아닙니다.");
+      if(SOURCE_HOSTS.includes(site.host)&&origin&&new URL(origin).hostname!==site.host)throw fail("현재 보류된 실제 수집 사이트에서 확인하세요.",400);
       const canonicalProbeUrl = await this.probeFor(site);
       const target = new URL(canonicalProbeUrl);
       if (origin) target.hostname = new URL(origin).hostname;
+      else target.hostname=sourceGateHost(target.hostname);
       const probeUrl = target.href;
       try {
         if ((await this.scheduler.reserveManualSlot(slot)) === false)
@@ -608,7 +614,7 @@ export class SiteBrowser {
             code: "NEEDS_ATTENTION",
             attentionKind,
             kind:
-              error.kind === "rate" || error.httpStatus === 429
+              error.kind === "unsupported"?"unsupported":error.kind === "rate" || error.httpStatus === 429
                 ? "rate"
                 : attentionKind,
             ...(Number.isSafeInteger(error.httpStatus)
@@ -636,6 +642,7 @@ export class SiteBrowser {
       this.touch(session);
       let reader,
         response = session.lease?.response ?? session.response;
+      const image=isWebtoonUrl(session.canonicalProbeUrl),bodyReady=value=>image?value?.imageReady:!!value?.text?.trim();
       try {
         if (reload)
           response = await session.page.goto(session.probeUrl, {
@@ -655,7 +662,7 @@ export class SiteBrowser {
             response?.status() >= 400 ||
             reader.challenge ||
             reader.verificationRequired ||
-            reader.text?.trim()
+            bodyReady(reader)
           )
             break;
           if (typeof session.page.waitForTimeout !== "function") break;
@@ -680,7 +687,7 @@ export class SiteBrowser {
         response?.status() >= 400 ||
         reader.challenge ||
         reader.verificationRequired ||
-        !reader.text?.trim()
+        !bodyReady(reader)
       )
         throw Object.assign(
           fail(
@@ -717,7 +724,7 @@ export class SiteBrowser {
       )
         throw fail("허용한 회차 화면에서 본문을 다시 확인하세요.");
       try {
-        await this.onVerified?.({
+        if(!image)await this.onVerified?.({
           canonicalProbeUrl: session.canonicalProbeUrl,
           viewerOrigin: session.viewerOrigin,
           slot: session.slot,
@@ -736,10 +743,10 @@ export class SiteBrowser {
           viewerOrigin: session.viewerOrigin,
           beforeRelease: async () => {
             if (session.viewerHost !== session.host) {
-              if (!this.viewerOrigins?.save)
+              if (!this.viewerOrigins?.save&&session.viewerOrigin!==DEFAULT_SOURCE_ORIGIN)
                 throw fail("인증한 수집 주소를 저장할 수 없습니다.", 503);
-              await this.viewerOrigins.save(session.host, session.viewerOrigin);
-            } else if (await this.viewerOrigins?.get(session.host)) {
+              await this.viewerOrigins?.save?.(session.host, session.viewerOrigin);
+            } else if (!SOURCE_HOSTS.includes(session.host)&&await this.viewerOrigins?.get(session.host)&&await this.viewerOrigins.get(session.host)!==session.viewerOrigin) {
               throw fail("저장된 수집 주소와 같은 사이트에서 확인하세요.");
             }
           },
@@ -784,7 +791,9 @@ export class SiteBrowser {
       const collector = new Collector({ store: this.store, viewerOrigins: transport,
         captchaSupport: this.captchaSupport, captchaMaxAttempts: 5, contentTimeoutMs: 20000 });
       try {
-        await collector.chapterText(session.page, { url: session.canonicalProbeUrl }, signal, { onProgress });
+        await collector.chapterText(session.page, { url: session.canonicalProbeUrl }, signal, {
+          onProgress, imageProof: isWebtoonUrl(session.canonicalProbeUrl),
+        });
       } finally {
         // Explicit dashboard operation hands input back to the human UI after
         // its bounded budget. Remove only this module's native retry latch.

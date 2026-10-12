@@ -60,12 +60,12 @@ test("site authentication hold blocks uncached requests but retains cached cover
     images = 0,
     launches = 0;
   const attention = {
-    isHeld: (host) => host === "newtoki1.org" && held,
+    isHeld: (host) => host === "sbxh9.com" && held,
     snapshot: () => ({
       sites: held
         ? [
             {
-              host: "newtoki1.org",
+              host: "sbxh9.com",
               held: true,
               reason: "일일 조회 인증이 필요합니다.",
             },
@@ -176,9 +176,9 @@ test("site holds abort browser asset requests and cached lists remain readable",
     guard,
     visits = 0;
   const attention = {
-    isHeld: (host) => host === "newtoki1.org" && held,
+    isHeld: (host) => host === "sbxh9.com" && held,
     snapshot: () => ({
-      sites: [{ host: "newtoki1.org", held, reason: "인증 필요" }],
+      sites: [{ host: "sbxh9.com", held, reason: "인증 필요" }],
     }),
   };
   const context = {

@@ -67,7 +67,7 @@ test("authentication holds both sessions for its host and allows another host to
     url: "https://newtoki1.org/novel/2",
   });
   const other = await f.store.createJob({
-    url: "https://newtoki2.org/novel/3",
+    url: "https://toki32.com/webtoon/3",
   });
   await f.scheduler.start();
   await f.store.patchJob(first.id, {
@@ -169,7 +169,7 @@ test("metadata authentication without a job holds queued work only for its host 
   });
   await f.store.patchJob(paused.id, { status: "paused" });
   const other = await f.store.createJob({
-    url: "https://newtoki2.org/novel/3",
+    url: "https://toki32.com/webtoon/3",
   });
   await f.scheduler.requestFailed(
     null,
@@ -178,7 +178,7 @@ test("metadata authentication without a job holds queued work only for its host 
   assert.equal((await f.store.getJob(queued.id)).status, "needs_attention");
   assert.equal((await f.store.getJob(paused.id)).status, "paused");
   assert.deepEqual(f.attention.get("newtoki1.org").requiredSlots, [1]);
-  assert.equal(suspended, "newtoki1.org");
+  assert.equal(suspended, "sbxh9.com");
   await f.scheduler.start();
   assert.deepEqual(f.scheduler.activeJobIds, [other.id]);
 });

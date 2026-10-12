@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isPublicAddress, readReaderDocument } from "./collector.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
+import { DEFAULT_SOURCE_ORIGIN,sourceGateHost } from "./source-site.mjs";
 
 export class SourceRequestGate {
   constructor({
@@ -27,24 +28,22 @@ export class SourceRequestGate {
   get active() {
     return !!this.snapshot().active;
   }
-  isHeld(host = "newtoki1.org") {
+  isHeld(host = new URL(DEFAULT_SOURCE_ORIGIN).hostname) {
     // Public listing/profile/cover reads do not consume protected chapter bodies.
     // Their own HTTP responses and rendered challenges still fail navigation.
     if (this.owner.publicMetadata) return false;
-    return (
-      /^newtoki\d*\.(org|com|net|me)$/i.test(host) &&
-      !!this.attention?.isHeld(host)
-    );
+    return !!this.attention?.isHeld(sourceGateHost(host));
   }
-  assertAvailable(host = "newtoki1.org") {
+  assertAvailable(host = new URL(DEFAULT_SOURCE_ORIGIN).hostname) {
     this.owner.checkOpen();
     if (this.isHeld(host)) {
-      const site = this.attention
+      const gate=sourceGateHost(host);
+      const site = this.attention?.get?.(gate)||this.attention
         .snapshot?.()
-        .sites?.find((site) => site.host === host && site.held);
+        .sites?.find((site) => sourceGateHost(site.host) === gate && site.held);
       throw Object.assign(
         new Error(site?.reason || "원본 사이트의 인증을 먼저 완료하세요."),
-        { status: 503, code: "SITE_VERIFICATION_REQUIRED", siteHost: host },
+        { status: 503, code: "SITE_VERIFICATION_REQUIRED", siteHost: gate },
       );
     }
     const state = this.snapshot();
@@ -63,7 +62,7 @@ export class SourceRequestGate {
       );
     }
   }
-  async openContext(host = "newtoki1.org") {
+  async openContext(host = new URL(DEFAULT_SOURCE_ORIGIN).hostname) {
     this.assertAvailable(host);
     const owner = this.owner;
     if (owner.contextPromise) return owner.contextPromise;

@@ -7,6 +7,7 @@ export const SOURCE_HOSTS = ["sbxh9.com", "toki32.com"];
 // Its previous routing is retained in the migration archive, never as fallback.
 // const LEGACY_EXTERNAL_SOURCE = "https://newtoki1.org";
 export function sourceGateHost(host) {
-  if (SOURCE_HOSTS.includes(host)) return "newtoki1.org";
-  return new URL(validateUrl(`https://${host}/novel/1`)).hostname;
+  if (SOURCE_HOSTS.includes(host)) return host;
+  const legacy=new URL(validateUrl(`https://${host}/novel/1`)).hostname;
+  return /^newtoki\d*\./i.test(legacy)?new URL(DEFAULT_SOURCE_ORIGIN).hostname:legacy;
 }

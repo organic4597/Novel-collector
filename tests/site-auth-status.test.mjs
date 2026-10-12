@@ -91,3 +91,17 @@ test("CAPTCHA recovery waiting and exhausted state override stale login failure 
       assert.equal(JSON.stringify(value).includes(privateValue), false);
   }
 });
+test("access recovery exposes its actual waiting or running state and scheduled retry time", () => {
+  const retryAt = "2026-10-12T15:00:00.000Z";
+  for (const state of ["waiting", "running"]) {
+    const value = siteAuthStatus({ ...site, host: "sbxh9.com" }, {
+      accounts,
+      autoAuth: { status: () => ({ state: "needs_attention", failureKind: "site_blocked", error: "private-error" }) },
+      recovery: { status: () => ({ state, failureKind: "site_blocked", retryAt }) },
+    });
+    assert.equal(value.autoLogin.state, state);
+    assert.equal(value.autoLogin.retryAt, retryAt);
+    assert.match(value.autoLogin.phase, state === "waiting" ? /재확인 대기/ : /재확인 진행/);
+    assert.equal(JSON.stringify(value).includes("private-error"), false);
+  }
+});

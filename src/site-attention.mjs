@@ -1,11 +1,11 @@
-import { cleanMessage, safeId, validateUrl } from "./store.mjs";
+import { cleanMessage, safeId } from "./store.mjs";
 import { viewerOrigin as allowedViewerOrigin } from "./viewer-origins.mjs";
+import { sourceGateHost } from "./source-site.mjs";
 
 const invalid = (message) => Object.assign(new Error(message), { status: 400 });
 const kinds = ["authentication", "captcha", "site_blocked", "unknown"];
 function hostId(host) {
-  if(["sbxh9.com","toki32.com"].includes(host))return host;
-  return new URL(validateUrl(`https://${host}/novel/1`)).hostname;
+  return sourceGateHost(host);
 }
 function proofOrigin(value, host) {
   if (value === `https://${host}`) return value;
@@ -52,7 +52,7 @@ export class SiteAttention {
               .filter((slot) => requiredSlots.includes(slot))
               .sort()
           : [];
-        sites.set(host, {
+        let normalized={
           host,
           reason: cleanMessage(site.reason),
           kind: /일일\s*조회\s*인증|captcha_required_daily_quota/i.test(
@@ -72,9 +72,17 @@ export class SiteAttention {
           held:
             site.held !== false ||
             !requiredSlots.every((slot) => verifiedSlots.includes(slot)),
-        });
+        };
+        const previous=sites.get(host);
+        if(previous){
+          const active=[previous,normalized].filter(site=>site.held),base=active.at(-1)||normalized;
+          normalized={...base,jobIds:[...new Set((active.length?active:[previous,normalized]).flatMap(site=>site.jobIds))],
+            requiredSlots:[...new Set((active.length?active:[previous,normalized]).flatMap(site=>site.requiredSlots))].sort()};
+          if(active.length>1){normalized.verifiedSlots=[];delete normalized.proofOrigin;}
+        }
+        sites.set(host,normalized);
       }
-      const migrated = saved.sites.some(
+      const migrated = sites.size!==saved.sites.length||saved.sites.some(site=>hostId(site.host)!==site.host)||saved.sites.some(
         (site) =>
           /일일\s*조회\s*인증|captcha_required_daily_quota/i.test(
             site.reason || "",

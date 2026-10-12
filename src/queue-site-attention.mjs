@@ -1,4 +1,5 @@
 import { validateUrl } from "./store.mjs";
+import { sourceGateHost } from "./source-site.mjs";
 const conflict = (message) =>
   Object.assign(new Error(message), { status: 409 });
 export function requiresSiteAttention(error) {
@@ -18,15 +19,15 @@ export async function holdJobSite(scheduler, jobId, error) {
   const state = await scheduler.withControl(async () => {
     const triggering = jobId ? await scheduler.store.getJob(jobId) : null;
     if (!triggering && !error.siteHost) return null;
-    const host = triggering
+    const host = sourceGateHost(triggering
       ? new URL(triggering.url).hostname
-      : new URL(validateUrl(`https://${error.siteHost}/novel/1`)).hostname;
+      : new URL(validateUrl(`https://${error.siteHost}/novel/1`)).hostname);
     const entries = [...scheduler.active].filter(
-      ([, entry]) => new URL(entry.job.url).hostname === host,
+      ([, entry]) => sourceGateHost(new URL(entry.job.url).hostname) === host,
     );
     const requiredSlots = entries.map(([, entry]) => entry.slotId);
     const queued = (await scheduler.store.listJobs()).filter(
-      (job) => job.status === "queued" && new URL(job.url).hostname === host,
+      (job) => job.status === "queued" && sourceGateHost(new URL(job.url).hostname) === host,
     );
     const state = await scheduler.attention.holdSite(host, {
       reason: error.message,

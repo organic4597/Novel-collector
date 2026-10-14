@@ -259,8 +259,10 @@ export async function runCollection(job, hooks, signal, bookId) {
             await this.saveFailure(bookId, chapter, error, job.id),
           );
           await hooks.event(
-            "error",
-            `${chapter.number}화 수집 실패: ${error.message}`,
+            error.code === "CONTENT_NOT_READY" ? "warn" : "error",
+            error.code === "CONTENT_NOT_READY"
+              ? `${chapter.number}화 · 준비중 회차 건너뜀 (나중에 실패분 재수집 가능)`
+              : `${chapter.number}화 수집 실패: ${error.message}`,
           );
           if (error.code === "NEEDS_ATTENTION") {
             blockedReason = cleanMessage(error.message);
@@ -285,7 +287,7 @@ export async function runCollection(job, hooks, signal, bookId) {
               );
             }
           }
-          if (sourceFailed) await hooks.requestFailure?.(error);
+          if (sourceFailed && error.code !== "CONTENT_NOT_READY") await hooks.requestFailure?.(error);
           abortIfNeeded(signal);
         }
         if (!blockedReason) await delay(this.delayMs, signal);

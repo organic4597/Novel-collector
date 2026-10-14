@@ -41,6 +41,7 @@ export function chapterIdFor(url) {
 export function readReaderDocument(doc = document) {
   const scopes = [doc];
   const seen = new Set(scopes);
+  const rootHosts = new Map();
   for (let i = 0; i < scopes.length; i++) {
     for (const el of scopes[i].querySelectorAll("*")) {
       const root =
@@ -52,12 +53,24 @@ export function readReaderDocument(doc = document) {
           ? el.content
           : null);
       if (root && !seen.has(root)) {
+        rootHosts.set(root, el.tagName === "TEMPLATE" ? el.parentElement : el);
         seen.add(root);
         scopes.push(root);
       }
     }
   }
+  const visible = (element) => {
+    for (let current = element?.nodeType === 11 ? element.host || rootHosts.get(element) : element;
+      current?.nodeType === 1;
+      current = current.parentElement || current.getRootNode()?.host || rootHosts.get(current.getRootNode())) {
+      if (current.hidden || current.getAttribute("aria-hidden") === "true") return false;
+      const style = doc.defaultView?.getComputedStyle?.(current);
+      if (style?.display === "none" || style?.visibility === "hidden") return false;
+    }
+    return true;
+  };
   const read = (node) => {
+    if (!visible(node.nodeType === 3 || node.tagName === "TEMPLATE" ? node.parentElement : node)) return "";
     if (node.nodeType === 3) return node.textContent;
     if (node.nodeType === 1) {
       if (
@@ -95,52 +108,55 @@ export function readReaderDocument(doc = document) {
   const candidates = named.length
     ? named
     : scopes.slice(1).filter((scope) => scope.querySelector("p"));
-  const texts = candidates.map(read).map((text) =>
+  const texts = candidates.filter(visible).map(read).map((text) =>
     text
       .replace(/\r\n?/g, "\n")
       .replace(/[ \t]+\n/g, "\n")
       .replace(/\n{3,}/g, "\n\n")
       .trim(),
   );
-  const text = texts.sort((a, b) => b.length - a.length)[0] || "";
-  const host = doc.querySelector("[data-theme-novel-content], #novel_content");
+  let text = texts.sort((a, b) => b.length - a.length)[0] || "";
   let readerPath="";try{readerPath=new URL(doc.URL).pathname;}catch{}
   const imageRoot=/^\/(?:webtoon|manhwa)\/[^/]+\/[^/]+\/?$/.test(readerPath)?doc.querySelector(".vw-imgs"):null;
-  const notice = host?.querySelector(".wr-none")?.textContent.trim() ||
-    (imageRoot&&!imageRoot.querySelector("img")?imageRoot.textContent.trim():"");
-  const visible = (element) => {
-    for (
-      let current = element;
-      current?.nodeType === 1;
-      current = current.parentElement
-    ) {
-      if (current.hidden || current.getAttribute("aria-hidden") === "true")
-        return false;
-      const style = doc.defaultView?.getComputedStyle?.(current);
-      if (style?.display === "none" || style?.visibility === "hidden")
-        return false;
-    }
-    return true;
-  };
+  const compact = value => value.replace(/\s+/g, "");
+  const unavailableHeading = /^본문이아직준비되지않았습니다[.!]?$/;
+  const unavailablePanel = /^본문이아직준비되지않았습니다[.!]?이회(?:차)?의본문은곧업데이트될예정입니다[.!]?다른회차부터먼저읽어보세요[.!]?(?:원문사이트에서보기[→↗]?)?$/;
+  const verificationNotice = /일일.{0,12}인증|(?:인증|로그인|보안\s*확인|캡차|captcha).{0,20}(?:필요|완료|진행|해\s*주세요)|(?:인증|로그인)\s*후\s*(?:다시|이용|열어)/i;
+  const notices = named.flatMap(node => [...node.querySelectorAll(".wr-none")])
+    .filter(visible).map(node => node.textContent.trim());
+  let notice = notices.find(value => verificationNotice.test(value)) || notices[0] ||
+    (imageRoot && visible(imageRoot) && !imageRoot.querySelector("img") ? imageRoot.textContent.trim() : "");
   const challenge =
     /just a moment|attention required/i.test(doc.title || "") ||
     [
-      ...doc.querySelectorAll(
+      ...scopes.flatMap(scope => [...scope.querySelectorAll(
         '#cf-challenge-running, .cf-browser-verification, #challenge-running, iframe[src*="hcaptcha"], iframe[src*="recaptcha"], iframe[src*="challenges.cloudflare.com"], .g-recaptcha, .h-captcha, .cf-turnstile, fieldset.captcha, #captcha, [aria-label="퍼즐 슬라이더"]',
-      ),
+      )]),
     ].some(visible);
-  const verificationRequired =
-    !text &&
-    /일일.{0,12}인증|(?:인증|로그인|보안\s*확인|캡차|captcha).{0,20}(?:필요|완료|진행|해\s*주세요)|(?:인증|로그인)\s*후\s*(?:다시|이용|열어)/i.test(
-      notice,
-    );
+  const verificationRequired = (!text || unavailablePanel.test(compact(text))) && verificationNotice.test(notice);
   const imageReady=!!imageRoot&&visible(imageRoot)&&[...imageRoot.querySelectorAll("img")].some(image=>visible(image)&&image.complete&&image.naturalWidth>0);
+  const panels = scopes.flatMap(scope => [...scope.querySelectorAll("h1,h2,h3,h4,h5,h6,strong,p,div,span")])
+    .filter(node => unavailableHeading.test(compact(node.textContent)) && visible(node))
+    .map(node => [node.parentElement, node.parentElement?.parentElement]
+      .find(panel => panel && visible(panel) && unavailablePanel.test(compact(panel.textContent))))
+    .filter(Boolean);
+  const hasReaderImages = !!imageRoot && visible(imageRoot) &&
+    [...imageRoot.querySelectorAll("img")].some(image => visible(image) && !panels.some(panel => panel.contains(image)));
+  const contentNotReady = !challenge && !verificationRequired && !hasReaderImages &&
+    /^\/(?:novel|webtoon|manhwa)\/[^/]+\/[^/]+\/?$/.test(readerPath) &&
+    ((!text && (unavailableHeading.test(compact(notice)) || unavailablePanel.test(compact(notice)))) ||
+      panels.some(panel => !text || compact(text) === compact(read(panel))));
+  if (contentNotReady) {
+    text = "";
+    notice = notice || panels[0]?.textContent.trim() || "본문이 아직 준비되지 않았습니다.";
+  }
   return {
     text,
+    contentNotReady,
     imageReady,
     notice,
     challenge,
-    novelCaptcha: [...doc.querySelectorAll('[aria-label="퍼즐 슬라이더"]')].some(visible),
+    novelCaptcha: scopes.some(scope => [...scope.querySelectorAll('[aria-label="퍼즐 슬라이더"]')].some(visible)),
     verificationRequired,
     verificationKind: verificationRequired
       ? /일일\s*조회\s*인증/.test(notice)
@@ -149,6 +165,10 @@ export function readReaderDocument(doc = document) {
       : null,
     verificationReason: verificationRequired ? notice.slice(0, 500) : "",
   };
+}
+
+export function contentNotReadyError() {
+  return Object.assign(new Error("사이트에 회차 본문이 아직 준비되지 않았습니다."), { code: "CONTENT_NOT_READY" });
 }
 
 const xml = (text) =>
@@ -452,6 +472,7 @@ export class Collector {
       abortIfNeeded,
       readReaderDocument,
       attention,
+      contentNotReadyError,
     });
   }
 
@@ -629,6 +650,7 @@ export class Collector {
           "authentication",
         );
       }
+      if (reader.contentNotReady) throw contentNotReadyError();
       if (imageProof ? reader.imageReady : reader.text) return reader.text;
       if (/아직 준비되지|본문이 없습니다|삭제된/.test(reader.notice))
         throw new Error("사이트에 회차 본문이 준비되지 않았습니다.");

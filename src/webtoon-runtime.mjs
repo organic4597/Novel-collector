@@ -1,6 +1,6 @@
 import { evaluatePresetPage, validateRunnablePreset, presetHash, clickPresetAction, matchesPresetPage } from "./preset-runtime.mjs";
 import { webtoonSource } from "./webtoon-source.mjs";
-import { chapterIdFor, readReaderDocument } from "./collector.mjs";
+import { chapterIdFor, readReaderDocument, contentNotReadyError } from "./collector.mjs";
 
 import { webtoonPreset } from "./webtoon-presets.mjs";
 export { defaultWebtoonPreset, webtoonPreset } from "./webtoon-presets.mjs";
@@ -122,11 +122,13 @@ export async function webtoonNavigate(page,url,signal) {
   if(page.url().replace(/\/$/,"")!==navigationUrl.replace(/\/$/,""))throw Error("웹툰 페이지가 다른 주소로 이동했습니다.");
   const status=await page.evaluate(readReaderDocument);
   if(status.challenge||status.verificationRequired)throw Object.assign(Error("웹툰 원본 사이트에서 직접 접근 확인을 완료하세요."),{code:"NEEDS_ATTENTION",attentionKind:status.challenge?"captcha":"authentication"});
+  if(status.contentNotReady)throw contentNotReadyError();
   const membership=await this.authenticateNavigation(page,signal);
   if(membership?.authenticated&&!membership.reused){
     const verified=await page.goto(navigationUrl,{waitUntil:"domcontentloaded",timeout:45000}),problem=await this.responseProblem(verified);
     if(problem)throw problem;
     const state=await page.evaluate(readReaderDocument);
     if(page.url()!==navigationUrl||state.challenge||state.verificationRequired)throw Object.assign(Error("웹툰 원본 사이트의 정상 접근 확인이 필요합니다."),{code:"NEEDS_ATTENTION",attentionKind:state.challenge?"captcha":"authentication"});
+    if(state.contentNotReady)throw contentNotReadyError();
   }
 }

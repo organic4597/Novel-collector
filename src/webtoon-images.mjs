@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { validateRunnablePreset, matchesPresetPage, evaluatePresetPage } from "./preset-runtime.mjs";
 import { isImageType } from "./webtoon-source.mjs";
+import { readReaderDocument, contentNotReadyError } from "./collector.mjs";
 
 export const WEBTOON_LIMITS=Object.freeze({imageBytes:8*1024**2,chapterBytes:512*1024**2,images:1000});
 const digest=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -73,7 +74,14 @@ export async function extractWebtoonImages(page,job,chapter,signal,onProgress=()
     await this.webtoonNavigate(page,chapter.url,signal);
     const deadline=Date.now()+this.contentTimeoutMs;
     let state=await page.evaluate(webtoonImageState,{reader:config.pages.reader});
-    while(!state.count&&Date.now()<deadline){signal?.throwIfAborted();await page.waitForTimeout(150);state=await page.evaluate(webtoonImageState,{reader:config.pages.reader});}
+    while(!state.count){
+      signal?.throwIfAborted();
+      const reader=await page.evaluate(readReaderDocument);
+      if(reader.challenge||reader.verificationRequired)throw Object.assign(fail("웹툰 원본 사이트의 접근 확인이 필요합니다.","NEEDS_ATTENTION"),{attentionKind:reader.challenge||reader.verificationKind==="captcha"?"captcha":"authentication"});
+      if(reader.contentNotReady)throw contentNotReadyError();
+      if(Date.now()>=deadline)break;
+      await page.waitForTimeout(150);state=await page.evaluate(webtoonImageState,{reader:config.pages.reader});
+    }
     if(state.rootCount!==1||!state.count)throw fail("웹툰 본문 루트·이미지를 찾지 못했습니다.","IMAGE_ROOT_MISSING");
     if(state.count>WEBTOON_LIMITS.images)throw fail("웹툰 회차 이미지가 1,000장 상한을 초과했습니다.","IMAGE_COUNT_LIMIT");
     if(old&&!job.overwrite&&old.expectedImages!==state.count)throw fail("웹툰 이미지 목록이 저장 중인 회차와 다릅니다.","CHECKPOINT_CONFLICT");

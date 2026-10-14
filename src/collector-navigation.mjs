@@ -5,7 +5,7 @@ export async function navigate(
   { preserveAuthentication = false } = {},
   helpers,
 ) {
-  const { makeBookId, abortIfNeeded, readReaderDocument, attention } = helpers;
+  const { makeBookId, abortIfNeeded, readReaderDocument, attention, contentNotReadyError } = helpers;
   makeBookId(url);
   const transport = this.viewerOrigins?.resolve(url) || url;
   if (!preserveAuthentication || !this.navigationAuthentication.has(page))
@@ -49,6 +49,7 @@ export async function navigate(
           : "CAPTCHA 확인이 필요합니다.",
         "captcha",
       );
+    if (!problem && reader.contentNotReady) throw contentNotReadyError();
     const authentication = await this.authenticateNavigation(
       page,
       signal,

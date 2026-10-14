@@ -19,6 +19,34 @@ const missingBody =
 const textFor = (number) =>
   `${number}화 첫 줄\n이어지는 줄\n\n${number}화 마지막 문단`;
 
+test("five runtime unavailable bodies are recorded without request failures and the next chapter collects; retry clears them", async t => {
+  const pages = new Map([[base, {html:catalogHtml([6,5,4,3,2,1])}]]);
+  for (let number=1; number<=6; number++) pages.set(chapterUrl(number), {html:number===6?bodyFor(number):missingBody});
+  const events = [], f = await fixture(t,{pages,onEvent:(level,message)=>events.push({level,message})});
+  let requestsFailed=0;
+  f.hooks.requestFailure=async()=>requestsFailed++;
+  const bookId=makeBookId(base), result=await f.collector.run(f.job,f.hooks);
+  assert.equal(result.status,"completed_with_errors");
+  assert.equal(result.completed,1);
+  assert.equal(result.failed,5);
+  assert.equal(requestsFailed,0);
+  const failures=await f.store.listFailures(bookId);
+  assert.equal(failures.length,5);
+  assert.ok(failures.every(item=>item.code==="CONTENT_NOT_READY"&&item.retryable));
+  assert.equal(events.filter(item=>item.level==="warn"&&/준비중 회차 건너뜀/.test(item.message)).length,5);
+  assert.equal(await f.store.readChapter(bookId,failures[0].id),null);
+  const txt=await readFile((await f.store.getExport(f.job.id,"txt")).path,"utf8");
+  assert.doesNotMatch(txt,/본문이 아직 준비되지/);
+  assert.match(txt,/6화 마지막 문단/);
+  for (let number=1; number<=5; number++) pages.set(chapterUrl(number),{html:bodyFor(number)});
+  f.browser.visited.length=0;
+  const retried=await f.collector.run({...f.job,retryOnlyFailed:true},f.hooks);
+  assert.equal(retried.completed,5);
+  assert.equal(retried.failed,0);
+  assert.deepEqual(f.browser.visited,[1,2,3,4,5].map(chapterUrl));
+  assert.deepEqual(await f.store.listFailures(bookId),[]);
+});
+
 test("declared unready chapters count in the catalog, skip requests, preserve cached text and remain retryable", async (t) => {
   const f = await fixture(t, {
     pages: new Map([
@@ -125,7 +153,7 @@ test("real reader failures report once and HTTP429 carries the server longer Ret
   const f = await fixture(t, {
     pages: new Map([
       [base, { html: catalogHtml([1, 2]) }],
-      [chapterUrl(1), { html: missingBody }],
+      [chapterUrl(1), { html: "<div data-theme-novel-content></div>" }],
       [chapterUrl(2), { html: bodyFor(2) }],
     ]),
   });
@@ -442,7 +470,7 @@ test("one unavailable chapter yields completed_with_errors and a partial export 
   assert.ok(
     (await f.store.readEvents(f.job.id)).some(
       (event) =>
-        event.level === "error" && /본문이 준비되지/.test(event.message),
+        event.level === "warn" && /준비중 회차 건너뜀/.test(event.message),
     ),
   );
 });

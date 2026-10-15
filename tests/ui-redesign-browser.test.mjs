@@ -1083,3 +1083,50 @@ test(
     });
   },
 );
+
+
+test("refresh waits for the session without flashing login and restores the selected tab", async () => {
+  await withBrowser(async (browser, base) => {
+    const {context,page,errors}=await openFixture(browser,base,390);
+    await visit(page,"library");
+    await page.addInitScript(()=>{
+      window.__loginSeen=false;
+      new MutationObserver(()=>{const login=document.getElementById("login-view");if(login&&!login.hidden)window.__loginSeen=true;})
+        .observe(document,{childList:true,subtree:true,attributes:true,attributeFilter:["hidden"]});
+    });
+    let release,arrived;
+    const waiting=new Promise(resolve=>{release=resolve;}),requested=new Promise(resolve=>{arrived=resolve;});
+    await page.route("**/api/session",async route=>{arrived();await waiting;await route.continue();});
+    try{
+      await page.reload({waitUntil:"domcontentloaded"});await requested;
+      assert.deepEqual(await page.evaluate(()=>({login:document.getElementById("login-view").hidden,app:document.getElementById("app-view").hidden,checking:!document.getElementById("session-view")?.hidden})),{login:true,app:true,checking:true});
+      release();
+      await page.locator("#app-view").waitFor({state:"visible"});
+      await shown(page,"#library-view");
+      await page.locator("#books-list .book-card").first().waitFor();
+      assert.equal(await page.evaluate(()=>window.__loginSeen),false);
+      assert.deepEqual(errors,[]);
+    }finally{release();await context.close();}
+  });
+});
+
+test("a fast session response cannot reveal the app before later defer modules are ready", async () => {
+  await withBrowser(async (browser,base)=>{
+    const {context,page,errors}=await openFixture(browser,base,1280);
+    await visit(page,"library");
+    let release,arrived;
+    const waiting=new Promise(resolve=>{release=resolve;}),requested=new Promise(resolve=>{arrived=resolve;});
+    await page.route("**/library.js*",async route=>{arrived();await waiting;await route.continue();});
+    try{
+      const session=page.waitForResponse(response=>new URL(response.url()).pathname==="/api/session");
+      await page.reload({waitUntil:"commit"});await requested;await session;
+      assert.deepEqual(await page.evaluate(()=>({login:document.getElementById("login-view").hidden,app:document.getElementById("app-view").hidden,ready:document.readyState})),{login:true,app:true,ready:"interactive"});
+      release();
+      await page.waitForLoadState("domcontentloaded");
+      await page.locator("#app-view").waitFor({state:"visible"});
+      await shown(page,"#library-view");
+      await page.locator("#books-list .book-card").first().waitFor();
+      assert.deepEqual(errors,[]);
+    }finally{release();await context.close();}
+  });
+});

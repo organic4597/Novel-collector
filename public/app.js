@@ -16,10 +16,13 @@ const state = {
   queueReorderBusy: false,
   draggedJob: null,
   generation: 0,
+  navigationRevision: 0,
   jobSignature: "",
   cardCache: new Map(),
   pendingActions: new Set(),
 };
+const views = ["queue", "library", "history", "discover", "settings", "activity", "presets", "releases"];
+const lastViewKey = "collector.lastView";
 const statuses = {
   queued: "대기 중",
   running: "수집 중",
@@ -89,11 +92,18 @@ function showLogin() {
   clearTimeout(state.timer);
   $("app-view").hidden = true;
   $("login-view").hidden = false;
+  $("session-view").hidden = true;
+  $("session-view").setAttribute("aria-busy", "false");
   for (const dialog of document.querySelectorAll("dialog[open]"))
     dialog.close();
   document.dispatchEvent(new CustomEvent("collector:auth", { detail: false }));
 }
 function showApp() {
+  let view = state.view;
+  try {
+    const saved = localStorage.getItem(lastViewKey);
+    if (saved !== null) view = views.includes(saved) ? saved : "queue";
+  } catch {}
   state.authenticated = true;
   state.generation += 1;
   api.invalidate("session");
@@ -101,10 +111,15 @@ function showApp() {
   state.jobSignature = "";
   state.cardCache.clear();
   $("login-view").hidden = true;
+  $("session-view").hidden = true;
+  $("session-view").setAttribute("aria-busy", "false");
   $("app-view").hidden = false;
   $("login-password").value = "";
   errorNotice();
+  state.view = view;
+  const navigation = state.navigationRevision;
   document.dispatchEvent(new CustomEvent("collector:auth", { detail: true }));
+  if (navigation === state.navigationRevision) switchView(state.view);
   poll();
 }
 function connection(ok, message) {
@@ -739,7 +754,10 @@ async function loadBooks() {
   await window.CollectorLibrary.refresh({ force: false });
 }
 function switchView(view) {
+  if (!views.includes(view)) return;
   state.view = view;
+  state.navigationRevision++;
+  try { localStorage.setItem(lastViewKey, view); } catch {}
   const managementMenu = $("management-menu");
   if (managementMenu?.open) {
     const returnFocus = managementMenu.contains(document.activeElement);
@@ -747,16 +765,7 @@ function switchView(view) {
     if (returnFocus)
       managementMenu.querySelector("summary").focus({ preventScroll: true });
   }
-  for (const id of [
-    "queue",
-    "library",
-    "history",
-    "discover",
-    "settings",
-    "activity",
-    "presets",
-    "releases",
-  ])
+  for (const id of views)
     $(`${id}-view`).hidden = view !== id;
   for (const button of document.querySelectorAll("[data-view]")) {
     const selected = button.dataset.view === view;
@@ -972,15 +981,30 @@ window.addEventListener("focus", () => {
 window.addEventListener("online", () => {
   if (state.authenticated) poll();
 });
-const sessionGeneration = state.generation;
-api("/api/session")
-  .then((session) => {
-    if (sessionGeneration !== state.generation) return;
-    if (session?.authenticated) showApp();
+// A fast session response can arrive before the later defer modules are ready.
+const pageReady = document.readyState === "complete" ? Promise.resolve() :
+  new Promise(resolve => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
+async function checkSession() {
+  const generation = state.generation;
+  $("session-view").setAttribute("aria-busy", "true");
+  $("session-message").textContent = "로그인 상태를 확인하고 있습니다…";
+  $("session-retry").hidden = true;
+  $("session-retry").disabled = true;
+  try {
+    const session = await api("/api/session");
+    await pageReady;
+    if (generation !== state.generation) return;
+    if (typeof session?.authenticated !== "boolean")
+      throw new Error("로그인 상태 응답을 확인할 수 없습니다. 다시 시도하세요.");
+    if (session.authenticated) showApp();
     else showLogin();
-  })
-  .catch((error) => {
-    if (sessionGeneration !== state.generation) return;
-    showLogin();
-    $("login-error").textContent = textError(error);
-  });
+  } catch (error) {
+    if (generation !== state.generation) return;
+    $("session-view").setAttribute("aria-busy", "false");
+    $("session-message").textContent = textError(error);
+    $("session-retry").hidden = false;
+    $("session-retry").disabled = false;
+  }
+}
+$("session-retry").addEventListener("click", checkSession);
+void checkSession();

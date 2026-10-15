@@ -1808,6 +1808,20 @@ summary {
   margin: 8px 0;
   line-height: 1.8;
 }
+.session-view {
+  min-height: 100vh;
+  min-height: 100svh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 32px;
+  text-align: center;
+}
+.session-view p {
+  max-width: 32rem;
+  color: var(--muted);
+}
 .login-view {
   min-height: 100dvh;
   display: grid;

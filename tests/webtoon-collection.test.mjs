@@ -176,18 +176,34 @@ test("webtoon defaults are editable configuration copies and never activate bind
   assert.equal(saved.config.version,3);assert.equal(saved.config.contentType,"webtoon");assert.equal(saved.config.pages.reader.fields.images.relativeTo,"root");
   assert.equal(presets.listBindings().bindings.length,0);await assert.rejects(presets.bind(saved.id),{status:409});
 });
-test("mixed novel/webtoon reservations share two slots and retain origin-specific attention state",async t=>{
-  const root=await mkdtemp(join(tmpdir(),"webtoon-slots-")),store=await new FolderStore(root).init();t.after(()=>rm(root,{recursive:true,force:true}));
+test("mixed novel/webtoon reservations share two slots and retain origin-specific attention state",{timeout:15000},async t=>{
+  const root=await mkdtemp(join(tmpdir(),"webtoon-slots-")),store=await new FolderStore(root).init(),finishes=new Map(),started=[];
+  let scheduler,current=0,maximum=0;
+  t.after(async()=>{for(const finish of [...finishes.values()])finish();await scheduler?.stop();await rm(root,{recursive:true,force:true});});
+  const until=async(check,message)=>{
+    const deadline=Date.now()+5000;
+    while(Date.now()<deadline){if(await check())return;await new Promise(resolve=>setTimeout(resolve,10));}
+    assert.fail(message);
+  };
   const selected=webtoonPreset(null,"https://sbxh9.com");
-  await store.createJobs([{url:"https://newtoki1.org/novel/1"},{url:"https://sbxh9.com/webtoon/1",...selected},
+  const {jobs}=await store.createJobs([{url:"https://newtoki1.org/novel/1"},{url:"https://sbxh9.com/webtoon/1",...selected},
     {url:"https://sbxh9.com/webtoon/2",...selected}]);
-  let current=0,maximum=0;const finishes=[];
-  const scheduler=new Scheduler({store,collector:{delayMs:0},collectorFactory:()=>({delayMs:0,close:async()=>{},run:async()=>{
-    current++;maximum=Math.max(maximum,current);await new Promise(resolve=>finishes.push(()=>{current--;resolve();}));return{status:"completed"};}}),intervalMs:60000});
-  t.after(()=>scheduler.stop());await scheduler.start();await scheduler.tick();await new Promise(r=>setTimeout(r,20));
-  assert.equal(maximum,2);assert.equal(scheduler.activeJobIds.length,2);finishes.shift()();await new Promise(r=>setTimeout(r,30));
-  assert.equal(maximum,2);while(finishes.length)finishes.shift()();await new Promise(r=>setTimeout(r,30));
-  while(finishes.length)finishes.shift()();await scheduler.stop();
+  scheduler=new Scheduler({store,collector:{delayMs:0},collectorFactory:()=>({delayMs:0,close:async()=>{},run:async(job,_hooks,signal)=>{
+    started.push(job.id);current++;maximum=Math.max(maximum,current);
+    try{await new Promise(resolve=>{
+      const finish=()=>{finishes.delete(job.id);signal.removeEventListener("abort",finish);resolve();};
+      finishes.set(job.id,finish);signal.addEventListener("abort",finish,{once:true});if(signal.aborted)finish();
+    });return{status:"completed"};}finally{current--;}
+  }}),intervalMs:60000});
+  await scheduler.start();
+  await until(()=>finishes.size===2,"the first mixed reservations did not start");
+  assert.equal(maximum,2);assert.equal(scheduler.activeJobIds.length,2);assert.deepEqual(started,jobs.slice(0,2).map(job=>job.id));
+  finishes.get(jobs[0].id)();
+  await until(()=>finishes.has(jobs[2].id),"the third reservation did not fill the released slot");
+  assert.equal(maximum,2);assert.equal(scheduler.activeJobIds.length,2);
+  for(const finish of [...finishes.values()])finish();
+  await until(async()=>scheduler.activeJobIds.length===0&&(await store.listJobs()).every(job=>job.status==="completed"),"mixed reservations did not all complete");
+  assert.equal(started.length,3);assert.equal(current,0);await scheduler.stop();
   const attention=new SiteAttention({store});await attention.load();await attention.holdSite("sbxh9.com",{kind:"site_blocked",reason:"fixture HTTP403",jobIds:[],requiredSlots:[1]});
   const restored=new SiteAttention({store});await restored.load();assert.equal(restored.isHeld("sbxh9.com"),true);assert.equal(restored.isHeld("toki32.com"),false);
 });

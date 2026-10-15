@@ -221,6 +221,10 @@ test("authenticated webtoon dashboard shows type-specific reservations, stored i
   await page.locator("#reader-text .webtoon-reader-image").first().waitFor();assert.equal(await page.locator("#reader-text .webtoon-reader-image").count(),3);
   const [chapterDownload]=await Promise.all([page.waitForEvent("download"),page.locator("#reader-text a").click()]);
   assert.equal(chapterDownload.suggestedFilename(),"합성 웹툰 0001.cbz");
+  for(let index=0;index<3;index++){
+    await page.locator(".webtoon-reader-image").nth(index).scrollIntoViewIfNeeded();
+    await page.waitForFunction(index=>{const image=document.querySelectorAll(".webtoon-reader-image")[index];return image.complete&&image.naturalWidth>0;},index);
+  }
   await page.waitForFunction(()=>[...document.querySelectorAll(".webtoon-reader-image")].every(image=>image.complete&&image.naturalWidth>0));
   await page.keyboard.press("Escape");assert.equal(await page.locator("#reader-dialog").evaluate(n=>n.open),false);
   for(const width of [1280,390]){await page.setViewportSize({width,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);}

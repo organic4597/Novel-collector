@@ -20,6 +20,7 @@ import { InstanceControl } from "./instance-control.mjs";
 import { isWebtoonUrl, webtoonSource, validDiscoveryId } from "./webtoon-source.mjs";
 import { webtoonPreset } from "./webtoon-runtime.mjs";
 import { LibraryDownloads } from "./library-downloads.mjs";
+import { ReaderImages } from "./reader-images.mjs";
 import { createFeatureRouter, publicBook } from "./features-api.mjs";
 import { BackoffController } from "./request-backoff.mjs";
 import { SiteAttention } from "./site-attention.mjs";
@@ -115,6 +116,7 @@ export function createApp({
   credentials = null,
   settings = null,
   downloads = null,
+  readerImages = null,
   metadata = null,
   siteBrowser = null,
   accounts = null,
@@ -154,7 +156,9 @@ export function createApp({
     const source=webtoonSource(input.url);
     return{...input,...webtoonPreset(extractionPresets,new URL(source.url).origin,input.presetId||null,source.contentType)};
   };
+  const imageReader = readerImages ?? new ReaderImages({ store });
   const featureRouter = createFeatureRouter({
+    readerImages: imageReader,
     store,
     scheduler,
     settings,
@@ -639,6 +643,7 @@ export function createApp({
         "/site-verification.css": "site-verification.css",
         "/site-account.js": "site-account.js",
         "/site-account.css": "site-account.css",
+        "/reader-images.js": "reader-images.js",
         "/library.js": "library.js",
         "/logs.js": "logs.js",
         "/activity.js": "activity.js",
@@ -711,6 +716,7 @@ export function createApp({
     );
   });
   app.on("close", () => {
+    imageReader.close();
     void sessions.flush().catch(() => {});
   });
   app.requestTimeout = 30000;

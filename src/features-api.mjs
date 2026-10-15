@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { webtoonImageInfo } from "./webtoon-images.mjs";
 import { isImageType } from "./webtoon-source.mjs";
 const fail = (message, status) => Object.assign(new Error(message), { status });
+function readerHeaders(mime,etag,size){return{"Content-Type":mime,"Content-Length":size,"Cache-Control":"private, no-cache","CDN-Cache-Control":"no-store","Vary":"Cookie","X-Content-Type-Options":"nosniff",ETag:etag};}
+function readerUnchanged(request,etag){return String(request.headers?.["if-none-match"]||"").split(",").some(value=>value.trim()==="*"||value.trim().replace(/^W\//,"")===etag);}
 export function streamDownload(request, response, file) {
   const headers = {
     "Content-Type": file.mimeType,
@@ -39,6 +41,7 @@ export function createFeatureRouter({
   scheduler,
   settings,
   downloads,
+  readerImages = null,
   metadata,
   profiles = null,
   recovery = null,
@@ -137,13 +140,32 @@ export function createFeatureRouter({
           if(!downloads)throw fail("웹툰 다운로드를 사용할 수 없습니다.",503);
           streamDownload(request,response,await downloads.chapterCbz(id,parts[4]));return true;
         }
+        if(parts.length===5&&method==="GET"){
+          const viewer=readerImages?await readerImages.manifest(id,chapter):null;
+          send(response,200,{...chapter,...(viewer?{viewer}:{})});return true;
+        }
+        if(parts[5]==="viewer"&&parts.length===6){
+          if(!readerImages)throw fail("보기용 이미지를 사용할 수 없습니다.",503);
+          send(response,200,await readerImages.manifest(id,chapter));return true;
+        }
+        if(parts[5]==="viewer"&&parts.length===9&&/^\d{1,3}\.webp$/.test(parts[8])){
+          if(!readerImages)throw fail("보기용 이미지를 사용할 수 없습니다.",503);
+          const file=await readerImages.file(id,chapter,parts[6],parts[7],Number(parts[8].split(".")[0]));
+          const headers=readerHeaders(file.mimeType,file.etag,file.size);
+          if(readerUnchanged(request,file.etag)){response.writeHead(304,headers);response.end();return true;}
+          response.writeHead(200,headers);
+          if(method==="HEAD"){response.end();return true;}
+          const stream=createReadStream(file.path);stream.on("error",()=>response.destroy());response.on("close",()=>stream.destroy());stream.pipe(response);return true;
+        }
         if(parts.length===7&&parts[5]==="images"&&/^\d{1,4}$/.test(parts[6])){
           const image=chapter.complete&&chapter.images?.[Number(parts[6])-1];
           if(!image||!/^\d{4}-[a-f0-9]{16}\.(png|jpg|gif|webp)$/.test(image.filename))throw fail("저장된 웹툰 이미지가 없습니다.",404);
+          if(url.searchParams.has("v")&&url.searchParams.get("v")!==image.sha256)throw fail("이미지가 변경되었습니다. 회차를 다시 열어주세요.",409);
           const bytes=await readFile(store.path("books",id,"chapters",chapter.id,image.filename)),info=webtoonImageInfo(bytes);
           if(info.sha256!==image.sha256)throw fail("웹툰 이미지 해시가 일치하지 않습니다.",409);
-          response.writeHead(200,{"Content-Type":info.mimeType,"Cache-Control":"private, no-cache","X-Content-Type-Options":"nosniff"});
-          response.end(method==="HEAD"?undefined:bytes);return true;
+          const etag=`"${info.sha256}"`,headers=readerHeaders(info.mimeType,etag,bytes.length);
+          if(readerUnchanged(request,etag)){response.writeHead(304,headers);response.end();return true;}
+          response.writeHead(200,headers);response.end(method==="HEAD"?undefined:bytes);return true;
         }
       }
       if (

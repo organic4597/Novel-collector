@@ -1433,6 +1433,39 @@ html.work-popup-open {
   height: auto;
   margin: 0;
 }
+.reader-text.reader-image-mode {
+  max-width: none;
+  white-space: normal;
+  line-height: normal;
+}
+.reader-image-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.reader-image-toolbar .export-link {
+  margin-right: auto;
+}
+.reader-image-list, .reader-image-group, .reader-image-parts {
+  display: block;
+  padding: 0;
+  margin: 0;
+  line-height: 0;
+  overflow-anchor: none;
+}
+.reader-image-status {
+  margin: 12px 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.reader-image-group > button {
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
 .failures-list {
   max-height: 45dvh;
   overflow: auto;

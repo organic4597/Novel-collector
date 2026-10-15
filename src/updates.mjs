@@ -29,10 +29,12 @@ export class Updates {
     const candidates=raw.filter(candidate=>{
       if(channel==='stable'){const comparison=compareVersions(candidate.version,this.installed.channel==='stable'?this.currentVersion:this.installed.baseVersion);return comparison>0||comparison===0&&this.installed.channel!=='stable';}
       return candidate.channel!==this.installed.channel||candidate.commit!==this.installed.commit;
-    }).map(({download,...candidate})=>candidate);
-    const target=candidates[0]||null,available=!!target;
+    }).map(({download,...candidate})=>channel==='stable'&&this.installed.channel!=='stable'&&compareVersions(candidate.version,this.installed.baseVersion)===0?{...candidate,restore:true}:candidate);
+    const target=candidates[0]||null;
+    // A selectable return/older patch is not a newly available update.
+    const available=!!target&&(channel==='stable'?compareVersions(target.version,this.installed.channel==='stable'?this.currentVersion:this.installed.baseVersion)>0:raw[0].commit!==this.installed.commit);
     return{channel,installed:{...this.installed},candidates,target,currentVersion:this.currentVersion,latestVersion:target?.version||cached.release?.version||null,repository:this.repository,releaseUrl:target?.url||cached.release?.url||`https://github.com/${this.repository}/releases`,
-      available,installable:!this.disabled&&available&&!!raw.find(c=>c.id===target.id)?.download,checkedAt:cached.checkedAt||null,nextCheckAt:cached.checkedAt?cached.checkedAt+DAY:null,error:this.disabled||cached.error,
+      available,installable:!this.disabled&&!!target&&!!raw.find(c=>c.id===target.id)?.download,checkedAt:cached.checkedAt||null,nextCheckAt:cached.checkedAt?cached.checkedAt+DAY:null,error:this.disabled||cached.error,
       job:{state:job.state,message:job.message||"",version:job.version||null,channel:job.channel||'stable',commit:job.commit??null,step:job.step||null,errorCode:job.errorCode||null,exitCode:job.exitCode??null},busy:!!this.child||["preparing","ready","applying","verifying"].includes(job.state)};
   }
   check({force=false,channel='stable'}={}){

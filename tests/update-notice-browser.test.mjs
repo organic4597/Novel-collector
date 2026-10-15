@@ -1,0 +1,50 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {mkdtemp,mkdir,writeFile,rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {chromium} from "playwright";
+import {FolderStore} from "../src/store.mjs";
+import {Updates} from "../src/updates.mjs";
+import {createApp} from "../src/server.mjs";
+import {APP_VERSION} from "../src/version.mjs";
+
+test("a restarted hotfix dashboard stays quiet, keeps manual return and advertises only a newer patch",{timeout:60000},async t=>{
+  const root=await mkdtemp(join(tmpdir(),"update-notice-browser-")),repository="example/Novel-collector",commit="a".repeat(40);
+  let app,browser,updates;
+  t.after(async()=>{await browser?.close();if(app?.listening){app.closeAllConnections();await new Promise(resolve=>app.close(resolve));}updates?.close();await rm(root,{recursive:true,force:true});});
+  const store=await new FolderStore(join(root,"data")).init();await mkdir(join(root,".updates"));
+  const identity={version:APP_VERSION,channel:"hotfix",commit,baseVersion:APP_VERSION};
+  await writeFile(join(root,".updates","installed-version.json"),JSON.stringify(identity));
+  const release={version:APP_VERSION,url:`https://github.com/${repository}/releases`,download:{url:"fixture"}};
+  await writeFile(join(root,".updates","release-cache.json"),JSON.stringify({repository,checkedAt:1000,release}));
+  updates=await new Updates({rootDir:root,repository,clock:()=>1000,fetcher:async()=>{throw Error("unexpected external request");}}).load();
+  const patch=revision=>({id:`hotfix:${APP_VERSION}:${revision}`,channel:"hotfix",version:APP_VERSION,commit:revision,baseVersion:APP_VERSION,download:{url:"fixture"}});
+  updates.caches.hotfix={checkedAt:1000,candidates:[patch(commit),patch("b".repeat(40))],error:null};
+  app=createApp({store,scheduler:{},updates,adminPassword:"synthetic-notice-password"});await new Promise(resolve=>app.listen(0,"127.0.0.1",resolve));
+  const base=`http://127.0.0.1:${app.address().port}`;
+  browser=await chromium.launch({headless:true,executablePath:process.env.BROWSER_PATH||undefined});
+  const context=await browser.newContext(),page=await context.newPage(),errors=[];
+  page.on("pageerror",error=>errors.push(error.message));
+  assert.equal((await context.request.post(base+"/api/login",{data:{password:"synthetic-notice-password"}})).status(),200);
+  for(let visit=0;visit<2;visit++){
+    await page.goto(base,{waitUntil:"domcontentloaded"});
+    await page.waitForFunction(()=>document.querySelector("#update-current").textContent.includes("aaaaaaa"));
+    assert.equal(await page.locator("#update-notice").evaluate(element=>element.hidden),true);
+    await page.locator("#management-menu-trigger").click();await page.locator("#nav-settings").click();await page.locator("#update-apply").click();
+    assert.match(await page.locator("#update-candidate option").textContent(),/정식 복귀/);
+    assert.equal(await page.locator("#update-check").isEnabled(),true);
+    assert.match(await page.locator("#update-check").textContent(),/정식 버전으로 복귀/);
+  }
+  await page.locator("#update-channel").selectOption("hotfix");await page.locator("#update-check").click();
+  await page.waitForFunction(()=>document.querySelector("#update-candidate").value.endsWith("b".repeat(40)));
+  assert.equal(await page.locator("#update-notice").evaluate(element=>element.hidden),true);
+  assert.equal(await page.locator("#update-check").isEnabled(),true);
+  updates.caches.hotfix.candidates.unshift(patch("c".repeat(40)));
+  await page.evaluate(()=>document.dispatchEvent(new Event("visibilitychange")));
+  await page.waitForFunction(()=>!document.querySelector("#update-notice").hidden&&document.querySelector("#update-notice-text").textContent.includes("ccccccc"));
+  await page.locator("#update-candidate").selectOption(`hotfix:${APP_VERSION}:${"b".repeat(40)}`);
+  assert.match(await page.locator("#update-notice-text").textContent(),/ccccccc/);
+  assert.doesNotMatch(await page.locator("#update-notice-text").textContent(),/bbbbbbb/);
+  assert.deepEqual(errors,[]);
+});

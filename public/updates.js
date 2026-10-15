@@ -26,12 +26,12 @@
     if(!items.some(c=>c.id===selectedId))selectedId=items[0]?.id||"";
     select.replaceChildren();
     if(!items.length){const option=document.createElement("option");option.value="";option.textContent=awaitingCheck||!state?.checkedAt?"먼저 업데이트를 확인하세요.":"적용할 업데이트가 없습니다.";select.append(option);}
-    for(const item of items){const option=document.createElement("option");option.value=item.id;option.textContent=label(item);select.append(option);}
+    for(const item of items){const option=document.createElement("option");option.value=item.id;option.textContent=item.restore===true?`${item.version} · 정식 복귀`:label(item);select.append(option);}
     select.value=selectedId;select.disabled=busy||!!state?.busy||!items.length;
     $("update-channel").value=channel;$("update-channel").disabled=!!state?.busy||restarting||pendingAction==="apply";
     $("update-channel-help").textContent=hints[channel];$("update-channel-help").dataset.warning=String(channel==="develop");
     const target=selected();$("update-candidate-summary").textContent=target?.summary||"";
-    $("update-check").textContent=target?"선택한 업데이트 적용":"지금 확인";
+    $("update-check").textContent=target?.restore===true?"선택한 정식 버전으로 복귀":target?"선택한 업데이트 적용":"지금 확인";
     $("update-check").disabled=busy||!!state?.busy||restarting||(!!target&&!state.installable)||(!target&&!!state?.candidates?.length);
     if(target?.url)$("update-release-link").href=target.url;
   }
@@ -40,7 +40,7 @@
     $("update-current").textContent=state.installed?label(state.installed):state.currentVersion;$("update-latest").textContent=state.latestVersion||"아직 확인하지 않음";
     $("update-repository").textContent=state.repository;$("update-checked").textContent=state.checkedAt?new Date(state.checkedAt).toLocaleString():"아직 확인하지 않음";
     $("update-notice").hidden=!state.available&&!state.busy&&!restarting;
-    const target=selected()||candidates()[0];
+    const target=state.target||selected()||candidates()[0];
     $("update-notice-text").textContent=state.busy?state.job.message:state.available?`업데이트 ${target?label(target):state.latestVersion}이 있습니다. 현재 ${state.currentVersion}`:"재시작 완료";
     $("update-error").textContent=requestError?.message||state.error||(state.job.state==="failed"?state.job.message:"");
     $("update-progress").textContent=reconnecting?"서버 연결을 다시 확인하고 있습니다. 마지막 로그는 유지됩니다.":state.job.message;
@@ -125,7 +125,8 @@
     if(busy||state?.busy||restarting||!alive())return;
     const target=selected();
     if(target){
-      if(!state.installable||!window.confirm(`${label(target)}을 적용할까요?${channel==="develop"?"\n실험판은 불안정할 수 있습니다.":""}\n로컬 백업 후 교체·재시작합니다. DB·계정·프로필은 유지됩니다.`))return;
+      const confirmation=target.restore===true?`${target.version} 정식 버전으로 복귀할까요?`:`${label(target)}을 적용할까요?`;
+      if(!state.installable||!window.confirm(`${confirmation}${channel==="develop"?"\n실험판은 불안정할 수 있습니다.":""}\n로컬 백업 후 교체·재시작합니다. DB·계정·프로필은 유지됩니다.`))return;
       requestError=null;void refresh("/api/updates/apply",{method:"POST",body:JSON.stringify({channel,version:target.version,commit:target.commit||null})});
     }else void refresh("/api/updates/check",{method:"POST",body:JSON.stringify({channel})});
   };

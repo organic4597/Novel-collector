@@ -77,6 +77,72 @@ function change(f, id, value) {
   f.d.getElementById(id).value = value;
   f.d.getElementById(id).dispatchEvent(new f.w.Event("change", { bubbles: true }));
 }
+test("same-version stable return stays manual, clearly labelled and does not advertise an update", async t => {
+  const writes = [], restore = { ...candidate("stable", null), restore: true }, installed = { version: restore.version, channel: "hotfix", commit, baseVersion: restore.version };
+  const f = await fixture(t, async (path, options = {}) => {
+    if (path.endsWith("/apply")) { writes.push(JSON.parse(options.body)); return { accepted: true }; }
+    if (path.startsWith("/api/updates/log")) return { items: [], hasMore: false };
+    return status({ currentVersion: restore.version, available: false, installable: true, busy: false, channel: "stable", installed,
+      candidates: [restore], target: restore, job: { state: "idle", message: "" } });
+  });
+  assert.equal(f.d.getElementById("update-notice").hidden, true);
+  assert.match(f.d.getElementById("update-current").textContent, /핫픽스.*aaaaaaa/);
+  assert.doesNotMatch(f.d.getElementById("update-current").textContent, /복귀/);
+  f.d.getElementById("update-apply").click();
+  assert.match(f.d.getElementById("update-candidate").textContent, /정식 복귀/);
+  assert.match(f.d.getElementById("update-check").textContent, /정식.*복귀/);
+  assert.equal(f.d.getElementById("update-check").disabled, false);
+  assert.deepEqual(writes, []);
+  let confirmation = ""; f.w.confirm = text => { confirmation = text; return true; };
+  f.d.getElementById("update-check").click(); await tick();
+  assert.match(confirmation, /1\.0\.0\.5.*정식.*복귀/);
+  assert.match(confirmation, /DB·계정·프로필/);
+  assert.deepEqual(writes, [{ channel: "stable", version: restore.version, commit: null }]);
+});
+
+test("older hotfixes remain selectable and applicable without a new-update notice", async t => {
+  const calls = [], patches = [candidate("hotfix", otherCommit), candidate("hotfix")];
+  const f = await fixture(t, async (path, options = {}) => {
+    calls.push({ path, options });
+    if (path.endsWith("/apply")) return { accepted: true };
+    if (path.startsWith("/api/updates/log")) return { items: [], hasMore: false };
+    const checked = path.endsWith("/check");
+    return status({ currentVersion: patches[0].version, available: false, installable: checked, busy: false, channel: checked ? "hotfix" : "stable",
+      installed: { version: patches[0].version, channel: "hotfix", commit: "c".repeat(40), baseVersion: patches[0].version },
+      candidates: checked ? patches : [], target: checked ? patches[0] : null, job: { state: "idle", message: "" } });
+  });
+  f.d.getElementById("update-apply").click(); change(f, "update-channel", "hotfix");
+  f.d.getElementById("update-check").click(); await tick();
+  assert.equal(f.d.getElementById("update-notice").hidden, true);
+  assert.equal(f.d.getElementById("update-candidate").options.length, 2);
+  change(f, "update-candidate", patches[1].id);
+  assert.equal(f.d.getElementById("update-check").disabled, false);
+  f.d.getElementById("update-check").click(); await tick();
+  assert.deepEqual(JSON.parse(calls.find(call => call.path.endsWith("/apply")).options.body), { channel: "hotfix", version: patches[1].version, commit });
+});
+
+test("a genuine newer hotfix stays in the banner when an older patch is selected manually", async t => {
+  const calls = [], newer = candidate("hotfix", "c".repeat(40)), older = candidate("hotfix");
+  const f = await fixture(t, async (path, options = {}) => {
+    calls.push({ path, options });
+    if (path.endsWith("/apply")) return { accepted: true };
+    if (path.startsWith("/api/updates/log")) return { items: [], hasMore: false };
+    const checked = path.endsWith("/check");
+    return status({ currentVersion: newer.version, available: checked, installable: checked, busy: false, channel: checked ? "hotfix" : "stable",
+      installed: { version: newer.version, channel: "hotfix", commit: otherCommit, baseVersion: newer.version },
+      candidates: checked ? [newer, older] : [], target: checked ? newer : null, job: { state: "idle", message: "" } });
+  });
+  f.d.getElementById("update-apply").click(); change(f, "update-channel", "hotfix");
+  f.d.getElementById("update-check").click(); await tick();
+  assert.equal(f.d.getElementById("update-notice").hidden, false);
+  change(f, "update-candidate", older.id);
+  assert.match(f.d.getElementById("update-notice-text").textContent, /ccccccc/);
+  assert.doesNotMatch(f.d.getElementById("update-notice-text").textContent, /aaaaaaa/);
+  assert.equal(f.d.getElementById("update-candidate").value, older.id);
+  f.d.getElementById("update-check").click(); await tick();
+  assert.deepEqual(JSON.parse(calls.find(call => call.path.endsWith("/apply")).options.body), { channel: "hotfix", version: older.version, commit });
+});
+
 test("one update menu checks the selected channel and applies the exact chosen revision after confirmation", async t => {
   const calls = [];
   const f = await fixture(t, async (path, options = {}) => {

@@ -149,3 +149,40 @@ test('update API accepts channel selection and rejects malformed targets without
   assert.equal((await post('check',{version:APP_VERSION})).status,400);
   assert.equal((await post('apply',{channel:'develop',version:APP_VERSION,commit:baseCommit})).status,409);
 });
+
+for(const channel of ['hotfix','develop'])test(`${channel} restart keeps stable return selectable without announcing the base release again`,async t=>{
+  const dir=await root(t),identity={version:APP_VERSION,channel,commit,baseVersion:APP_VERSION};
+  await mkdir(join(dir,'.updates'));
+  await writeFile(join(dir,'.updates','installed-version.json'),JSON.stringify(identity));
+  const release={version:APP_VERSION,url:`https://github.com/${repository}/releases`,download:{url:'fixture'}};
+  await writeFile(join(dir,'.updates','release-cache.json'),JSON.stringify({repository,checkedAt:1000,release}));
+  let calls=0;const updates=await new Updates({rootDir:dir,repository,clock:()=>1000,fetcher:async()=>{calls++;throw Error('unexpected request');}}).load();
+  const state=await updates.check();
+  assert.equal(state.available,false);assert.equal(state.installable,true);assert.equal(calls,0);
+  assert.equal(state.target.restore,true);assert.equal(state.candidates.length,1);
+  assert.equal(validateUpdateTarget(release,{version:APP_VERSION,installed:state.installed}),release);
+  updates.cached.release={...release,version:'99.0.0'};
+  const newer=await updates.status();assert.equal(newer.available,true);assert.equal(newer.installable,true);assert.notEqual(newer.target.restore,true);
+});
+
+for(const channel of ['hotfix','develop'])test(`${channel} newest installed commit does not advertise older selectable patches`,async t=>{
+  const dir=await root(t);await mkdir(join(dir,'.updates'));
+  await writeFile(join(dir,'.updates','installed-version.json'),JSON.stringify({version:APP_VERSION,channel,commit,baseVersion:APP_VERSION}));
+  const updates=await new Updates({rootDir:dir,repository}).load();
+  const patch=revision=>({id:`${channel}:${APP_VERSION}:${revision}`,channel,version:APP_VERSION,commit:revision,baseVersion:APP_VERSION,download:{url:'fixture'}});
+  updates.caches[channel]={checkedAt:1000,candidates:[patch(commit),patch(baseCommit)],error:null};
+  const state=await updates.status({channel});
+  assert.equal(state.available,false);assert.equal(state.installable,true);
+  assert.deepEqual(state.candidates.map(row=>row.commit),[baseCommit]);
+  assert.equal(validateUpdateTarget(patch(baseCommit),{channel,version:APP_VERSION,commit:baseCommit,installed:state.installed}).commit,baseCommit);
+  updates.caches[channel].candidates.unshift(patch('c'.repeat(40)));
+  const newer=await updates.status({channel});assert.equal(newer.available,true);assert.equal(newer.target.commit,'c'.repeat(40));
+});
+
+for(const channel of ['hotfix','develop'])test(`${channel} switching channel at the same source stays manual without a new update notice`,async t=>{
+  const dir=await root(t);await mkdir(join(dir,'.updates'));
+  await writeFile(join(dir,'.updates','installed-version.json'),JSON.stringify({version:APP_VERSION,channel:channel==='hotfix'?'develop':'hotfix',commit,baseVersion:APP_VERSION}));
+  const updates=await new Updates({rootDir:dir,repository}).load();
+  updates.caches[channel]={checkedAt:1000,candidates:[{id:`${channel}:${APP_VERSION}:${commit}`,channel,version:APP_VERSION,commit,baseVersion:APP_VERSION,download:{url:'fixture'}}],error:null};
+  const state=await updates.status({channel});assert.equal(state.available,false);assert.equal(state.installable,true);assert.equal(state.target.commit,commit);
+});

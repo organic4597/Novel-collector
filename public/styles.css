@@ -1450,6 +1450,13 @@ html.reader-fullscreen-open, html.reader-fullscreen-open body {
 .reader-fullscreen .reader-text {
   margin-inline: auto;
 }
+.reader-fullscreen .reader-body {
+  padding-inline: 24px;
+}
+.reader-fullscreen .reader-text.reader-image-mode {
+  width: 100%;
+  max-width: 720px;
+}
 .reader-layout {
   display: grid;
   grid-template-columns: 230px minmax(0, 1fr);

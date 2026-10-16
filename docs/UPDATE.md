@@ -95,11 +95,14 @@ node .updates/recover.mjs .
 
 ## 개발 검증·패치 배송·정식 게시
 
+현재 운영 적용은 **개발 서버 수정·검증 → 업데이트 파일 게시 → 사용자가 운영 대시보드에서 선택·적용** 순서입니다. CI 성공만으로 운영 서버를 교체하거나 재시작하지 않습니다. 개발 산출물과 핫픽스는 게시 후 운영의 **업데이트 ▾**에서 직접 선택합니다. 정식 후보의 운영 자동 적용 예약도 비활성화 상태로 유지합니다.
+
+
 일반 `develop` push는 이벤트의 정확한 SHA로 전체 테스트·공개 파일 검사를 수행하고, 성공한 소스를 현재 정식 릴리스의 `develop-<SHA>.zip`과 `.json`으로 추가합니다. 버전 변경·새 태그·새 정식 릴리스·운영 자동 승격은 하지 않습니다. 다운로드는 branch HEAD가 아니라 검증된 커밋에 고정합니다.
 
 핫픽스는 정식 태그에서 만든 `hotfix/<기준 정식 버전>` 브랜치를 사용합니다. 예를 들어 `hotfix/1.0.0.17`의 APP_VERSION은 `1.0.0.17`이어야 하며 기준 태그의 커밋을 포함해야 합니다. 검증 후 기존 `1.0.0.17` 릴리스에 `hotfix-1.0.0.17-<SHA>.zip`과 `.json`을 추가합니다. 소스 버전을 올리거나 기존 파일을 덮어쓰지 않습니다. develop의 전체 실험 내용을 핫픽스로 포장하지 않습니다.
 
-정식 배포는 GitHub Actions의 **Novel Collector Delivery → Run workflow → develop → mode=release**에서 명시적으로 실행합니다. **bump=patch/minor/major**로 변경 수준을 선택하며 기본값은 patch입니다. 자동화는 현재 코드와 기존 숫자 태그의 최고 버전에서 선택한 자리를 올리고 낮은 자리를 초기화해 세 자리 후보를 만듭니다. 로컬 후보 버전과 커밋을 준비하고 전체 검증 성공 뒤 source branch가 바뀌지 않았는지 확인한 다음 develop·숫자 태그·검증용 릴리스를 게시합니다. 테스트 실패 중에는 후보 커밋을 develop에 먼저 올리지 않아 같은 기준으로 재검증할 수 있습니다. 기존 운영 검증 에이전트는 정식 후보만 업데이터로 확인·승격하며 dev·핫픽스 산출물은 자동 승격하지 않습니다.
+정식 배포는 GitHub Actions의 **Novel Collector Delivery → Run workflow → develop → mode=release**에서 명시적으로 실행합니다. **bump=patch/minor/major**로 변경 수준을 선택하며 기본값은 patch입니다. 자동화는 현재 코드와 기존 숫자 태그의 최고 버전에서 선택한 자리를 올리고 낮은 자리를 초기화해 세 자리 후보를 만듭니다. 로컬 후보 버전과 커밋을 준비하고 전체 검증 성공 뒤 source branch가 바뀌지 않았는지 확인한 다음 develop·숫자 태그·검증용 릴리스를 게시합니다. 테스트 실패 중에는 후보 커밋을 develop에 먼저 올리지 않아 같은 기준으로 재검증할 수 있습니다. 정식 후보 게시와 운영 적용은 별도 단계입니다. 운영 검증 에이전트는 자동 실행하지 않으며 사용자 요청 없는 운영 적용·자동 승격은 수행하지 않습니다.
 
 ```sh
 gh workflow run delivery.yml --repo organic4597/Novel-collector --ref develop -f mode=release -f bump=minor

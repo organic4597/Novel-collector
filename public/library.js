@@ -6,6 +6,40 @@
   const state = { selectedBook: null, chapterId: null, page: 1 };
   let profileBook=null,profileOpener=null,chaptersLoaded=false;
   let readerEpoch = 0, chapterRequest = 0, readerImages = null;
+  let readerChapters = [];
+  const narrowReader = () => window.matchMedia?.("(max-width: 700px)")?.matches ?? window.innerWidth <= 700;
+  function updateReaderNavigation() {
+    const index = readerChapters.findIndex(chapter => String(chapter.id || chapter.chapterId) === String(state.chapterId));
+    $("reader-position").textContent = `${index + 1} / ${readerChapters.length}`;
+    $("reader-previous").disabled = index <= 0;
+    $("reader-next").disabled = index < 0 || index >= readerChapters.length - 1;
+  }
+  function setReaderSidebar(open, focus = false) {
+    $("reader-sidebar").hidden = !open;
+    $("library-content-panel").classList.toggle("reader-sidebar-collapsed", !open);
+    $("reader-sidebar-toggle").setAttribute("aria-expanded", String(open));
+    $("reader-sidebar-toggle").textContent = open ? "회차 목록 접기" : "회차 목록 열기";
+    if (focus) (open ? $("chapter-list").querySelector(".selected") || $("chapter-list").firstElementChild : $("reader-sidebar-toggle"))?.focus({ preventScroll: true });
+  }
+  function setReaderFullscreen(expanded) {
+    const body = document.querySelector(".reader-body"), top = body.scrollTop;
+    $("reader-dialog").classList.toggle("reader-fullscreen", expanded);
+    document.documentElement.classList.toggle("reader-fullscreen-open", expanded);
+    $("reader-fullscreen-toggle").setAttribute("aria-pressed", String(expanded));
+    $("reader-fullscreen-toggle").textContent = expanded ? "팝업으로 돌아가기" : "전체화면 뷰어로 보기";
+    body.scrollTop = top;
+  }
+  function resetReaderControls() {
+    readerChapters = [];
+    setReaderFullscreen(false);
+    setReaderSidebar(!narrowReader());
+    $("reader-controls").hidden = true;
+    updateReaderNavigation();
+  }
+  function moveReaderChapter(direction) {
+    const index = readerChapters.findIndex(chapter => String(chapter.id || chapter.chapterId) === String(state.chapterId));
+    if (index >= 0 && readerChapters[index + direction]) void openChapter(state.selectedBook, readerChapters[index + direction]);
+  }
   function disposeReaderImages() {
     readerImages?.dispose();
     readerImages = null;
@@ -86,6 +120,7 @@
     $("library-profile-metadata").hidden=!["failed","deferred"].includes(metadataState(book));
     $("library-profile-metadata").disabled=metadataRequests.has(String(id));
     $("library-content-tab").disabled=!stored;
+    $("reader-fullscreen-toggle").disabled=!stored;
     let url;try{url=new URL(book.url);if(/^newtoki\d+\./.test(url.hostname))url=new URL(url.pathname,UI.status?.().source?.origin||"https://sbxh9.com");}catch{}
     $("library-profile-source").hidden=!url||!["https://sbxh9.com","https://toki32.com"].includes(url.origin);
     if(!$("library-profile-source").hidden)$("library-profile-source").href=url.href;
@@ -93,6 +128,7 @@
   }
   async function readerTab(detail){
     $("library-profile-panel").hidden=!detail;$("library-content-panel").hidden=detail;
+    $("reader-controls").hidden=detail;
     for(const [id,selected]of [["library-info-tab",detail],["library-content-tab",!detail]]){$(id).setAttribute("aria-selected",String(selected));$(id).tabIndex=selected?0:-1;}
     if(!detail&&!chaptersLoaded&&profileBook){chaptersLoaded=true;await loadBookChapters(profileBook);}
   }
@@ -100,6 +136,7 @@
     if (storedChapters(book) === 0&&!details) return;
     const id = book.id || book.bookId;
     readerEpoch++; chapterRequest++; disposeReaderImages();
+    resetReaderControls();
     profileBook=book;profileOpener=document.activeElement;chaptersLoaded=false;profileInfo(book);
     state.selectedBook = id;
     state.chapterId = null;
@@ -119,6 +156,8 @@
       const data = await api(`/api/books/${encodeURIComponent(id)}`);
       if (!isCurrent()) return;
       const chapters = Array.isArray(data?.chapters) ? data.chapters : [];
+      readerChapters = chapters;
+      updateReaderNavigation();
       $("reader-book-title").textContent = data.book?.title || book.title || "작품";
       $("chapter-count").textContent = `${count(chapters.length)}회차 저장됨`;
       const fragment = document.createDocumentFragment();
@@ -147,6 +186,8 @@
     const isCurrent=()=>UI.authenticated()&&generation===UI.generation()&&epoch===readerEpoch&&request===chapterRequest&&state.chapterId===id&&state.selectedBook===bookId&&$("reader-dialog").open;
     disposeReaderImages();
     state.chapterId = id;
+    updateReaderNavigation();
+    if (narrowReader() && !$("reader-sidebar").hidden) setReaderSidebar(false, $("reader-sidebar").contains(document.activeElement));
     $("reader-chapter-title").textContent = chapter.title || `${chapter.number ?? ""}화`;
     $("reader-meta").textContent = "본문을 불러오는 중…";
     $("reader-text").textContent = "";
@@ -755,10 +796,27 @@
     // A queued close event can arrive after the dialog has reopened.
     if ($("reader-dialog").open) return;
     readerEpoch++; chapterRequest++; disposeReaderImages();
+    resetReaderControls();
     state.selectedBook = null;
     state.chapterId = null;
     $("reader-text").textContent = "";
+    $("chapter-list").replaceChildren();
+    $("chapter-count").textContent = "";
     profileBook=null;chaptersLoaded=false;profileOpener?.focus?.();profileOpener=null;
+  });
+  $("reader-fullscreen-toggle").onclick=()=>{
+    if (!UI.authenticated() || !$("reader-dialog").open) return;
+    const expanded=!$("reader-dialog").classList.contains("reader-fullscreen");
+    if(expanded)void readerTab(false);
+    setReaderFullscreen(expanded);
+    $("reader-fullscreen-toggle").focus({preventScroll:true});
+  };
+  $("reader-sidebar-toggle").onclick=()=>setReaderSidebar($("reader-sidebar").hidden,true);
+  $("reader-previous").onclick=()=>moveReaderChapter(-1);
+  $("reader-next").onclick=()=>moveReaderChapter(1);
+  $("reader-dialog").addEventListener("cancel",event=>{
+    if(!$("reader-dialog").classList.contains("reader-fullscreen"))return;
+    event.preventDefault();setReaderFullscreen(false);$("reader-fullscreen-toggle").focus({preventScroll:true});
   });
   $("library-info-tab").onclick=()=>void readerTab(true);$("library-content-tab").onclick=()=>void readerTab(false);
   for(const id of ["library-info-tab","library-content-tab"])$(id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight"].includes(event.key)){event.preventDefault();const detail=id!=="library-info-tab";if(!detail&&$("library-content-tab").disabled)return;void readerTab(detail);$(detail?"library-info-tab":"library-content-tab").focus();}});
@@ -775,6 +833,7 @@
   document.addEventListener("collector:auth", (event) => {
     if (!event.detail) {
       readerEpoch++; chapterRequest++; disposeReaderImages();
+      resetReaderControls();
       state.selectedBook = null; state.chapterId = null;
       $("reader-text").textContent = "";
       $("chapter-list").replaceChildren();

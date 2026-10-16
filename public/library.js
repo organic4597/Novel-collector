@@ -6,8 +6,15 @@
   const state = { selectedBook: null, chapterId: null, page: 1 };
   let profileBook=null,profileOpener=null,chaptersLoaded=false;
   let readerEpoch = 0, chapterRequest = 0, readerImages = null;
-  let readerChapters = [];
+  let readerChapters = [], readerMenuPointerType = "";
   const narrowReader = () => window.matchMedia?.("(max-width: 700px)")?.matches ?? window.innerWidth <= 700;
+  const readerFullscreen = () => $("reader-dialog").classList.contains("reader-fullscreen");
+  function setReaderMenu(open, restoreFocus = false) {
+    const expanded = readerFullscreen();
+    $("reader-menu").hidden = expanded && !open;
+    $("reader-menu-toggle").setAttribute("aria-expanded", String(expanded && open));
+    if (expanded && !open && restoreFocus) $("reader-menu-toggle").focus({ preventScroll: true });
+  }
   function updateReaderNavigation() {
     const index = readerChapters.findIndex(chapter => String(chapter.id || chapter.chapterId) === String(state.chapterId));
     $("reader-position").textContent = `${index + 1} / ${readerChapters.length}`;
@@ -19,7 +26,8 @@
     $("library-content-panel").classList.toggle("reader-sidebar-collapsed", !open);
     $("reader-sidebar-toggle").setAttribute("aria-expanded", String(open));
     $("reader-sidebar-toggle").textContent = open ? "회차 목록 접기" : "회차 목록 열기";
-    if (focus) (open ? $("chapter-list").querySelector(".selected") || $("chapter-list").firstElementChild : $("reader-sidebar-toggle"))?.focus({ preventScroll: true });
+    const trigger = readerFullscreen() && $("reader-menu").hidden ? $("reader-menu-toggle") : $("reader-sidebar-toggle");
+    if (focus) (open ? $("chapter-list").querySelector(".selected") || $("chapter-list").firstElementChild : trigger)?.focus({ preventScroll: true });
   }
   function setReaderFullscreen(expanded) {
     const body = document.querySelector(".reader-body"), top = body.scrollTop;
@@ -27,6 +35,9 @@
     document.documentElement.classList.toggle("reader-fullscreen-open", expanded);
     $("reader-fullscreen-toggle").setAttribute("aria-pressed", String(expanded));
     $("reader-fullscreen-toggle").textContent = expanded ? "팝업으로 돌아가기" : "전체화면 뷰어로 보기";
+    $("reader-menu-toggle").hidden = !expanded;
+    readerMenuPointerType = "";
+    setReaderMenu(false);
     body.scrollTop = top;
   }
   function resetReaderControls() {
@@ -809,14 +820,47 @@
     const expanded=!$("reader-dialog").classList.contains("reader-fullscreen");
     if(expanded)void readerTab(false);
     setReaderFullscreen(expanded);
-    $("reader-fullscreen-toggle").focus({preventScroll:true});
+    $(expanded?"reader-menu-toggle":"reader-fullscreen-toggle").focus({preventScroll:true});
   };
+  $("reader-menu-toggle").addEventListener("pointerdown",event=>{readerMenuPointerType=event.pointerType||"";});
+  $("reader-menu-toggle").onclick=event=>{
+    const pointerType=event.detail===0?"":event.pointerType||readerMenuPointerType;
+    readerMenuPointerType="";
+    if(!readerFullscreen())return;
+    // Hover opens before a mouse click; keyboard and touch activation still toggle.
+    const open=["mouse","pen"].includes(pointerType)||$("reader-menu").hidden;
+    setReaderMenu(open,!open);
+  };
+  $("reader-menu-toggle").addEventListener("keydown",event=>{
+    if(event.key!=="ArrowDown"||!readerFullscreen())return;
+    event.preventDefault();setReaderMenu(true);$("reader-menu").scrollTop=0;
+    $("reader-menu").querySelector("button:not(:disabled)")?.focus({preventScroll:true});
+  });
+  $("reader-toolbar").addEventListener("pointerenter",event=>{
+    if(readerFullscreen()&&["mouse","pen"].includes(event.pointerType))setReaderMenu(true);
+  });
+  $("reader-toolbar").addEventListener("pointerleave",event=>{
+    if(readerFullscreen()&&["mouse","pen"].includes(event.pointerType))setReaderMenu(false,$("reader-menu").contains(document.activeElement));
+  });
+  $("reader-toolbar").addEventListener("focusout",event=>{
+    if(readerFullscreen()&&!$("reader-toolbar").contains(event.relatedTarget))setReaderMenu(false);
+  });
+  document.addEventListener("pointerdown",event=>{
+    if(readerFullscreen()&&!$("reader-toolbar").contains(event.target))setReaderMenu(false,$("reader-menu").contains(document.activeElement));
+  });
   $("reader-sidebar-toggle").onclick=()=>setReaderSidebar($("reader-sidebar").hidden,true);
   $("reader-previous").onclick=()=>moveReaderChapter(-1);
   $("reader-next").onclick=()=>moveReaderChapter(1);
+  $("reader-dialog").addEventListener("keydown",event=>{
+    if(event.key!=="Escape"||!readerFullscreen()||$("reader-menu").hidden)return;
+    // Consuming this step avoids a forced native close after repeated cancellation.
+    event.preventDefault();setReaderMenu(false,true);
+  });
   $("reader-dialog").addEventListener("cancel",event=>{
-    if(!$("reader-dialog").classList.contains("reader-fullscreen"))return;
-    event.preventDefault();setReaderFullscreen(false);$("reader-fullscreen-toggle").focus({preventScroll:true});
+    if(!readerFullscreen())return;
+    event.preventDefault();
+    if(!$("reader-menu").hidden){setReaderMenu(false,true);return;}
+    setReaderFullscreen(false);$("reader-fullscreen-toggle").focus({preventScroll:true});
   });
   $("library-info-tab").onclick=()=>void readerTab(true);$("library-content-tab").onclick=()=>void readerTab(false);
   for(const id of ["library-info-tab","library-content-tab"])$(id).addEventListener("keydown",event=>{if(["ArrowLeft","ArrowRight"].includes(event.key)){event.preventDefault();const detail=id!=="library-info-tab";if(!detail&&$("library-content-tab").disabled)return;void readerTab(detail);$(detail?"library-info-tab":"library-content-tab").focus();}});

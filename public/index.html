@@ -2155,19 +2155,32 @@ https://newtoki1.org/novel/30458"
       class="modal reader-modal"
       aria-labelledby="reader-book-title"
     >
-      <div class="modal-heading">
-        <div>
-          <p class="eyebrow">LIBRARY READER</p>
-          <h2 id="reader-book-title">작품</h2>
+      <div id="reader-toolbar" class="reader-toolbar">
+        <button id="reader-menu-toggle" class="quiet" type="button" aria-controls="reader-menu" aria-expanded="false" hidden>읽기 메뉴 ▾</button>
+        <div id="reader-menu" class="reader-menu">
+          <div class="modal-heading">
+            <div>
+              <p class="eyebrow">LIBRARY READER</p>
+              <h2 id="reader-book-title">작품</h2>
+            </div>
+            <div class="reader-heading-actions">
+              <button id="reader-fullscreen-toggle" class="secondary" type="button" aria-pressed="false" aria-controls="reader-dialog">전체화면 뷰어로 보기</button>
+              <button class="icon-button" type="button" data-close="reader-dialog" aria-label="닫기">×</button>
+            </div>
+          </div>
+          <div class="library-dialog-tabs" role="tablist" aria-label="보관함 작품 보기">
+            <button id="library-info-tab" class="secondary" role="tab" aria-controls="library-profile-panel" aria-selected="true" type="button">작품 상세 정보</button>
+            <button id="library-content-tab" class="secondary" role="tab" aria-controls="library-content-panel" aria-selected="false" type="button">회차별 내용보기</button>
+          </div>
+          <div id="reader-controls" class="reader-controls" role="group" aria-label="읽기 도구" hidden>
+            <button id="reader-sidebar-toggle" class="quiet" type="button" aria-controls="reader-sidebar" aria-expanded="true">회차 목록 접기</button>
+            <div class="reader-navigation">
+              <button id="reader-previous" class="secondary" type="button" disabled>이전화</button>
+              <span id="reader-position" role="status" aria-live="polite">0 / 0</span>
+              <button id="reader-next" class="secondary" type="button" disabled>다음화</button>
+            </div>
+          </div>
         </div>
-        <div class="reader-heading-actions">
-          <button id="reader-fullscreen-toggle" class="secondary" type="button" aria-pressed="false" aria-controls="reader-dialog">전체화면 뷰어로 보기</button>
-          <button class="icon-button" type="button" data-close="reader-dialog" aria-label="닫기">×</button>
-        </div>
-      </div>
-      <div class="library-dialog-tabs" role="tablist" aria-label="보관함 작품 보기">
-        <button id="library-info-tab" class="secondary" role="tab" aria-controls="library-profile-panel" aria-selected="true" type="button">작품 상세 정보</button>
-        <button id="library-content-tab" class="secondary" role="tab" aria-controls="library-content-panel" aria-selected="false" type="button">회차별 내용보기</button>
       </div>
       <section id="library-profile-panel" role="tabpanel" aria-labelledby="library-info-tab" class="library-profile-panel">
         <div class="library-profile-cover"><img id="library-profile-cover" alt="작품 표지" hidden></div>
@@ -2177,14 +2190,6 @@ https://newtoki1.org/novel/30458"
           <p id="library-profile-error" class="error-text" role="alert"></p>
         </div>
       </section>
-      <div id="reader-controls" class="reader-controls" role="group" aria-label="읽기 도구" hidden>
-        <button id="reader-sidebar-toggle" class="quiet" type="button" aria-controls="reader-sidebar" aria-expanded="true">회차 목록 접기</button>
-        <div class="reader-navigation">
-          <button id="reader-previous" class="secondary" type="button" disabled>이전화</button>
-          <span id="reader-position" role="status" aria-live="polite">0 / 0</span>
-          <button id="reader-next" class="secondary" type="button" disabled>다음화</button>
-        </div>
-      </div>
       <div id="library-content-panel" class="reader-layout" role="tabpanel" aria-labelledby="library-content-tab">
         <aside id="reader-sidebar" class="chapter-sidebar" aria-label="저장 회차 목록">
           <p id="chapter-count" class="muted"></p>

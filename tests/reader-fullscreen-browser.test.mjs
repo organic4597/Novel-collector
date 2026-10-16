@@ -49,6 +49,12 @@ async function assertReadingWidth(page) {
   assert.equal(measured.paddingLeft, measured.paddingRight, "the fullscreen reading area must have equal horizontal padding");
   assert.equal(measured.horizontalOverflow, false); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 }
+async function openReaderMenu(page) {
+  await page.mouse.move(1, page.viewportSize().height - 1);
+  await page.locator("#reader-menu-toggle").hover();
+  await page.locator("#reader-menu").waitFor({ state: "visible" });
+  assert.equal(await page.locator("#reader-menu-toggle").getAttribute("aria-expanded"), "true");
+}
 
 for (const width of [1920, 1280, 390]) test(`library fullscreen reading, chapter navigation and cleanup at ${width}px`, { timeout: 60000 }, async t => {
   const root = await mkdtemp(join(tmpdir(), "reader-fullscreen-"));
@@ -106,7 +112,9 @@ for (const width of [1920, 1280, 390]) test(`library fullscreen reading, chapter
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(await page.locator(".reader-body").evaluate(element => element.clientHeight) > 200);
     if (contentType === "novel") {
-      await page.locator("#reader-fullscreen-toggle").focus();
+      await page.mouse.move(1, 843);
+      await page.locator("#reader-menu-toggle").focus();
+      assert.equal(await page.locator("#reader-menu-toggle").getAttribute("aria-expanded"), "false");
       let bodyFocused = false;
       for (let step = 0; step < 18 && !bodyFocused; step++) {
         await page.keyboard.press("Tab");
@@ -121,28 +129,35 @@ for (const width of [1920, 1280, 390]) test(`library fullscreen reading, chapter
       await page.waitForFunction(() => document.querySelector(".webtoon-reader-image")?.naturalWidth > 0);
       await assertReadingWidth(page);
       for (const quality of ["original", "fast", "original"]) { await page.locator("#reader-image-quality").selectOption(quality); await assertReadingWidth(page); }
-      if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") === "true") await page.locator("#reader-sidebar-toggle").click();
+      if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") === "true") { await openReaderMenu(page); await page.locator("#reader-sidebar-toggle").click(); }
       assert.equal(await page.locator("#reader-sidebar").isVisible(), false); await assertReadingWidth(page);
     }
     const before = chapters.length;
     await page.evaluate(() => { window.savedReaderNode = document.querySelector("#reader-text").firstChild; });
+    await openReaderMenu(page);
     await page.locator("#reader-fullscreen-toggle").click();
     await page.locator("#reader-fullscreen-toggle").click();
     assert.equal(await page.evaluate(() => window.savedReaderNode === document.querySelector("#reader-text").firstChild), true);
     assert.equal(chapters.length, before, "mode changes must not reload chapter JSON");
     if (contentType !== "novel") { assert.equal(await page.locator("#reader-image-quality").inputValue(), "original"); await assertReadingWidth(page); }
-    await page.locator("#reader-next").click();
+    await openReaderMenu(page); await page.locator("#reader-next").click();
     await page.waitForFunction(() => document.querySelector("#reader-chapter-title").textContent === "Chapter 10");
     assert.match(await page.locator("#reader-position").textContent(), /2\s*\/\s*3/);
-    if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") !== "true") await page.locator("#reader-sidebar-toggle").click();
+    if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") !== "true") { await openReaderMenu(page); await page.locator("#reader-sidebar-toggle").click(); }
     assert.equal(await page.locator("#reader-sidebar").isVisible(), true);
+    await page.mouse.move(1, 843); await page.locator("#reader-menu").waitFor({ state: "hidden" });
     await page.locator('#chapter-list [data-chapter="chapter-11"]').click();
     await page.waitForFunction(() => document.querySelector("#reader-chapter-title").textContent === "Chapter 11");
     assert.equal(await page.locator("#reader-next").isDisabled(), true);
-    if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") === "true") await page.locator("#reader-sidebar-toggle").click();
+    if (await page.locator("#reader-sidebar-toggle").getAttribute("aria-expanded") === "true") { await openReaderMenu(page); await page.locator("#reader-sidebar-toggle").click(); }
     assert.equal(await page.locator("#reader-sidebar").isVisible(), false);
-    await page.locator("#reader-previous").click();
+    await openReaderMenu(page); await page.locator("#reader-previous").click();
     await page.waitForFunction(() => document.querySelector("#reader-chapter-title").textContent === "Chapter 10");
+    if (await page.locator("#reader-menu").isVisible()) {
+      await page.keyboard.press("Escape");
+      assert.equal(await page.locator("#reader-menu").isVisible(), false);
+      assert.equal(await page.locator("#reader-dialog").evaluate(element => element.open && element.classList.contains("reader-fullscreen")), true);
+    }
     await page.keyboard.press("Escape");
     assert.equal(await page.locator("#reader-dialog").evaluate(element => element.open && !element.classList.contains("reader-fullscreen")), true);
     assert.equal(await page.evaluate(() => document.documentElement.classList.contains("reader-fullscreen-open")), false);

@@ -1429,13 +1429,35 @@ html.reader-fullscreen-open, html.reader-fullscreen-open body {
   height: 100dvh;
   max-height: none;
   margin: 0;
-  padding: 20px;
+  padding: 0;
   border: 0;
   border-radius: 0;
   overflow: hidden;
 }
-.reader-fullscreen > .modal-heading, .reader-fullscreen > .library-dialog-tabs, .reader-fullscreen > .reader-controls {
-  flex-shrink: 0;
+.reader-fullscreen #reader-toolbar {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 32px;
+  height: 32px;
+  background: var(--panel);
+  box-shadow: inset 0 -1px var(--line);
+}
+.reader-fullscreen #reader-menu-toggle {
+  height: 100%;
+  min-height: 0;
+  padding: 0 16px;
+  border-radius: 0;
+}
+.reader-fullscreen #reader-menu {
+  position: absolute;
+  z-index: 3;
+  inset: 100% 0 auto;
+  max-height: min(70dvh, calc(100dvh - 32px));
+  padding: 16px 20px 12px;
+  overflow: auto;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 12px 24px #0002;
 }
 .reader-modal.reader-fullscreen .reader-layout {
   flex: 1;
@@ -1588,8 +1610,13 @@ html.reader-fullscreen-open, html.reader-fullscreen-open body {
     min-width: 0;
     max-width: none;
   }
-  .reader-modal.reader-fullscreen[open] {
-    padding: 12px;
+  .reader-fullscreen #reader-toolbar {
+    flex-basis: 40px;
+    height: 40px;
+  }
+  .reader-fullscreen #reader-menu {
+    max-height: min(70dvh, calc(100dvh - 40px));
+    padding-inline: 12px;
   }
   .reader-modal .reader-body {
     padding: 20px 12px;

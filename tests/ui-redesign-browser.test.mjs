@@ -182,7 +182,7 @@ async function openFixture(browser, base, width, theme = "light") {
     if (url.origin !== base) return route.abort();
     if (
       !path.startsWith("/api/") ||
-      ["/api/session", "/api/login"].includes(path)
+      ["/api/session", "/api/login", "/api/owner-navigation"].includes(path)
     )
       return route.continue();
     if (path.endsWith("/thumbnail"))
@@ -377,11 +377,12 @@ async function openFixture(browser, base, width, theme = "light") {
   return { context, page, data, errors };
 }
 
-async function withBrowser(run) {
+async function withBrowser(run, ownerOptions = {}) {
   const app = createApp({
     store: {},
     scheduler: {},
     adminPassword: fixtureCredential,
+    ...ownerOptions,
   });
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
   let browser;
@@ -1084,6 +1085,32 @@ test(
   },
 );
 
+
+for (const runtimeMode of ["release", "development"]) for (const width of [390, 1280])
+test(`owner navigation stays development-only at ${width}px in ${runtimeMode} mode`, async () => {
+  await withBrowser(async (browser, base) => {
+    const { context, page, errors } = await openFixture(browser, base, width);
+    try {
+      await page.locator("#management-menu-trigger").click();
+      const link = page.locator("#owner-hub-return");
+      if (runtimeMode === "development") {
+        await link.waitFor({ state: "visible" });
+        assert.equal(await link.getAttribute("href"), "https://hub.example.test/");
+        assert.equal(await link.textContent(), "Hub로 돌아가기");
+        const bounds = await link.boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width);
+        await snapshot(page, `owner-menu-${width}`);
+        await context.request.post(base + "/api/logout");
+        await page.reload();
+        await page.locator("#login-view").waitFor({ state: "visible" });
+      } else {
+        assert.deepEqual(await (await context.request.get(base + "/api/owner-navigation")).json(), {});
+      }
+      assert.equal(await link.count(), 0);
+      assert.deepEqual(errors, []);
+    } finally { await context.close(); }
+  }, { runtimeMode, ownerHubUrl: "https://hub.example.test/" });
+});
 
 test("refresh waits for the session without flashing login and restores the selected tab", async () => {
   await withBrowser(async (browser, base) => {

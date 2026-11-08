@@ -35,6 +35,7 @@ import { AdminSessions, SESSION_TTL_MS } from "./admin-sessions.mjs";
 import { createAdminSessionRouter } from "./admin-session-api.mjs";
 import { createAdminRecoveryRouter } from "./admin-recovery.mjs";
 import { retainedBrowserOptions } from "./browser-retention.mjs";
+import { ownerNavigation, backgroundWorkEnabled } from "./owner-navigation.mjs";
 import {
   requestProtocol,
   requestOrigin,
@@ -129,7 +130,10 @@ export function createApp({
   extractionPresets = null,
   updates = null,
   startupIdentity = null,
+  runtimeMode = "release",
+  ownerHubUrl = "",
 }) {
+  const navigation = ownerNavigation(runtimeMode, ownerHubUrl);
   const healthIdentity={version:APP_VERSION,channel:startupIdentity?.version===APP_VERSION?startupIdentity.channel:"stable",commit:startupIdentity?.version===APP_VERSION?startupIdentity.commit:null};
   if (!credentials && (typeof adminPassword !== "string" || !adminPassword))
     throw Error("관리자 인증 설정이 필요합니다.");
@@ -324,6 +328,8 @@ export function createApp({
         }
         const session = authenticated(request);
         if (!session) throw HTTP_ERROR("로그인이 필요합니다.", 401);
+        if (url.pathname === "/api/owner-navigation" && method === "GET")
+          return send(response, 200, navigation);
         if(url.pathname==="/api/dashboard-log"&&method==="POST"){
           if(!activity)throw HTTP_ERROR("대시보드 로그를 사용할 수 없습니다.",503);for(const event of clientEvents(await body(request)))recordActivity(event);return send(response,202,{accepted:true});
         }
@@ -632,6 +638,7 @@ export function createApp({
         "/": "index.html",
         "/index.html": "index.html",
         "/app.js": "app.js",
+        "/owner-navigation.js": "owner-navigation.js",
         "/login-recovery.js": "login-recovery.js",
         "/discovery.js": "discovery.js",
         "/discovery-detail.js": "discovery-detail.js",
@@ -743,7 +750,11 @@ export async function startServer({
   startupIdentity = null,
   host = process.env.HOST ?? "127.0.0.1",
   port = Number(process.env.PORT ?? 8788),
+  runtimeMode = process.env.NC_RUNTIME_MODE ?? "release",
+  ownerHubUrl = process.env.OWNER_HUB_URL ?? "",
+  backgroundWork = process.env.NC_BACKGROUND_WORK,
 } = {}) {
+  const automaticWork = backgroundWorkEnabled(runtimeMode, backgroundWork);
   const store = await new FolderStore(join(rootDir, "data")).init();
   const extractionPresets = await new ExtractionPresets({ store }).load();
   const updates = await new Updates({rootDir}).load();
@@ -833,6 +844,7 @@ export async function startServer({
     store,
     collector,
     ...settings.get(),
+    ...(!automaticWork ? { queuePaused: true } : {}),
     backoff,
     onBackoff: () => discovery.suspendRequests(),
     attention,
@@ -862,6 +874,8 @@ export async function startServer({
   autoAuth = sourceAuth;
   recovery = sourceRecovery;
   const app = createApp({
+    runtimeMode,
+    ownerHubUrl,
     extractionPresets,
     updates,
     startupIdentity,
@@ -891,7 +905,7 @@ export async function startServer({
     app.listen(port, host, resolve);
   });
   await atomicJson(join(rootDir,".updates","server.json"),{pid:process.pid}).catch(()=>{});
-  retainedBrowser.contextPool.startRefresh({
+  if (automaticWork) retainedBrowser.contextPool.startRefresh({
     afterRefresh: () => discovery.refreshConnection(),
     onEvent: event => activity.add(event),
   });
@@ -901,7 +915,9 @@ export async function startServer({
     await scheduler.start();updates.start();for(const site of attention.snapshot().sites)recovery.request(site);
   };
   const awaitingVerification=()=>access(join(rootDir,".updates","pending-verification.json")).then(()=>true,()=>false);
-  if(await awaitingVerification()){
+  if(!automaticWork){
+    activity.add({ scope: "service", message: "개발 환경: 자동 수집과 업데이트 확인을 시작하지 않습니다." });
+  }else if(await awaitingVerification()){
     verificationTimer=setInterval(()=>{void awaitingVerification().then(waiting=>{if(!waiting){clearInterval(verificationTimer);verificationTimer=null;void startWork().catch(()=>{});}});},500);verificationTimer.unref();
   }else await startWork();
   let closing = false;

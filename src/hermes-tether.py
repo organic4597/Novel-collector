@@ -11,7 +11,6 @@ import sys
 import time
 from urllib.parse import urlsplit
 import uuid
-import xml.etree.ElementTree as ET
 
 SETTINGS = "com.android.settings"
 USB_LABELS = ("USB 테더링", "USB tethering")
@@ -138,59 +137,6 @@ def restore_reverse(serial, bridge_port, *, previously_bound=False, adb=None):
     return True
 
 
-def parse_ui_xml(text):
-    try:
-        tree = ET.fromstring(text)
-    except ET.ParseError:
-        raise TetherError("PHONE_UI_UNVERIFIED") from None
-    elements = list(tree.iter("node"))
-    if not elements or len(elements) > 512 or any(n.get("package") != SETTINGS for n in elements):
-        raise TetherError("PHONE_UI_UNVERIFIED")
-    nodes = []
-
-    def visit(element, parent=None):
-        if element.tag != "node":
-            for child in element:
-                visit(child, parent)
-            return
-        index = len(nodes)
-        redacted = element.get("password") == "true" or element.get("class", "").endswith("EditText")
-        nodes.append({"id": index, "parent": parent,
-                      "text": None if redacted else element.get("text"),
-                      "description": None if redacted else element.get("content-desc"),
-                      "view_id": element.get("resource-id"), "class_name": element.get("class"),
-                      "enabled": element.get("enabled") == "true", "checkable": element.get("checkable") == "true",
-                      "checked": element.get("checked") == "true", "redacted": redacted,
-                      "bounds": [int(n) for n in re.findall(r"\d+", element.get("bounds", ""))]})
-        for child in element:
-            visit(child, index)
-
-    visit(tree)
-    return {"package": SETTINGS, "foregroundPackage": SETTINGS, "nodes": nodes, "truncated": False}
-
-
-def read_ui(serial, adb=None):
-    adb = adb or (lambda *args: _adb(serial, *args))
-
-    def foreground():
-        text = adb("shell", "dumpsys", "activity", "activities")
-        current = re.findall(r"(?:topResumedActivity|mResumedActivity)[^\n]*?\s([A-Za-z0-9_.]+)/", text)
-        if not current or any(package != SETTINGS for package in current):
-            raise TetherError("PHONE_UI_UNVERIFIED")
-        if parse_keyguard(adb("shell", "dumpsys", "window", "policy")) is not False:
-            raise TetherError("PHONE_LOCKED")
-
-    foreground()
-    path = f"/data/local/tmp/nc-tether-{uuid.uuid4()}.xml"
-    try:
-        adb("shell", "uiautomator", "dump", "--compressed", path)
-        text = adb("exec-out", "cat", path)
-        foreground()
-        return parse_ui_xml(text)
-    finally:
-        adb("shell", "rm", "-f", path)
-
-
 def find_switch(snapshot, labels):
     if (snapshot.get("package") != SETTINGS or snapshot.get("foregroundPackage") != SETTINGS
             or snapshot.get("truncated")):
@@ -241,10 +187,10 @@ def switch_center(node):
 
 
 class HermesTether:
-    def __init__(self, client, phone_read, authorize, *, expected_device_id, ui_read,
+    def __init__(self, client, phone_read, authorize, *, expected_device_id,
                  reverse_repair=None, clock=time.monotonic, sleep=time.sleep):
         self.client, self.phone_read, self.authorize = client, phone_read, authorize
-        self.expected_device_id, self.ui_read = expected_device_id, ui_read
+        self.expected_device_id = expected_device_id
         self.companion_version = None
         self.native_package_guard = False
         self.reverse_repair = reverse_repair
@@ -343,7 +289,8 @@ class HermesTether:
         while self.clock() < deadline:
             try:
                 self._repair_reverse()
-                return self.ui_read()
+                return self._recipe([{"id": "state_only", "op": "ui.snapshot",
+                                      "with": {"expected_package": SETTINGS}, "sleep_ms": 0}])
             except TetherError as error:
                 if error.code not in ("PHONE_ADB_UNAVAILABLE", "PHONE_USB_REQUIRED"):
                     raise
@@ -462,7 +409,7 @@ def main(argv=None):
 
         adapter = HermesTether(BridgeClient(base=base, timeout=8),
                                lambda: read_phone(serial, urlsplit(base).port), authorize,
-                               expected_device_id=device_id, ui_read=lambda: read_ui(serial),
+                               expected_device_id=device_id,
                                reverse_repair=lambda: restore_reverse(serial, urlsplit(base).port, previously_bound=True))
         if args[0] == "status":
             result = adapter.run(args[0])

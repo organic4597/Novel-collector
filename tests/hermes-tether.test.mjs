@@ -16,7 +16,7 @@ def screen(label,checked):
   {'id':2,'parent':0,'text':None,'enabled':True,'checkable':True,'checked':checked,'class_name':'android.widget.Switch','bounds':[100,200,200,300]}]}
 class Fake:
  def __init__(self):
-  self.state={'usbConnected':True,'hardwareMatches':True,'bridgeReverseBound':True,'companionVersion':'0.8.11','tethering':False,'cellular':True,'validated':True,'locked':False};self.now=0;self.calls=[];self.pending=None;self.checked=False;self.wifi=True;self.action='';self.deny=False;self.stale=False;self.bridge_code=200;self.device='test-phone';self.native_guard=True;self.jobs=[];self.active=False;self.reenumerate=False;self.repairs=0;self.cancel=False
+  self.state={'usbConnected':True,'hardwareMatches':True,'bridgeReverseBound':True,'companionVersion':'0.8.11','tethering':False,'cellular':True,'validated':True,'locked':False};self.now=0;self.calls=[];self.all_calls=[];self.pending=None;self.checked=False;self.wifi=True;self.action='';self.deny=False;self.stale=False;self.bridge_code=200;self.device='test-phone';self.native_guard=True;self.jobs=[];self.active=False;self.reenumerate=False;self.repairs=0;self.cancel=False
  def phone(self):return dict(self.state)
  def clock(self):return self.now
  def sleep(self,n):self.now+=n
@@ -35,7 +35,8 @@ class Fake:
  def status(self):return self.bridge_code,{'payload':{'bridge_state':{'last_cmd_result':self.pending,'last_heartbeat':{'device_id':self.device,'payload':{'app_ver':'hermes_mobile_agent-0.8.11','capabilities':{'touch':{'expected_package_guard':self.native_guard}}}}}}}
  def ui(self):return screen('Wi-Fi' if self.action=='android.settings.WIFI_SETTINGS' else 'USB 테더링',self.wifi if self.action=='android.settings.WIFI_SETTINGS' else self.checked)
  def cmd(self,name,payload=None):
-  assert self.active;assert name=='recipe.run';self.calls.append(payload)
+  assert self.active;assert name=='recipe.run';self.all_calls.append(payload)
+  if any(s['op']!='ui.snapshot' for s in payload['steps']):self.calls.append(payload)
   if self.cancel:raise m.TetherError('PHONE_CONTROL_CANCELLED')
   assert payload['ensure_home'] is False and payload['cleanup_apps'] is False and payload['capture_final'] is False
   results=[]
@@ -50,11 +51,13 @@ class Fake:
     else:
      self.checked=not self.checked;self.state['tethering']=self.checked
      if self.reenumerate:self.state['bridgeReverseBound']=False
-   if op=='ui.snapshot':detail=screen('Wi-Fi' if self.action=='android.settings.WIFI_SETTINGS' else 'USB 테더링',self.wifi if self.action=='android.settings.WIFI_SETTINGS' else self.checked)
+   if op=='ui.snapshot':
+    assert p['expected_package']=='com.android.settings'
+    detail=self.ui()
    results.append({'op':op,'ok':True,'detail':detail})
   self.pending={'device_id':self.device,'payload':{'cmd':'recipe.run','ok':True,'detail':{'run_id':'stale' if self.stale else payload['run_id'],'steps_total':len(results),'step_results':results}}}
   return 200,{'payload':{'ok':True}}
- def adapter(self):return m.HermesTether(self,self.phone,self.authorize,expected_device_id='test-phone',ui_read=self.ui,reverse_repair=self.repair,clock=self.clock,sleep=self.sleep)
+ def adapter(self):return m.HermesTether(self,self.phone,self.authorize,expected_device_id='test-phone',reverse_repair=self.repair,clock=self.clock,sleep=self.sleep)
 `;
 function run(code){
  const r=spawnSync(python,['-c',common+'\n'+code,modulePath],{encoding:'utf8',timeout:10000});
@@ -83,8 +86,8 @@ try:f.adapter().run('on');assert False
 except m.TetherError as e:assert e.code=='PHONE_TETHER_VERIFY_FAILED'`));
 test('transient USB reconnect is awaited without repeating the toggle',()=>run(`f=Fake();reads=[0]
 def phone():
- reads[0]+=1
- if f.checked and reads[0]<7:raise m.TetherError('PHONE_USB_REQUIRED')
+ if f.checked and reads[0]<2:
+  reads[0]+=1;raise m.TetherError('PHONE_USB_REQUIRED')
  return dict(f.state)
 f.phone=phone;r=f.adapter().run('on');assert r['tethering'];assert len(f.calls)==2;assert f.now>0`));
 test('ambiguous, disabled and foreign-package snapshots are rejected',()=>run(`
@@ -122,26 +125,20 @@ f=Fake();f.device='different-device'
 try:f.adapter().run('on');assert False
 except m.TetherError as e:assert e.code=='HERMES_DEVICE_PIN_MISMATCH'
 assert not f.calls`));
-test('USB XML verification rejects foreign UI and always cleans its exact temporary file',()=>run(`
-calls=[]
-xml='<hierarchy><node package="com.android.settings" class="android.widget.LinearLayout" enabled="true" checkable="false"><node package="com.android.settings" text="USB 테더링" enabled="true" checkable="false"/><node package="com.android.settings" class="android.widget.Switch" enabled="true" checkable="true" checked="false"/></node></hierarchy>'
-def adb(*args):
- calls.append(args)
- if args[:3]==('shell','dumpsys','activity'):return 'topResumedActivity=ActivityRecord{abc u0 com.android.settings/.Settings t1}'
- if args[:3]==('shell','dumpsys','window'):return 'mIsShowing=false'
- if args[:2]==('exec-out','cat'):return xml
- return ''
-s=m.read_ui('test-device',adb=adb);assert m.find_switch(s,('USB 테더링',))[1] is False
-dump=next(c for c in calls if c[:3]==('shell','uiautomator','dump'));assert calls[-1]==('shell','rm','-f',dump[-1]);assert dump[-1].startswith('/data/local/tmp/nc-tether-')
-xml=xml.replace('com.android.settings','com.example.private')
-try:m.read_ui('test-device',adb=adb);assert False
+test('UI reads use guarded native snapshots under the same lease without ADB UI automation',()=>run(`
+def no_adb(*args):raise AssertionError('UI reads must not use adb')
+m._adb=no_adb
+f=Fake();f.adapter().run('on')
+snapshots=[s for p in f.all_calls for s in p['steps'] if s['op']=='ui.snapshot']
+assert snapshots and all(s['with']=={'expected_package':'com.android.settings'} for s in snapshots)
+assert f.jobs==[('start','novel:tether-on'),('end','novel:tether-on')]
+f=Fake();original=f.ui
+def foreign():
+ s=original();s['package']='com.example.private';return s
+f.ui=foreign
+try:f.adapter().run('on');assert False
 except m.TetherError as e:assert e.code=='PHONE_UI_UNVERIFIED'
-assert calls[-1][:3]==('shell','rm','-f')
-calls.clear()
-def foreign(*args):calls.append(args);return 'topResumedActivity=ActivityRecord{a u0 com.example.private/.Activity t1}'
-try:m.read_ui('test-device',adb=foreign);assert False
-except m.TetherError as e:assert e.code=='PHONE_UI_UNVERIFIED'
-assert not any('uiautomator' in c for c in calls)`));
+assert len(f.calls)==1`));
 test('USB taps derive fresh verified bounds and reject missing or changed UI',()=>run(`
 f=Fake();f.adapter().run('on');tap=f.calls[-1]['steps'][0];assert tap['op']=='touch.tap' and tap['with']['x']==150 and tap['with']['y']==250
 for bounds in [[],[-1,0,10,10],[0,0,0,0],[10,10,5,5]]:
@@ -241,7 +238,7 @@ sys.modules['skill_registry']=types.ModuleType('skill_registry');sys.modules['sk
 with tempfile.TemporaryDirectory() as tmp:
  root=pathlib.Path(tmp);(root/'shared').mkdir();(root/'shared/bridge_client.py').touch()
  os.environ['NC_HERMES_ROOT']=tmp;os.environ['NC_TETHER_PHONE_SERIAL']='phone'
- m.phone_lock=lock;m.read_phone=lambda *a:f.phone();m.read_ui=lambda *a:f.ui()
+ m.phone_lock=lock;m.read_phone=lambda *a:f.phone()
  before=signal.getsignal(signal.SIGTERM);out=io.StringIO()
  with contextlib.redirect_stdout(out):code=m.main(['on'])
  assert code==1 and json.loads(out.getvalue())['code']=='PHONE_CONTROL_CANCELLED'

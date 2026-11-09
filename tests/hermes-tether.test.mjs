@@ -248,3 +248,7 @@ with tempfile.TemporaryDirectory() as tmp:
  assert len(out.getvalue().splitlines())==1 and signal.getsignal(signal.SIGTERM)==before
  assert locks==['enter','exit'] and not f.active
  assert f.jobs==[('start','novel:tether-on'),('failed','novel:tether-on'),('end','novel:tether-on')]`));
+test('missing post-restart heartbeat stays pending and never weakens the device pin',()=>run(`f=Fake();f.status=lambda:(200,{'payload':{'bridge_state':{'last_heartbeat':None}}})
+try:f.adapter().run('status');assert False
+except m.TetherError as e:assert e.code=='HERMES_DEVICE_HEARTBEAT_PENDING'
+assert not f.calls and not f.jobs`));

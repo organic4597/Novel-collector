@@ -261,6 +261,8 @@ class HermesTether:
             raise TetherError("HERMES_BRIDGE_UNAVAILABLE")
         state = payload["bridge_state"]
         heartbeat = state.get("last_heartbeat") or {}
+        if not isinstance(heartbeat, dict) or not heartbeat.get("device_id"):
+            raise TetherError("HERMES_DEVICE_HEARTBEAT_PENDING")
         if not self.expected_device_id or heartbeat.get("device_id") != self.expected_device_id:
             raise TetherError("HERMES_DEVICE_PIN_MISMATCH")
         self.companion_version = (heartbeat.get("payload") or {}).get("app_ver")

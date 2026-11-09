@@ -10,6 +10,7 @@ import { extractSource,sourceManifest,assertUnmodified,activate,rollback,private
 import { updateLog,updateEvent,redactDiagnostic } from "../src/activity-log.mjs";
 import { npmCliPath } from "../run.mjs";
 
+export function prepareRecovery(base){return cp(new URL("./recover-update.mjs",import.meta.url),join(base,"recover.mjs"));}
 export function stageEnvironment(root,stage,env=process.env){
   const result={...env},runtimes=["node_modules"];
   const python=join(root,".venv-captcha");if(!env.CAPTCHA_PYTHON||resolve(env.CAPTCHA_PYTHON).startsWith(python+"/" )||resolve(env.CAPTCHA_PYTHON).startsWith(python+"\\")){delete result.CAPTCHA_PYTHON;runtimes.push(".venv-captcha");}
@@ -73,7 +74,7 @@ export async function update({root,repository,version,channel="stable",commit=nu
     step="CHECK_RUNTIME";await report("preparing","새 실행 환경 점검");await command([join(stage,"run.mjs"),"--check"],stage,runtime.env,{log,step});
     step="CHECK_SERVER";await report("preparing","서버 모듈 점검");await command(["--input-type=module","-e","import(process.argv[1])",pathToFileURL(join(stage,"src","server.mjs")).href],stage,runtime.env,{log,step});
     step="CHECK_STAGED_RUNTIME";await report("preparing","소스와 모든 런타임 교체 원본 존재 확인");await validateStagedRuntime(stage,{files,runtimes:runtime.runtimes});
-    await cp(join(root,"tools","recover-update.mjs"),join(base,"recover.mjs"));
+    await prepareRecovery(base);
     await cp(new URL("./startup-diagnostics.mjs",import.meta.url),join(base,"startup-diagnostics.mjs"));
     await atomicJson(join(base,"managed-source.json"),await sourceManifest(root));
     step="WAIT_STOP";await report("ready","준비 완료 · 기존 프로그램 정상 종료 대기");

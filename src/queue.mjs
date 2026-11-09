@@ -1,3 +1,4 @@
+import { refreshCollectionLink } from "./collection-network.mjs";
 import { randomBytes, createHash } from "node:crypto";
 import { cleanMessage, safeId, validateUrl } from "./store.mjs";
 import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
@@ -204,6 +205,7 @@ export class Scheduler {
     return this.withControl(() => holdCollectionNetwork(this));
   }
   async requestFailed(jobId, error) {
+    await refreshCollectionLink(this.network,error);
     if (this.network?.enabled && error.code === "SOURCE_IP_BLOCKED") {
       await Promise.all([
         this.network.block({ siteHost: error.siteHost, blockCode: error.blockCode ?? error.ipBlockCode }),

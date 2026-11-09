@@ -220,3 +220,10 @@ export class CollectionNetwork {
     this.monitorTimer = this.recoveryTimer = null;
   }
 }
+
+// This only probes host/status and phone/status; it never prepares or toggles tethering.
+export async function refreshCollectionLink(network,error) {
+  if(!network?.enabled||network.snapshot().active||typeof network.refresh!=="function")return;
+  if(["ECONNRESET","ECONNREFUSED","ENETUNREACH","EHOSTUNREACH"].includes(error.code)||
+    /net::ERR_(?:PROXY_CONNECTION_FAILED|TUNNEL_CONNECTION_FAILED|CONNECTION_CLOSED|CONNECTION_RESET|INTERNET_DISCONNECTED|NETWORK_CHANGED|ADDRESS_UNREACHABLE|NAME_NOT_RESOLVED|FAILED)\b/.test(String(error.message||"")))await network.refresh();
+}

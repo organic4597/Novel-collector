@@ -1,3 +1,4 @@
+import { refreshCollectionLink } from "./collection-network.mjs";
 import { ChapterTiming } from "./timing.mjs";
 import { cleanMessage } from "./store.mjs";
 import { isImageType } from "./webtoon-source.mjs";
@@ -254,6 +255,7 @@ export async function runCollection(job, hooks, signal, bookId) {
           );
         } catch (error) {
           abortIfNeeded(signal);
+          await refreshCollectionLink(this.network,error);
           if (["SOURCE_IP_BLOCKED", "COLLECTION_NETWORK_PAUSED"].includes(error.code) || this.network?.snapshot().active) {
             await hooks.requestFailure?.(error);
             throw error;

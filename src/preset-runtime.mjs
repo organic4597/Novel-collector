@@ -126,20 +126,21 @@ export function evaluatePresetPage(page,doc=document){
   output.matches=matches;return output;
 }
 
-export async function validatePresetSource(presets,id,input){
+export async function validatePresetSource(presets,id,input,{network=null,transport=null}={}){
+  network?.assertAvailable();
+  if(network?.enabled&&!transport?.enabled)throw Object.assign(Error("테더링 전송이 준비되지 않았습니다."),{code:"COLLECTION_NETWORK_PAUSED",status:503});
   exact(input,["pageKind","url"]);const config=compilePreset(presets.get(id).config);
   if(!["listing","detail","reader"].includes(input.pageKind)||typeof input.url!=="string")throw bad("검증 페이지 종류와 URL을 지정하세요.");
   let url;try{url=new URL(input.url);}catch{throw bad("검증 URL을 확인하세요.");}
   if(!["sbxh9.com","toki32.com"].includes(url.hostname)||!matchesPresetPage(config,input.pageKind,url.href))throw bad("허용된 원천의 프리셋 페이지에서만 검증할 수 있습니다.");
-  const {chromium}=await import("playwright"),{Collector,readReaderDocument}=await import("./collector.mjs");
-  const browser=await chromium.launch({headless:true,...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{})});
+  const {chromium}=await import("playwright"),{Collector,readReaderDocument,checkSourceIpBlock}=await import("./collector.mjs");
+  const browser=await chromium.launch({headless:true,...(transport?.launchOptions()||{}),...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{})});
   try{
-    const context=await browser.newContext({serviceWorkers:"block",acceptDownloads:false});
-    await Collector.prototype.installNetworkGuard.call({},context,{allowedMainHost:url.hostname});
+    const context=await browser.newContext({serviceWorkers:"block",acceptDownloads:false,...(transport?.proxyOptions()||{})});
+    await Collector.prototype.installNetworkGuard.call({network},context,{allowedMainHost:url.hostname});
     context.on("page",page=>{if(context.pages().length>1)void page.close();});
     const page=await context.newPage(),response=await page.goto(url.href,{waitUntil:"domcontentloaded",timeout:15000});
-    if(response?.status()!==200)throw Object.assign(Error("원본 검증 페이지에 접근하지 못했습니다."),{status:409});
-    const reader=await page.evaluate(readReaderDocument);if(reader.challenge||reader.verificationRequired)throw Object.assign(Error("원본 페이지의 정상 접근 확인을 먼저 완료하세요."),{status:409});
+    const reader=await page.evaluate(readReaderDocument);await checkSourceIpBlock(reader,url.href,network);if(response?.status()!==200)throw Object.assign(Error("원본 검증 페이지에 접근하지 못했습니다."),{status:409});if(reader.challenge||reader.verificationRequired)throw Object.assign(Error("원본 페이지의 정상 접근 확인을 먼저 완료하세요."),{status:409});
     return await presets.validatePage(id,{pageKind:input.pageKind,url:url.href},page);
   }finally{await browser.close();}
 }

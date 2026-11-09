@@ -132,6 +132,8 @@ export class Discovery {
     profileDir,
     launchContext,
     fetchImage = fetchThumbnail,
+    network = null,
+    transport = null,
     now = () => Date.now(),
     delayMs = 1000,
     backoff = null,
@@ -146,6 +148,8 @@ export class Discovery {
     this.profileDir = profileDir;
     this.launchContext = launchContext;
     this.fetchImage = fetchImage;
+    this.network = network;
+    this.transport = transport;
     this.now = now;
     this.delayMs = delayMs;
     this.context = null;
@@ -683,9 +687,11 @@ export class Discovery {
           // active frontend or the shared public image CDN.
           if (/^newtoki\d*\.(org|com|net|me)$/i.test(cover.hostname))
             cover.hostname = new URL(this.transportUrl(work.url)).hostname;
-          const image = await this.fetchImage(cover.href);
+          this.network?.assertAvailable();
+          const image = await this.fetchImage(cover.href, { network: this.network, transport: this.transport });
           return await this.storeThumbnail(id, image);
-        } catch {
+        } catch (error) {
+          if (this.network?.snapshot().active || ["COLLECTION_NETWORK_PAUSED", "SOURCE_IP_BLOCKED"].includes(error.code)) return null;
           await atomic(metaPath, JSON.stringify({ failedAt: this.now(),...(correctedFormat?{formatPolicy:'actual-mime-v1'}:{}) }));
           return null;
         }

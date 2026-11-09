@@ -6,6 +6,7 @@ const retryTime = (value) =>
 export class AutoRecovery {
   constructor({
     scheduler,
+    network = null,
     accounts,
     autoAuth,
     pollMs = 250,
@@ -29,6 +30,7 @@ export class AutoRecovery {
       throw new Error("자동 본문 확인 횟수와 대기 시간을 확인하세요.");
     Object.assign(this, {
       scheduler,
+      network,
       accounts,
       autoAuth,
       pollMs,
@@ -76,6 +78,7 @@ export class AutoRecovery {
   request(site, { force = false } = {}) {
     if (
       this.closed ||
+      this.network?.snapshot().active ||
       this.suspended.has(site?.host) ||
       !site?.held ||
       !["authentication", "unknown", "captcha","site_blocked"].includes(site.kind ?? "unknown")
@@ -162,6 +165,7 @@ export class AutoRecovery {
       entry.attempts = 0;
       entry.renewBudget = false;
     }
+    if (this.network?.snapshot().active) { this.schedule(entry, Math.max(this.pollMs, 2000)); return; }
     let ownsBrowser = false;
     try {
       const account = await this.accounts.status(

@@ -23,7 +23,7 @@ export function isListingThumbnail(value) {
 
 export async function watchListingThumbnails(
   page,
-  { lookup = dnsLookup, assertAvailable = () => {}, listingPage=null } = {},
+  { lookup = dnsLookup, assertAvailable = () => {}, listingPage=null, network=null } = {},
 ) {
   const responses = new Map();
   const addresses = new Map();
@@ -43,6 +43,7 @@ export async function watchListingThumbnails(
         if(!sourceRead&&Date.now()-sourceReadAt>150){sourceReadAt=Date.now();sourceRead=page.evaluate(readListingCoverSources,listingPage).then(items=>{for(const item of items)sources.set(item.url,item.thumbnailUrl);}).catch(()=>{}).finally(()=>{sourceRead=null;});}
         await sourceRead;
       }
+      if (!network?.enabled) {
       const host = new URL(request.url()).hostname;
       if (!addresses.has(host)) {
         let timeout;
@@ -67,6 +68,7 @@ export async function watchListingThumbnails(
         resolved.some((item) => !isPublicAddress(item.address))
       )
         return route.abort().catch(()=>{});
+      } else if (closed) return route.abort().catch(()=>{});
       await route.continue();
     } catch {
       await route.abort().catch(() => {});
@@ -190,7 +192,7 @@ export function validateImage(bytes, mime, {allowHeaderMismatch=false}={}) {
     throw new Error("허용된 이미지 형식이 아닙니다.");
   return actual;
 }
-export function requestImage(url, address) {
+export function requestImage(url, address, { agent } = {}) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
@@ -199,6 +201,7 @@ export function requestImage(url, address) {
           "User-Agent": "NovelCollector/1.0",
           Accept: "image/jpeg,image/png,image/webp,image/gif",
         },
+        ...(agent ? { agent } : {}),
         lookup: (_hostname, options, callback) =>
           callback(
             null,
@@ -253,21 +256,24 @@ export function requestImage(url, address) {
 }
 export async function fetchThumbnail(
   value,
-  { lookup = dnsLookup, request = requestImage } = {},
+  { lookup = dnsLookup, request = requestImage, network = null, transport = null } = {},
 ) {
+  network?.assertAvailable();
   let url = validateThumbnailUrl(value);
   for (let redirects = 0; redirects <= 3; redirects++) {
     // Historical cover URLs remain valid persisted metadata; their old host
     // must never be contacted, including after an otherwise valid CDN redirect.
     if (/^newtoki\d*\.(org|com|net|me)$/i.test(url.hostname))
       throw new Error("이전 사이트의 썸네일 요청은 비활성화됐습니다.");
-    const addresses = await lookup(url.hostname, { all: true });
+    network?.assertAvailable();
+    const addresses = network?.enabled ? null : await lookup(url.hostname, { all: true });
     if (
-      !addresses.length ||
-      addresses.some((item) => !isPublicAddress(item.address))
+      addresses && (!addresses.length ||
+      addresses.some((item) => !isPublicAddress(item.address)))
     )
       throw new Error("공인 주소만 썸네일에 사용할 수 있습니다.");
-    const result = await request(url, addresses[0]);
+    if (network?.enabled && !transport?.enabled) throw Object.assign(Error("테더링 수집 전송이 준비되지 않았습니다."), {code:"COLLECTION_NETWORK_PAUSED",status:503});
+    const result = await request(url, addresses?.[0] || null, network?.enabled ? {agent:transport.agent} : {});
     if (result.status >= 300 && result.status < 400) {
       if (redirects === 3 || !result.location)
         throw new Error("썸네일 이동 횟수를 초과했습니다.");

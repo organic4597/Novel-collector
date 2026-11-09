@@ -33,7 +33,7 @@ export class LibraryMetadata {
   }
   defer(bookId, problem) {
     if (
-      !["SITE_VERIFICATION_REQUIRED", "REQUEST_BACKOFF"].includes(problem.code)
+      !["SITE_VERIFICATION_REQUIRED", "REQUEST_BACKOFF", "COLLECTION_NETWORK_PAUSED", "SOURCE_IP_BLOCKED"].includes(problem.code)
     )
       return null;
     const result = {

@@ -1,6 +1,6 @@
 import { evaluatePresetPage, validateRunnablePreset, presetHash, clickPresetAction, matchesPresetPage } from "./preset-runtime.mjs";
 import { webtoonSource } from "./webtoon-source.mjs";
-import { chapterIdFor, readReaderDocument, contentNotReadyError } from "./collector.mjs";
+import { chapterIdFor, readReaderDocument, contentNotReadyError, checkSourceIpBlock } from "./collector.mjs";
 
 import { webtoonPreset } from "./webtoon-presets.mjs";
 export { defaultWebtoonPreset, webtoonPreset } from "./webtoon-presets.mjs";
@@ -110,6 +110,7 @@ export async function webtoonCatalog(page,job,hooks,signal) {
     allChapters,chapters:allChapters.filter(c=>(job.startEpisode==null||c.number>=job.startEpisode)&&(job.endEpisode==null||c.number<=job.endEpisode))};
 }
 export async function webtoonNavigate(page,url,signal) {
+  this.network?.assertAvailable();
   signal?.throwIfAborted();const target=new URL(url),query=[...target.searchParams];target.search="";
   const source=webtoonSource(target.href);
   if(query.length&&(source.episodeId||query.length!==1||query[0][0]!=="epage"||
@@ -118,16 +119,15 @@ export async function webtoonNavigate(page,url,signal) {
   const navigationUrl=query.length?source.url+"?epage="+query[0][1]:source.chapterUrl;
   if(this.backoff?.snapshot().active)throw Object.assign(Error("사이트 요청 제한 대기 중입니다."),{code:"REQUEST_BACKOFF"});
   const response=await page.goto(navigationUrl,{waitUntil:"domcontentloaded",timeout:45000});
-  signal?.throwIfAborted();const problem=await this.responseProblem(response);if(problem)throw problem;
+  signal?.throwIfAborted();this.network?.assertAvailable();const status=await page.evaluate(readReaderDocument);await checkSourceIpBlock(status,navigationUrl,this.network);const problem=await this.responseProblem(response);if(problem)throw problem;
   if(page.url().replace(/\/$/,"")!==navigationUrl.replace(/\/$/,""))throw Error("웹툰 페이지가 다른 주소로 이동했습니다.");
-  const status=await page.evaluate(readReaderDocument);
   if(status.challenge||status.verificationRequired)throw Object.assign(Error("웹툰 원본 사이트에서 직접 접근 확인을 완료하세요."),{code:"NEEDS_ATTENTION",attentionKind:status.challenge?"captcha":"authentication"});
   if(status.contentNotReady)throw contentNotReadyError();
   const membership=await this.authenticateNavigation(page,signal);
   if(membership?.authenticated&&!membership.reused){
     const verified=await page.goto(navigationUrl,{waitUntil:"domcontentloaded",timeout:45000}),problem=await this.responseProblem(verified);
     if(problem)throw problem;
-    const state=await page.evaluate(readReaderDocument);
+    const state=await page.evaluate(readReaderDocument);await checkSourceIpBlock(state,navigationUrl,this.network);
     if(page.url()!==navigationUrl||state.challenge||state.verificationRequired)throw Object.assign(Error("웹툰 원본 사이트의 정상 접근 확인이 필요합니다."),{code:"NEEDS_ATTENTION",attentionKind:state.challenge?"captcha":"authentication"});
     if(state.contentNotReady)throw contentNotReadyError();
   }

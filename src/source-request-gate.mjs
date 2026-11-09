@@ -1,5 +1,5 @@
 import { lookup } from "node:dns/promises";
-import { isPublicAddress, readReaderDocument } from "./collector.mjs";
+import { isPublicAddress, readReaderDocument, checkSourceIpBlock } from "./collector.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 import { DEFAULT_SOURCE_ORIGIN,sourceGateHost } from "./source-site.mjs";
 
@@ -26,7 +26,7 @@ export class SourceRequestGate {
       : this.backoff?.snapshot || { active: false };
   }
   get active() {
-    return !!this.snapshot().active;
+    return !!this.snapshot().active || !!this.owner.network?.snapshot().active;
   }
   isHeld(host = new URL(DEFAULT_SOURCE_ORIGIN).hostname) {
     // Public listing/profile/cover reads do not consume protected chapter bodies.
@@ -36,6 +36,8 @@ export class SourceRequestGate {
   }
   assertAvailable(host = new URL(DEFAULT_SOURCE_ORIGIN).hostname) {
     this.owner.checkOpen();
+    this.owner.network?.assertAvailable();
+    if(this.owner.network?.enabled&&!this.owner.transport?.enabled)throw Object.assign(Error("테더링 전송이 준비되지 않았습니다."),{code:"COLLECTION_NETWORK_PAUSED",status:503});
     if (this.isHeld(host)) {
       const gate=sourceGateHost(host);
       const site = this.attention?.get?.(gate)||this.attention
@@ -101,6 +103,7 @@ export class SourceRequestGate {
         headless: true,
         chromiumSandbox: true,
         serviceWorkers: "block",
+        ...(owner.transport?.persistentOptions() || {}),
       });
     }
     try {
@@ -144,6 +147,7 @@ export class SourceRequestGate {
             await route.abort();
             return;
           }
+          if (!owner.network?.enabled) {
           let cached = owner.dnsCache.get(url.hostname);
           if (!cached || owner.now() - cached.time > 60000) {
             const addresses = await lookup(url.hostname, { all: true });
@@ -159,6 +163,7 @@ export class SourceRequestGate {
           ) {
             await route.abort();
             return;
+          }
           }
           await route.continue();
         } catch {
@@ -186,6 +191,9 @@ export class SourceRequestGate {
       timeout: 45000,
     });
     this.assertAvailable(siteHost);
+    if(response?.status()>=400&&![401,403].includes(response.status())) await this.assertResponse(response,siteHost);
+    const reader = await page.evaluate(readReaderDocument);
+    await checkSourceIpBlock(reader, target, this.owner.network);
     await this.assertResponse(response, siteHost);
     try {
       this.normalizeUrl(page.url());
@@ -195,7 +203,6 @@ export class SourceRequestGate {
         code: "NEEDS_ATTENTION",
       });
     }
-    const reader = await page.evaluate(readReaderDocument);
     if (reader.challenge || reader.verificationRequired) {
       const problem = Object.assign(
         new Error(

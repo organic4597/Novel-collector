@@ -373,7 +373,65 @@
       ? Number(value).toLocaleString("ko-KR")
       : "—";
   }
+  let networkConnecting = false, networkSequence = 0, networkTimer = null;
+  const networkLabels = {
+    offline: "테더링 연결 끊김 · 수집만 대기",
+    ready: "휴대전화 테더링 연결됨 · 수집 가능",
+    disconnecting: "접근 차단 감지 · 테더링 종료 확인 중",
+    cooldown: "테더링 재연결 대기 · 수집만 대기",
+    reconnecting: "휴대전화 테더링 다시 연결 중",
+    verifying: "테더링 전용 수집 경로 확인 중",
+    needs_attention: "테더링 확인 필요 · 수집만 대기",
+    closed: "수집 연결 관리 중지 · 수집만 대기",
+  };
+  function renderNetwork() {
+    clearTimeout(networkTimer);
+    networkTimer = null;
+    const authenticated = UI.authenticated();
+    const network = authenticated ? UI.status?.()?.collectionNetwork : null;
+    const enabled = network?.enabled === true;
+    $("collection-network-status").textContent = !authenticated
+      ? "로그인 후 수집 연결 상태를 확인합니다."
+      : !network ? "수집 연결 상태 확인 중"
+      : !enabled ? "테더링 전용 수집 미설정"
+      : networkLabels[network.phase] || "테더링 연결 확인 중 · 수집만 대기";
+    const until = Date.parse(network?.retryAt);
+    const remaining = Number.isFinite(until) ? Math.max(0, Math.ceil((until - Date.now()) / 1000)) : 0;
+    $("collection-network-retry").textContent = enabled && network.phase === "cooldown"
+      ? remaining ? "다시 연결까지 " + Math.floor(remaining / 60) + "분 " + remaining % 60 + "초"
+        : "대기 시간이 끝나 재연결 상태를 확인하고 있습니다."
+      : enabled && network.active ? String(network.reason || "").slice(0, 300) : "";
+    $("collection-network-connect").disabled = !authenticated || !enabled || networkConnecting ||
+      ["disconnecting", "cooldown", "reconnecting", "verifying"].includes(network?.phase);
+    if (authenticated && enabled && network.phase === "cooldown" && remaining &&
+      !document.hidden && !$("settings-view").hidden)
+      networkTimer = setTimeout(renderNetwork, 1000);
+  }
+  $("collection-network-connect").addEventListener("click", async () => {
+    if (networkConnecting || $("collection-network-connect").disabled || !UI.authenticated()) return;
+    networkConnecting = true;
+    const generation = UI.generation(), sequence = ++networkSequence;
+    $("collection-network-error").textContent = "";
+    $("collection-network-message").textContent = "";
+    renderNetwork();
+    try {
+      await UI.api("/api/collection-network/connect", { method: "POST", body: JSON.stringify({}) });
+      if (!alive(generation) || sequence !== networkSequence) return;
+      $("collection-network-message").textContent = "테더링 연결 확인을 요청했습니다. 확인되는 동안 수집만 기다립니다.";
+      await UI.refresh?.();
+    } catch (error) {
+      if (alive(generation) && sequence === networkSequence)
+        $("collection-network-error").textContent = UI.textError(error);
+    } finally {
+      if (sequence === networkSequence) {
+        networkConnecting = false;
+        renderNetwork();
+      }
+    }
+  });
+  document.addEventListener("visibilitychange", renderNetwork);
   function operation() {
+    renderNetwork();
     const status = UI.status?.();
     if (!status) return;
     const active = Array.isArray(status.activeJobIds)
@@ -383,7 +441,9 @@
         : 0;
     $("system-operation").textContent = status.queuePaused
       ? "전체 일시정지 · 직접 시작할 때까지 유지"
-      : status.backoff?.active
+      : status.collectionNetwork?.active
+        ? "테더링 연결을 기다리는 중 · 대시보드 이용 가능"
+        : status.backoff?.active
         ? "서버 요청 제한으로 대기 중"
         : active
           ? `${active}개 작품 수집 중`
@@ -435,12 +495,18 @@
   $("system-info-refresh").addEventListener("click", () => loadInfo(true));
   document.addEventListener("collector:status", operation);
   document.addEventListener("collector:view", (event) => {
+    renderNetwork();
     if (event.detail === "settings") {
       load();
       loadInfo();
     }
   });
   document.addEventListener("collector:auth", (event) => {
+    networkSequence++;
+    networkConnecting = false;
+    $("collection-network-error").textContent = "";
+    $("collection-network-message").textContent = "";
+    renderNetwork();
     if (event.detail) load();
     else {
       loadSequence++;
@@ -472,5 +538,6 @@
       resetPasswordVisibility();
     }
   });
+  renderNetwork();
   if (UI.authenticated()) load();
 })();

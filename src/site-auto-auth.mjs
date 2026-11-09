@@ -89,12 +89,17 @@ async function prepareCatalogLogin(page, host, signal) {
 }
 
 export class SiteAutoAuth {
+  networkLoginOptions() {
+    if(!this.network?.enabled)return {};
+    return{validateHost:async host=>{this.network.assertAvailable();return["sbxh9.com","toki32.com"].includes(host);}};
+  }
   constructor({
     accounts,
     siteBrowser,
     attention,
     scheduler,
     login = ensureSiteLogin,
+    network = null,
     clock = Date.now,
     accountHostFor = (host) => host,
     gateHostFor = (host) => host,
@@ -106,6 +111,7 @@ export class SiteAutoAuth {
       attention,
       scheduler,
       login,
+      network,
       clock,
       accountHostFor,
       gateHostFor,
@@ -252,7 +258,7 @@ export class SiteAutoAuth {
           if (this.loginFromCatalog)
             await prepareCatalogLogin(page, accountHost, signal);
           const result = await this.serialLogin(accountHost, () =>
-            this.login({ page, credentials, signal }),
+            this.login({ page, credentials, signal, ...this.networkLoginOptions() }),
           );
           loginResult = result;
           if (!result?.authenticated)
@@ -414,7 +420,7 @@ export class SiteAutoAuth {
       try {
         const credentials = await this.accounts.getCredentials(host);
         if (!credentials) return null;
-        return await this.login({ page, credentials, signal });
+        return await this.login({ page, credentials, signal, ...this.networkLoginOptions() });
       } catch (error) {
         this.recordFailure(host, error);
         const kind =

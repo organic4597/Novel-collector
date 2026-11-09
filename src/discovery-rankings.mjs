@@ -44,7 +44,7 @@ export async function discoveryRankings(owner,input={}){
     const result=await owner.dedupe('rank:'+key,()=>owner.exclusive(async()=>{
       const page=await (await owner.openContext()).newPage();let covers;
       try{
-        if(typeof page.route==='function')covers=await watchListingThumbnails(page,{assertAvailable:()=>owner.sourceGate.assertAvailable()});
+        if(typeof page.route==='function')covers=await watchListingThumbnails(page,{network:owner.network,assertAvailable:()=>owner.sourceGate.assertAvailable()});
         const url=new URL('/rank',origin);url.searchParams.set('kind',kind);if(query.period!=='hour')url.searchParams.set('period',query.period);
         await owner.navigate(page,url.href);const rows=await page.evaluate(readRankingDocument),items=[];
         for(const row of rows){const source=row.contentType==='novel'?normalizeWorkSource(row.url):webtoonSource(row.url);

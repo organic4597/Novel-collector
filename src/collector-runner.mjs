@@ -254,6 +254,10 @@ export async function runCollection(job, hooks, signal, bookId) {
           );
         } catch (error) {
           abortIfNeeded(signal);
+          if (["SOURCE_IP_BLOCKED", "COLLECTION_NETWORK_PAUSED"].includes(error.code) || this.network?.snapshot().active) {
+            await hooks.requestFailure?.(error);
+            throw error;
+          }
           failed++;
           failedChapters.push(
             await this.saveFailure(bookId, chapter, error, job.id),

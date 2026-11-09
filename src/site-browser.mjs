@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { Collector, makeBookId, readReaderDocument } from "./collector.mjs";
+import { Collector, makeBookId, readReaderDocument, checkSourceIpBlock } from "./collector.mjs";
 import { validateUrl } from "./store.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 import { startBrowserScreencast } from "./captcha-live.mjs";
@@ -24,6 +24,7 @@ const fail = (message, status = 409) =>
   Object.assign(new Error(message), { status });
 
 function browserOpenFailure(error, stage) {
+  if (["SOURCE_IP_BLOCKED", "COLLECTION_NETWORK_PAUSED"].includes(error.code)) return Object.assign(error,{stage});
   const causes = [];
   for (let cause = error; cause && causes.length < 4; cause = cause.cause) causes.push(cause);
   const text = causes.map(cause => String(cause.message || "").slice(0, 6000)).join("\n");
@@ -90,6 +91,8 @@ export class SiteBrowser {
     browserPath,
     profileDir,
     launchContext,
+    network = null,
+    transport = null,
     viewerOrigins = null,
     contextPool = null,
     captchaSupport = null,
@@ -115,6 +118,8 @@ export class SiteBrowser {
       browserPath,
       profileDir,
       launchContext,
+      network,
+      transport,
       viewerOrigins,
       contextPool,
       captchaSupport,
@@ -336,6 +341,8 @@ export class SiteBrowser {
         };
         const collector = new Collector({
           ...options,
+          network: this.network,
+          transport: this.transport,
           viewerOrigins: this.viewerOrigins,
           launchContext: this.launchContext
             ? () => this.launchContext(options)
@@ -392,6 +399,10 @@ export class SiteBrowser {
                 waitUntil: "domcontentloaded",
                 timeout: 45000,
               });
+            }
+            if(this.network?.enabled){
+              this.network.assertAvailable();
+              await checkSourceIpBlock(await session.page.evaluate(readReaderDocument), session.probeUrl, this.network);
             }
             stage = "CHECK_ORIGIN";
             if (!this.allowedPage(session)) throw fail("사이트 인증 화면을 열 수 없습니다.");
@@ -591,6 +602,7 @@ export class SiteBrowser {
         if (!this.allowedPage(session))
           throw fail("사이트 로그인 경로를 확인하세요.");
       } catch (error) {
+        if (["SOURCE_IP_BLOCKED", "COLLECTION_NETWORK_PAUSED"].includes(error.code)) throw error;
         if (error.name === "AbortError")
           throw Object.assign(new Error("자동 로그인 확인이 중단됐습니다."), {
             name: "AbortError",
@@ -657,7 +669,9 @@ export class SiteBrowser {
         )
           throw Error();
         for (let attempt = 0; attempt < 40; attempt++) {
+          this.network?.assertAvailable();
           reader = await session.page.evaluate(readReaderDocument);
+          await checkSourceIpBlock(reader, session.probeUrl, this.network);
           if (
             response?.status() >= 400 ||
             reader.challenge ||
@@ -668,7 +682,8 @@ export class SiteBrowser {
           if (typeof session.page.waitForTimeout !== "function") break;
           if (attempt < 39) await session.page.waitForTimeout(250);
         }
-      } catch {
+      } catch (error) {
+        if (["SOURCE_IP_BLOCKED", "COLLECTION_NETWORK_PAUSED"].includes(error.code)) throw error;
         throw Object.assign(
           fail(
             "회차 확인을 완료하지 못했습니다. 화면에서 인증을 마친 뒤 다시 확인하세요.",
@@ -788,7 +803,7 @@ export class SiteBrowser {
           if (actual !== session.probeUrl) throw fail("인증 페이지가 변경됐습니다.");
         },
       };
-      const collector = new Collector({ store: this.store, viewerOrigins: transport,
+      const collector = new Collector({ store: this.store, viewerOrigins: transport, network: this.network, transport: this.transport,
         captchaSupport: this.captchaSupport, captchaMaxAttempts: 5, contentTimeoutMs: 20000 });
       try {
         await collector.chapterText(session.page, { url: session.canonicalProbeUrl }, signal, {

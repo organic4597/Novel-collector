@@ -166,7 +166,9 @@ async function poll() {
       true,
       state.status.queuePaused
         ? "서버 연결됨 · 전체 일시정지"
-        : state.status.backoff?.active
+        : state.status.collectionNetwork?.active
+          ? "서버 연결됨 · 테더링 연결 대기"
+          : state.status.backoff?.active
           ? "서버 연결됨 · 요청 대기 중"
           : "서버 연결됨 · 수집 예약 실행 중",
     );
@@ -348,6 +350,7 @@ function renderJobs() {
     [...state.pendingActions],
     state.selectedJob,
     Boolean(state.status.backoff?.active),
+    Boolean(state.status.collectionNetwork?.active),
     (state.status.siteAttention || []).map((site) => [site.host, site.kind]),
     state.view,
     state.queueReorderBusy,
@@ -409,6 +412,7 @@ function cachedCard(job, queued, history = false) {
   const signature = JSON.stringify([
     job,
     state.status.backoff?.active,
+    state.status.collectionNetwork?.active,
     queued.findIndex((item) => item.id === job.id),
     isCaptchaPending(job),
   ]);
@@ -567,7 +571,9 @@ function jobCard(job, queued, inHistory = false) {
       node(
         "p",
         "job-eta",
-        state.status.backoff?.active
+        state.status.collectionNetwork?.active
+          ? "예상 완료 시각은 테더링 연결 후 다시 계산합니다."
+          : state.status.backoff?.active
           ? "예상 완료 시각은 요청 대기 후 다시 계산합니다."
           : duration
             ? `${estimated ? "추정 · " : "예상 · "}남은 시간 ${duration}${job.estimatedCompletionAt ? " · 완료 " + date(job.estimatedCompletionAt) : ""}`

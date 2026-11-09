@@ -3,6 +3,7 @@ import { cleanMessage, safeId, validateUrl } from "./store.mjs";
 import { isWebtoonUrl, webtoonSource } from "./webtoon-source.mjs";
 import { loadQueueState, pauseQueue, startQueue } from "./queue-controls.mjs";
 import { suspendRequests } from "./queue-backoff.mjs";
+import { collectionNetworkPaused, holdCollectionNetwork } from "./queue-network.mjs";
 import {
   requiresSiteAttention,
   holdJobSite,
@@ -33,6 +34,7 @@ export class Scheduler {
     queuePaused = false,
     backoff = null,
     attention = null,
+    network = null,
     onBackoff,
     onSiteAttention,
     onError = ({ jobId, message }) =>
@@ -61,6 +63,7 @@ export class Scheduler {
     this.queuePaused = queuePaused;
     this.backoff = backoff;
     this.attention = attention;
+    this.network = network;
     this.manualSlots = new Set();
     this.onBackoff = onBackoff;
     this.onSiteAttention = onSiteAttention;
@@ -197,7 +200,21 @@ export class Scheduler {
   async pauseAll() {
     return pauseQueue(this);
   }
+  async holdNetwork() {
+    return this.withControl(() => holdCollectionNetwork(this));
+  }
   async requestFailed(jobId, error) {
+    if (this.network?.enabled && error.code === "SOURCE_IP_BLOCKED") {
+      await Promise.all([
+        this.network.block({ siteHost: error.siteHost, blockCode: error.blockCode ?? error.ipBlockCode }),
+        this.holdNetwork(),
+      ]);
+      return { networkPaused: true, triggered: false };
+    }
+    if (error.code === "COLLECTION_NETWORK_PAUSED" || collectionNetworkPaused(this)) {
+      await this.holdNetwork();
+      return { networkPaused: true, triggered: false };
+    }
     if (this.attention && requiresSiteAttention(error))
       return holdJobSite(this, jobId, error);
     return suspendRequests(this, jobId, error);
@@ -290,8 +307,9 @@ export class Scheduler {
     return this.withControl(() => this.fillSlots());
   }
   async fillSlots() {
-    if (!this.enabled || this.queuePaused) return;
+    if (!this.enabled || this.queuePaused || collectionNetworkPaused(this)) return;
     await this.backoff?.clearAfterExpiry();
+    if (collectionNetworkPaused(this)) return;
     if (this.lease && Date.now() > this.lease.expires) {
       const expiredId = this.lease.jobId;
       await this.store.locked("agent:" + expiredId, async () => {
@@ -307,9 +325,9 @@ export class Scheduler {
       });
     }
     while (this.active.size < this.maxConcurrency) {
-      if (this.backoff?.snapshot().active) break;
+      if (this.backoff?.snapshot().active || collectionNetworkPaused(this)) break;
       const job = await this.nextJob("server");
-      if (!job || this.backoff?.snapshot().active) break;
+      if (!job || this.backoff?.snapshot().active || collectionNetworkPaused(this)) break;
       const slotId = this.availableSlot();
       if (slotId === null) break;
       const entry = {
@@ -335,6 +353,11 @@ export class Scheduler {
       } catch (error) {
         if (this.active.get(job.id) === entry) this.active.delete(job.id);
         throw error;
+      }
+      if (collectionNetworkPaused(this)) {
+        await holdCollectionNetwork(this);
+        this.active.delete(job.id);
+        break;
       }
       entry.task = this.run(next, entry).catch((error) =>
         this.recordTaskError(job.id, error),
@@ -594,6 +617,7 @@ export class Scheduler {
   }
   async claim(clientId) {
     safeId(clientId);
+    if (this.network?.enabled) return { job: null };
     this.agents.set(clientId, Date.now());
     return this.withControl(async () => {
       await this.backoff?.clearAfterExpiry();

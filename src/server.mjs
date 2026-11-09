@@ -9,6 +9,8 @@ import { FolderStore, safeId, cleanMessage } from "./store.mjs";
 import { Scheduler } from "./queue.mjs";
 import { MemoryCredentials, openCredentials } from "./auth.mjs";
 import { SettingsStore } from "./settings.mjs";
+import { createTetherRuntime } from "./tether-runtime.mjs";
+import { validatePresetSource } from "./preset-runtime.mjs";
 import { ExtractionPresets } from "./extraction-presets.mjs";
 import { createExtractionPresetsRouter } from "./extraction-presets-api.mjs";
 import { Updates } from "./updates.mjs";
@@ -132,6 +134,8 @@ export function createApp({
   startupIdentity = null,
   runtimeMode = "release",
   ownerHubUrl = "",
+  collectionNetwork = null,
+  collectionTransport = null,
 }) {
   const navigation = ownerNavigation(runtimeMode, ownerHubUrl);
   const healthIdentity={version:APP_VERSION,channel:startupIdentity?.version===APP_VERSION?startupIdentity.channel:"stable",commit:startupIdentity?.version===APP_VERSION?startupIdentity.commit:null};
@@ -155,6 +159,7 @@ export function createApp({
   const jobProfiles =
     profiles ?? (metadata ? new JobProfiles({ store, metadata }) : null);
   const prepareJob=input=>{
+    if(collectionNetwork?.enabled&&input?.executor==="browser")throw HTTP_ERROR("테더링 전용 모드에서는 서버 수집기를 선택하세요.",409);
     if(input?.presetSnapshot||input?.presetHash)throw HTTP_ERROR("예약 프리셋은 서버에서 확정합니다. presetId만 선택하세요.",400);
     if(!isWebtoonUrl(input?.url))return input;
     const source=webtoonSource(input.url);
@@ -173,7 +178,7 @@ export function createApp({
   });
   const siteBrowserRouter = createSiteBrowserRouter({ siteBrowser });
   const captchaRouter = createCaptchaSessionRouter({ captchaSession });
-  const presetsRouter = createExtractionPresetsRouter({ presets: extractionPresets });
+  const presetsRouter = createExtractionPresetsRouter({ presets: extractionPresets, validateSource:(presets,id,input)=>validatePresetSource(presets,id,input,{network:collectionNetwork,transport:collectionTransport}) });
   const updatesRouter = createUpdatesRouter({ updates, activity });
   const siteAccountsRouter = createSiteAccountsRouter({
     accounts,
@@ -380,6 +385,16 @@ export function createApp({
           await featureRouter({ request, response, url, send, readBody: body })
         )
           return;
+        if (url.pathname === "/api/collection-network/connect" && method === "POST") {
+          const input=await body(request);
+          if(!input||typeof input!=="object"||Array.isArray(input)||Object.keys(input).length)throw HTTP_ERROR("테더링 연결 확인에는 추가 입력이 필요하지 않습니다.",400);
+          if(!collectionNetwork?.enabled)throw HTTP_ERROR("서버의 테더링 전용 모드가 설정되지 않았습니다.",409);
+          const state=collectionNetwork.snapshot();
+          if(state.retryAt&&Date.parse(state.retryAt)>Date.now())throw HTTP_ERROR("예약된 5분 대기가 끝난 뒤 연결을 확인하세요.",409);
+          if(["disconnecting","reconnecting","verifying"].includes(state.phase))return send(response,202,state);
+          void collectionNetwork.bootstrap().catch(()=>{});
+          return send(response,202,collectionNetwork.snapshot());
+        }
         if (url.pathname === "/api/status" && method === "GET")
           return send(response, 200, {
             service: "running",
@@ -397,6 +412,7 @@ export function createApp({
               (scheduler.currentJobId ? [scheduler.currentJobId] : []),
             maxConcurrency: scheduler.maxConcurrency ?? 2,
             queuePaused: scheduler.queuePaused ?? false,
+            collectionNetwork: collectionNetwork?.snapshot() ?? {enabled:false,active:false,phase:"direct",reason:null,retryAt:null},
             browserSessionRefresh: scheduler.collector?.contextPool?.refreshStatus?.() ?? null,
             captchaAutomatic: [
               ...(await dashboardJobs()).filter(job => job.status === "running" && job.captcha).map(job => ({jobId:job.id,...job.captcha})),
@@ -786,6 +802,15 @@ export async function startServer({
   });
   await accounts.load();
   let autoAuth, recovery;
+  let scheduler, discovery;
+  const tether=createTetherRuntime({store,rootDir,onChange:async state=>{
+    activity.add({scope:"network",message:state.active?`테더링 수집 대기 · ${state.reason||state.phase}`:"테더링 수집 연결 확인 완료"});
+    if(state.active){await scheduler?.holdNetwork();await discovery?.suspendRequests();}
+    else {scheduler?.requestTick();for(const site of attention.snapshot().sites)recovery?.request(site);}
+  }});
+  const {network:collectionNetwork,transport:collectionTransport}=tether;
+  await collectionTransport.start();
+
   const agentToken = await secretFile(
     join(rootDir, "secrets", "agent-token.txt"),
   );
@@ -795,6 +820,7 @@ export async function startServer({
   const minScore = Number(process.env.CAPTCHA_MIN_SCORE);
   const minMargin = Number(process.env.CAPTCHA_MIN_MARGIN);
   const captchaSupport = new CaptchaBrowserSupport({
+    ...(collectionNetwork.enabled?{allowRequest:async value=>{collectionNetwork.assertAvailable();const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password&&["sbxh9.com","toki32.com"].includes(url.hostname);}}:{}),
     backoff,
     analyze: createCaptchaAnalyzer({
       ...(process.env.CAPTCHA_PYTHON ? { python: process.env.CAPTCHA_PYTHON } : {}),
@@ -804,7 +830,9 @@ export async function startServer({
     log: (event) => { console.info("[NovelCaptcha] " + JSON.stringify(event)); },
   });
   const { Discovery } = await import("./discovery.mjs");
-  const discovery = new Discovery({
+  discovery = new Discovery({
+    network: collectionNetwork,
+    transport: collectionTransport,
     presets: extractionPresets,
     rootDir: join(rootDir, "data", "discovery"),
     browserPath: process.env.BROWSER_PATH,
@@ -827,6 +855,8 @@ export async function startServer({
     rootDir: join(rootDir, "data", "downloads"),
   });
   const collector = new Collector({
+    network: collectionNetwork,
+    transport: collectionTransport,
     captchaSupport,
     contextPool: retainedBrowser.contextPool,
     store,
@@ -840,7 +870,8 @@ export async function startServer({
       autoAuth?.loginPage(page, signal) ?? null,
     viewerOrigins,
   });
-  const scheduler = new Scheduler({
+  scheduler = new Scheduler({
+    network: collectionNetwork,
     store,
     collector,
     ...settings.get(),
@@ -859,6 +890,8 @@ export async function startServer({
     recovery: sourceRecovery,
     captchaSession,
   } = createSourceSessions({
+    network: collectionNetwork,
+    transport: collectionTransport,
     captchaSupport,
     activity,
     ...retainedBrowser,
@@ -874,6 +907,8 @@ export async function startServer({
   autoAuth = sourceAuth;
   recovery = sourceRecovery;
   const app = createApp({
+    collectionNetwork,
+    collectionTransport,
     runtimeMode,
     ownerHubUrl,
     extractionPresets,
@@ -905,6 +940,7 @@ export async function startServer({
     app.listen(port, host, resolve);
   });
   await atomicJson(join(rootDir,".updates","server.json"),{pid:process.pid}).catch(()=>{});
+  void collectionNetwork.start().catch(()=>activity.add({scope:"network",message:"테더링 상태 확인 실패 · 수집만 대기합니다."}));
   if (automaticWork) retainedBrowser.contextPool.startRefresh({
     afterRefresh: () => discovery.refreshConnection(),
     onEvent: event => activity.add(event),
@@ -925,6 +961,7 @@ export async function startServer({
   const close = async () => {
     if (closing) return;
     closing = true;
+    await tether.close();
     clearInterval(verificationTimer);
     updates.close();
     profiles.close();

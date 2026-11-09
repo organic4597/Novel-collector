@@ -117,6 +117,7 @@ export class DiscoveryPageCache {
     let thumbnails;
     try {
        if (isImageType(query.contentType)) thumbnails = await watchListingThumbnails(page, {
+         network: this.owner.network,
          assertAvailable: () => this.owner.sourceGate.assertAvailable(),
          listingPage:webtoonPreset(this.owner.presets,new URL(this.owner.transportUrl("https://newtoki1.org/novel")).origin,null,query.contentType).presetSnapshot.pages.listing,
       });

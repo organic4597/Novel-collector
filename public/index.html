@@ -1416,6 +1416,7 @@
           </div>
           <nav class="settings-section-nav" aria-label="설정 항목">
             <a href="#settings-collection">수집</a
+            ><a href="#settings-network">수집 연결</a
             ><a href="#settings-display">화면</a
             ><a href="#settings-security">보안</a
             ><a href="#settings-system">서버 정보</a>
@@ -1522,6 +1523,16 @@
                 </button>
               </div>
             </form>
+            <section id="settings-network" class="settings-card">
+              <h2>수집 연결</h2>
+              <p class="muted settings-intro">원본 사이트 요청은 휴대전화 테더링을 사용하고, 대시보드와 저장 작품 열람은 기존 인터넷을 유지합니다.</p>
+              <p id="collection-network-status" class="system-operation" role="status">수집 연결 상태 확인 중</p>
+              <p id="collection-network-retry" class="field-help" role="status"></p>
+              <p class="field-help">테더링이 끊기면 수집만 대기하며 유선으로 자동 전환하지 않습니다. 수동 일시정지는 연결 복구 후에도 유지됩니다.</p>
+              <button id="collection-network-connect" class="quiet" type="button" disabled>테더링 연결 확인</button>
+              <p id="collection-network-message" class="field-help" role="status"></p>
+              <p id="collection-network-error" class="error-text" role="alert"></p>
+            </section>
             <form id="password-form" class="settings-card">
               <h2 id="settings-security">보안</h2>
               <p class="muted settings-intro">

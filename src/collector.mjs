@@ -150,8 +150,19 @@ export function readReaderDocument(doc = document) {
     text = "";
     notice = notice || panels[0]?.textContent.trim() || "본문이 아직 준비되지 않았습니다.";
   }
+  const ipBlockCode = !text && !hasReaderImages && scopes.some(scope =>
+    [...scope.querySelectorAll("code,span,strong,div")].some(node => {
+      if (node.textContent.trim() !== "NGINX_CIDR_REALIP" || !visible(node)) return false;
+      let panel = node.parentElement;
+      for (let depth = 0; panel && depth < 6; depth++, panel = panel.parentElement) {
+        if (![...panel.querySelectorAll("h1,h2,h3,strong")].some(heading => visible(heading) && /^Access denied$/i.test(heading.textContent.trim()))) continue;
+        if ([...panel.querySelectorAll("p,span,div")].some(message => visible(message) && /^Client IP range is blocked by site security policy\.?$/i.test(message.textContent.trim()))) return true;
+      }
+      return false;
+    })) ? "NGINX_CIDR_REALIP" : null;
   return {
     text,
+    ipBlockCode,
     contentNotReady,
     imageReady,
     notice,
@@ -165,6 +176,16 @@ export function readReaderDocument(doc = document) {
       : null,
     verificationReason: verificationRequired ? notice.slice(0, 500) : "",
   };
+}
+
+export async function checkSourceIpBlock(reader, url, network) {
+  if (reader?.ipBlockCode !== "NGINX_CIDR_REALIP") return;
+  const error = Object.assign(new Error("원본 사이트가 접속 IP 대역을 차단했습니다. 수집 연결을 확인합니다."), {
+    code: "SOURCE_IP_BLOCKED", status: 503, siteHost: new URL(url).hostname,
+    blockCode: reader.ipBlockCode,
+  });
+  if (network?.enabled) await network.block(error);
+  throw error;
 }
 
 export function contentNotReadyError() {
@@ -281,6 +302,8 @@ export class Collector {
     browserPath,
     profileDir,
     launchContext,
+    network = null,
+    transport = null,
     delayMs = 1000,
     contentTimeoutMs = 30000,
     onMetadata,
@@ -301,6 +324,8 @@ export class Collector {
     this.browserPath = browserPath;
     this.profileDir = profileDir;
     this.launchContext = launchContext;
+    this.network = network;
+    this.transport = transport;
     this.delayMs = delayMs;
     this.contentTimeoutMs = contentTimeoutMs;
     this.onMetadata = onMetadata;
@@ -332,6 +357,8 @@ export class Collector {
       browserPath: this.browserPath,
       profileDir: join(this.profileDir, `slot-${slotId}`),
       launchContext: this.launchContext,
+      network: this.network,
+      transport: this.transport,
       delayMs: this.delayMs,
       contentTimeoutMs: this.contentTimeoutMs,
       onMetadata: this.onMetadata,
@@ -371,6 +398,8 @@ export class Collector {
   }
 
   async openContext() {
+    this.network?.assertAvailable();
+    if(this.network?.enabled&&!this.transport?.enabled)throw Object.assign(Error("테더링 전송이 준비되지 않았습니다."),{code:"COLLECTION_NETWORK_PAUSED",status:503});
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
     if (this.launchContext) return this.launchContext();
@@ -383,7 +412,8 @@ export class Collector {
       viewport: { width: 1280, height: 900 },
       locale: "ko-KR",
       timezoneId: "Asia/Seoul",
-      args: ["--disable-dev-shm-usage"],
+      ...(this.transport?.persistentOptions() || {}),
+      args: ["--disable-dev-shm-usage", ...(this.transport?.launchOptions().args || [])],
     });
   }
 
@@ -399,6 +429,7 @@ export class Collector {
     }
     const handler = async (route) => {
       try {
+        this.network?.assertAvailable();
         if (this.backoff?.snapshot().active) {
           await route.abort();
           return;
@@ -434,6 +465,7 @@ export class Collector {
           await route.abort();
           return;
         }
+        if (!this.network?.enabled) {
         let addresses = cache.get(url.hostname);
         if (!addresses) {
           addresses = isIP(url.hostname)
@@ -447,6 +479,7 @@ export class Collector {
         ) {
           await route.abort();
           return;
+        }
         }
         await route.continue();
       } catch {
@@ -471,6 +504,7 @@ export class Collector {
       makeBookId,
       abortIfNeeded,
       readReaderDocument,
+      checkSourceIpBlock,
       attention,
       contentNotReadyError,
     });
@@ -569,6 +603,7 @@ export class Collector {
       delay,
       abortIfNeeded,
       readReaderDocument,
+      checkSourceIpBlock,
       attention,
     });
   }
@@ -613,7 +648,9 @@ export class Collector {
     let resumed = false;
     while (Date.now() < deadline) {
       abortIfNeeded(signal);
+      this.network?.assertAvailable();
       let reader = await page.evaluate(readReaderDocument);
+      await checkSourceIpBlock(reader, chapter.url, this.network);
       if (await this.captchaReaders.get(page)?.settle()) {
         abortIfNeeded(signal);
         if (!resumed) {
@@ -621,6 +658,7 @@ export class Collector {
           deadline = Date.now() + this.contentTimeoutMs;
         }
         reader = await page.evaluate(readReaderDocument);
+        await checkSourceIpBlock(reader, chapter.url, this.network);
         if (reader.novelCaptcha) {
           await delay(100, signal);
           continue;

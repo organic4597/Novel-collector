@@ -1,8 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {execFile} from "node:child_process";
-import {readFile} from "node:fs/promises";
+import {readFile,mkdtemp,mkdir,writeFile,symlink,rm} from "node:fs/promises";
 import {promisify} from "node:util";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {fileURLToPath,pathToFileURL} from "node:url";
+import JSZip from "jszip";
 import {nextVersion,releaseFiles,verifyPublishedAssetDigest,channelNameForBranch,channelArtifactNames,buildChannelManifest,sourceBranchRef,plannedCandidateEnv,channelPublishedAt} from "../tools/ci-release.mjs";
 import {validCandidate} from "../tools/deploy-verified-release.mjs";
 import {sourcePath} from "../src/update-files.mjs";
@@ -37,6 +41,41 @@ test("three-part release candidates and hotfix artifacts retain the same provena
 test("release files exclude automation, local rules and private state while remaining valid for the installed updater",()=>{
   const files=releaseFiles(["run.mjs","src/server.mjs",".github/workflows/delivery.yml","tools/ci-release.mjs","tools/deploy-verified-release.mjs","tests/cicd.test.mjs","AGENTS.md","PATCH-WORKFLOW.md",".ci-local/state.json","data/private.json","secrets/private.txt"]);
   assert.deepEqual(files,["run.mjs","src/server.mjs"]);for(const path of files)assert.equal(sourcePath(path),path);
+});
+test("application archives exclude the separately installed namespace browser service",()=>{
+  assert.deepEqual(releaseFiles(["src/namespace-browser.mjs","src/namespace-browser-launch.mjs","deploy/novel-collector.service","deploy/novel-collector-namespace-browser.service"]),
+    ["src/namespace-browser.mjs","src/namespace-browser-launch.mjs","deploy/novel-collector.service"]);
+});
+test("the installed pre-namespace updater extracts the complete current delivery ZIP without relaxing its guard",async t=>{
+  const root=fileURLToPath(new URL("../",import.meta.url)),directory=await mkdtemp(join(tmpdir(),"nc-update-compat-"));
+  t.after(()=>rm(directory,{recursive:true,force:true}));
+  await mkdir(join(directory,"src"));
+  for(const name of ["update-engine.mjs","update-files.mjs"]){
+    const {stdout}=await exec("git",["show","394407e:src/"+name],{cwd:root});
+    await writeFile(join(directory,"src",name),stdout);
+  }
+  await symlink(join(root,"node_modules"),join(directory,"node_modules"),"dir");
+  const {extractSource}=await import(pathToFileURL(join(directory,"src/update-engine.mjs")).href);
+  const {sourcePath:installedSourcePath}=await import(pathToFileURL(join(directory,"src/update-files.mjs")).href);
+  assert.throws(()=>installedSourcePath("deploy/novel-collector-namespace-browser.service"),/허용되지 않은/);
+  for(const path of ["data/private.json","secrets/private.txt","profile/session.json","../escape.mjs"])
+    assert.throws(()=>installedSourcePath(path));
+  const {stdout}=await exec("git",["ls-files","-z"],{cwd:root}),zip=new JSZip();
+  const files=releaseFiles(stdout.split("\0").filter(Boolean));
+  for(const path of files)zip.file("Novel-collector-fixture/"+path,await readFile(join(root,path)));
+  const extracted=await extractSource(await zip.generateAsync({type:"nodebuffer"}),join(directory,"source"));
+  assert.equal(Object.keys(extracted).length,files.length);
+  for(const path of ["src/chapter-delay.mjs","src/namespace-browser-launch.mjs","src/reader-shadow.mjs","src/update-files.mjs"])
+    assert.ok(extracted[path],path);
+  assert.equal(Object.hasOwn(extracted,"deploy/novel-collector-namespace-browser.service"),false);
+});
+test("develop publication uses the same latest stable endpoint as the dashboard, not a non-latest validation release",async()=>{
+  const {latestStableRelease}=await import("../tools/ci-release.mjs"),calls=[];
+  const stable={tag_name:"1.3.1",draft:false,prerelease:false};
+  assert.equal(await latestStableRelease(async path=>{calls.push(path);return stable;}),stable);
+  assert.equal(calls.length,1);assert.match(calls[0],/\/releases\/latest$/);
+  for(const value of [null,{...stable,draft:true},{...stable,prerelease:true},{...stable,tag_name:"develop"}])
+    await assert.rejects(latestStableRelease(async()=>value),/기준 안정 릴리스/);
 });
 test("only a successful develop push from the correct workflow can authorize operating validation",()=>{
   const manifest={schema:1,channel:"develop-validation",version:"1.0.0.8",commit:"a".repeat(40),sourceSha:"b".repeat(40),zipSha256:"c".repeat(64)};

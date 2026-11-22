@@ -368,7 +368,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
    }
    ```
 
-3. `deploy/novel-collector-namespace-browser.service`의 사용자 그룹과 Node22 경로를 확인한 뒤 관리자 서비스로 등록합니다. 브라우저 관리자는 root 소유 `0660` Unix 소켓만 제공하고, 실제 Chromium은 지정한 일반 계정으로 권한과 capability를 내린 뒤 실행합니다. 외부 디버깅 TCP 포트는 열지 않습니다.
+3. 검증한 릴리스 태그의 GitHub 소스에 있는 `deploy/novel-collector-namespace-browser.service`의 사용자 그룹과 Node22 경로를 확인한 뒤 관리자 서비스로 등록합니다. 이 별도 관리자 서비스 템플릿은 이전 업데이터와의 호환성을 위해 앱 배송 압축 파일에서 제외하며, 앱 업데이트가 설치·활성화하지 않습니다. 브라우저 관리자는 root 소유 `0660` Unix 소켓만 제공하고, 실제 Chromium은 지정한 일반 계정으로 권한과 capability를 내린 뒤 실행합니다. 외부 디버깅 TCP 포트는 열지 않습니다.
 
 4. 테더링 관리자 환경에 `NC_TETHER_IPV6=1`, 웹 서비스 환경에 다음 항목을 추가합니다.
 

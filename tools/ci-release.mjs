@@ -17,7 +17,7 @@ export function nextVersion(values,bump="patch"){
   if(!versions.length)throw Error("기준 버전이 필요합니다.");const parts=versionParts(versions.at(-1)).slice(0,3);parts[index]++;parts.fill(0,index+1);
   const version=parts.join(".");if(!isReleaseVersion(version))throw Error("지원하는 버전 범위를 초과했습니다.");return version;
 }
-export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path)&&path!=="tests/cicd.test.mjs");}
+export function releaseFiles(files){return files.filter(path=>MANAGED_SOURCE.test(path)&&path!=="tests/cicd.test.mjs"&&path!=="deploy/novel-collector-namespace-browser.service");}
 export function channelNameForBranch(branch){
   if(branch==="develop")return "develop";
   if(branch?.startsWith("hotfix/")&&isReleaseVersion(branch.slice(7)))return "hotfix";
@@ -65,9 +65,9 @@ export async function verifyPublishedAssetDigest(readReleases,{version,assetName
   throw Error("게시된 ZIP 체크섬을 확인하지 못했습니다.");
 }
 async function api(path){return JSON.parse((await exec("gh",["api",path],{maxBuffer:16*1024*1024})).stdout);}
-async function latestStableRelease(){
-  const releases=await api(`repos/${repo}/releases?per_page=100`),release=releases.find(value=>!value.draft&&!value.prerelease&&isReleaseVersion(value.tag_name));
-  if(!release)throw Error("기준 안정 릴리스를 찾지 못했습니다.");
+export async function latestStableRelease(readRelease=api){
+  const release=await readRelease(`repos/${repo}/releases/latest`);
+  if(!release||release.draft||release.prerelease||!isReleaseVersion(release.tag_name))throw Error("기준 안정 릴리스를 찾지 못했습니다.");
   return release;
 }
 async function releaseByTag(tag){

@@ -67,6 +67,7 @@
 !/docs/assets/*.svg
 /deploy/*
 !/deploy/novel-collector.service
+!/deploy/novel-collector-namespace-browser.service
 
 # Defense in depth for future directories.
 **/node_modules/

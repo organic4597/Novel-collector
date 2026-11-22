@@ -12,23 +12,6 @@ function abortIfNeeded(signal) {
     });
 }
 
-const delay = (ms, signal) =>
-  new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(Object.assign(new Error("작업 중단"), { name: "AbortError" }));
-      return;
-    }
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(Object.assign(new Error("작업 중단"), { name: "AbortError" }));
-    };
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
-
 export async function runCollection(job, hooks, signal, bookId) {
   const webtoon=isImageType(job.contentType);
   if (this.collectionRun)
@@ -296,7 +279,13 @@ export async function runCollection(job, hooks, signal, bookId) {
           if (sourceFailed && error.code !== "CONTENT_NOT_READY") await hooks.requestFailure?.(error);
           abortIfNeeded(signal);
         }
-        if (!blockedReason) await delay(this.delayMs, signal);
+        if (!blockedReason && chapters.slice(index + 1).some(next =>
+          !cache.has(next.id) && (!next.notReady || job.retryOnlyFailed))) {
+          await this.waitBetweenChapters(signal, async seconds => {
+            await hooks.report({ phase: `다음 회차까지 ${seconds}초 대기` });
+            await hooks.event("info", `회차 사이 ${seconds}초 대기`);
+          });
+        }
         timing.record(this.clock() - attemptStart);
         remainingAttempts--;
       }

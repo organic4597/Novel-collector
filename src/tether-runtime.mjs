@@ -11,7 +11,7 @@ const failure=(code,message)=>Object.assign(new Error(message),{code,status:503}
 
 export function createTetherRuntime({store,rootDir,onChange=()=>{},env=process.env,run=execute}) {
   const enabled=env.NC_COLLECTION_TETHER==="1";
-  const childEnv={...env};
+  const childEnv={...env,...(env.NC_TETHER_BROWSER_LAUNCHER?{NC_TETHER_IPV6:"1"}:{})};
   const cancellation=new AbortController();
   const control=enabled&&env.NC_TETHER_CONTROL_SOCKET?new TetherControl({socketPath:env.NC_TETHER_CONTROL_SOCKET}):null;
   const serial=env.NC_TETHER_PHONE_SERIAL||"";
@@ -34,7 +34,13 @@ export function createTetherRuntime({store,rootDir,onChange=()=>{},env=process.e
   const probe=async()=>{
     const route=await host("status");if(!route.ready)return{ready:false};
     const device=await phone("status");
-    return{ready:device.usbConnected===true&&device.tethering===true&&device.cellular===true&&device.validated===true};
+    const ready=device.usbConnected===true&&device.tethering===true&&device.cellular===true&&device.validated===true;
+    if(!ready||!env.NC_TETHER_BROWSER_LAUNCHER)return{ready};
+    try{
+      const result=await run(env.NC_TETHER_BROWSER_LAUNCHER,["--check"],{
+        env:childEnv,timeout:20000,maxBuffer:65536,windowsHide:true,signal:cancellation.signal});
+      return{ready:JSON.parse(result.stdout)?.ready===true};
+    }catch{return{ready:false};}
   };
   let transport;
   const network=new CollectionNetwork({enabled,store,pollMs:5000,probe,connect:()=>host("connect"),
@@ -52,6 +58,7 @@ export function createTetherRuntime({store,rootDir,onChange=()=>{},env=process.e
     },
     onChange:async state=>{if(state.active)transport?.disconnect();await onChange(state);},
   });
-  transport=new CollectionTransport({network,...(env.NC_TETHER_PROXY_SOCKET?{socketPath:env.NC_TETHER_PROXY_SOCKET}:{})});
+  transport=new CollectionTransport({network,...(env.NC_TETHER_PROXY_SOCKET?{socketPath:env.NC_TETHER_PROXY_SOCKET}:{}),
+    ...(env.NC_TETHER_BROWSER_LAUNCHER?{browserLauncher:env.NC_TETHER_BROWSER_LAUNCHER}:{})});
   return{network,transport,close:async()=>{network.close();cancellation.abort();control?.close();await transport.close();}};
 }

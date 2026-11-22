@@ -8,6 +8,7 @@ import JSZip from "jszip";
 import { Collector, chapterIdFor, makeBookId } from "../src/collector.mjs";
 import { FolderStore } from "../src/store.mjs";
 import { BackoffController } from "../src/request-backoff.mjs";
+import { pauseBetweenChapters } from "../src/chapter-delay.mjs";
 
 const base = "https://newtoki1.org/novel/21104";
 const chapterUrl = (number) => `${base}/${100 + number}`;
@@ -287,7 +288,7 @@ function fakeBrowser(pages) {
 
 async function fixture(
   t,
-  { format = "txt", pages, onEvent, launchContext, jobInput = {} } = {},
+  { format = "txt", pages, onEvent, launchContext, jobInput = {}, waitBetweenChapters = async () => {} } = {},
 ) {
   const directory = await mkdtemp(
     join(tmpdir(), "novel-collector-integration-"),
@@ -322,11 +323,37 @@ async function fixture(
     store,
     launchContext: launchContext || (() => browser.context),
     delayMs: 0,
+    waitBetweenChapters,
     contentTimeoutMs: 100,
   });
   t.after(() => collector.close());
   return { store, job, browser, reports, hooks, collector };
 }
+
+test("chapter pauses occur only between fresh requests, not after the last chapter or for cached chapters", async t => {
+  let waits = 0;
+  const f = await fixture(t, { waitBetweenChapters: async () => { waits++; } });
+  const first = await f.collector.run(f.job, f.hooks);
+  assert.equal(first.completed, 2);
+  assert.equal(waits, 1);
+  const second = await f.collector.run({ ...f.job, resumeCatalog: true }, f.hooks);
+  assert.equal(second.skipped, 2);
+  assert.equal(waits, 1);
+});
+
+test("manual cancellation interrupts a chapter gap and preserves the completed chapter without starting the next", async t => {
+  let entered;
+  const ready = new Promise(resolve => { entered = resolve; });
+  const f = await fixture(t, { waitBetweenChapters: signal =>
+    pauseBetweenChapters(signal, () => entered(), { choose: () => 60 }) });
+  const controller = new AbortController();
+  const stopped = assert.rejects(f.collector.run(f.job, f.hooks, controller.signal), { name: "AbortError" });
+  await ready;
+  controller.abort();
+  await stopped;
+  assert.ok(await f.store.readChapter(makeBookId(base), chapterIdFor(chapterUrl(1))));
+  assert.equal(f.browser.visited.includes(chapterUrl(2)), false);
+});
 
 for (const format of ["txt", "epub"]) {
   test(`Collector.run persists ordered chapters and creates a usable ${format.toUpperCase()} export across catalog pages`, async (t) => {

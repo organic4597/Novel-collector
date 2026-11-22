@@ -13,6 +13,8 @@ import { isWebtoonUrl, webtoonSource, isImageType } from "./webtoon-source.mjs";
 import { webtoonCatalog, webtoonNavigate } from "./webtoon-runtime.mjs";
 import { extractWebtoonImages, verifyWebtoonChapter } from "./webtoon-images.mjs";
 import { isPublicAddress } from "./public-address.mjs";
+import { installReaderSupport } from "./reader-shadow.mjs";
+import { pauseBetweenChapters } from "./chapter-delay.mjs";
 export { isPublicAddress } from "./public-address.mjs";
 
 export function makeBookId(url) {
@@ -107,7 +109,7 @@ export function readReaderDocument(doc = document) {
   ]);
   const candidates = named.length
     ? named
-    : scopes.slice(1).filter((scope) => scope.querySelector("p"));
+    : scopes.slice(1).filter((scope) => rootHosts.get(scope)?.closest?.("article.novel-viewer") && scope.querySelector("p"));
   const texts = candidates.filter(visible).map(read).map((text) =>
     text
       .replace(/\r\n?/g, "\n")
@@ -305,6 +307,7 @@ export class Collector {
     network = null,
     transport = null,
     delayMs = 1000,
+    waitBetweenChapters = pauseBetweenChapters,
     contentTimeoutMs = 30000,
     onMetadata,
     clock = () => Date.now(),
@@ -327,6 +330,7 @@ export class Collector {
     this.network = network;
     this.transport = transport;
     this.delayMs = delayMs;
+    this.waitBetweenChapters = waitBetweenChapters;
     this.contentTimeoutMs = contentTimeoutMs;
     this.onMetadata = onMetadata;
     this.clock = clock;
@@ -360,6 +364,7 @@ export class Collector {
       network: this.network,
       transport: this.transport,
       delayMs: this.delayMs,
+      waitBetweenChapters: this.waitBetweenChapters,
       contentTimeoutMs: this.contentTimeoutMs,
       onMetadata: this.onMetadata,
       clock: this.clock,
@@ -402,9 +407,9 @@ export class Collector {
     if(this.network?.enabled&&!this.transport?.enabled)throw Object.assign(Error("테더링 전송이 준비되지 않았습니다."),{code:"COLLECTION_NETWORK_PAUSED",status:503});
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
-    if (this.launchContext) return this.launchContext();
+    if (this.launchContext) return installReaderSupport(await this.launchContext());
     const { chromium } = await import("playwright");
-    return chromium.launchPersistentContext(this.profileDir, {
+    const context = await chromium.launchPersistentContext(this.profileDir, {
       executablePath: this.browserPath || undefined,
       headless: true,
       chromiumSandbox: true,
@@ -415,6 +420,7 @@ export class Collector {
       ...(this.transport?.persistentOptions() || {}),
       args: ["--disable-dev-shm-usage", ...(this.transport?.launchOptions().args || [])],
     });
+    return installReaderSupport(context);
   }
 
   async installNetworkGuard(
@@ -465,7 +471,7 @@ export class Collector {
           await route.abort();
           return;
         }
-        if (!this.network?.enabled) {
+        if (!this.network?.enabled || this.transport?.directBrowser) {
         let addresses = cache.get(url.hostname);
         if (!addresses) {
           addresses = isIP(url.hostname)

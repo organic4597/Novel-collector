@@ -50,7 +50,8 @@ test("staged standalone recovery restores new tether journal paths without runti
   const { worker, installed, module } = await stagedWorker(t);
   const base = join(installed, ".updates"), id = "100-aaaaaaaa";
   await module.prepareRecovery(base);
-  const paths = ["src/hermes-tether.py", "deploy/novel-collector-tether.service", "deploy/novel-collector-tether.tmpfiles.conf"];
+  const paths = ["src/hermes-tether.py", "deploy/novel-collector-tether.service", "deploy/novel-collector-tether.tmpfiles.conf",
+    "deploy/novel-collector-namespace-browser.service"];
   await mkdir(join(installed, "src")); await mkdir(join(installed, "deploy")); await mkdir(join(installed, "data"));
   await writeFile(join(installed, "data", "canary.txt"), "PRIVATE_CANARY");
   for (const path of paths) await writeFile(join(installed, path), "NEW_SOURCE");
@@ -58,13 +59,14 @@ test("staged standalone recovery restores new tether journal paths without runti
   await mkdir(backup, { recursive: true });
   await writeFile(join(backup, "novel-collector-tether.service"), "PREVIOUS_SERVICE");
   await writeFile(join(base, "transaction.json"), JSON.stringify({
-    id, operations: paths.map(path => ({ path, existed: path.endsWith(".service") })), previousMetadata: {}
+    id, operations: paths.map(path => ({ path, existed: path === paths[1] })), previousMetadata: {}
   }));
   await rm(join(worker, "node_modules"));
   await exec(process.execPath, [join(base, "recover.mjs"), installed], { timeout: 5000 });
   await assert.rejects(access(join(installed, paths[0])), { code: "ENOENT" });
   assert.equal(await readFile(join(installed, paths[1]), "utf8"), "PREVIOUS_SERVICE");
   await assert.rejects(access(join(installed, paths[2])), { code: "ENOENT" });
+  await assert.rejects(access(join(installed, paths[3])), { code: "ENOENT" });
   await assert.rejects(access(join(base, "transaction.json")), { code: "ENOENT" });
   assert.equal(await readFile(join(installed, "data", "canary.txt"), "utf8"), "PRIVATE_CANARY");
 });

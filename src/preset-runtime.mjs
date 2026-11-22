@@ -1,5 +1,6 @@
 import {createHash} from "node:crypto";
 import {validatePreset,groupPreset} from "./extraction-presets.mjs";
+import {installReaderSupport} from "./reader-shadow.mjs";
 
 export const RUNTIME_FIELDS=Object.freeze({
   listing:["items","title","url","authors","genres","tags","platform","thumbnail","publication","updatedLabel","rating","episodeCount"],
@@ -134,10 +135,11 @@ export async function validatePresetSource(presets,id,input,{network=null,transp
   let url;try{url=new URL(input.url);}catch{throw bad("검증 URL을 확인하세요.");}
   if(!["sbxh9.com","toki32.com"].includes(url.hostname)||!matchesPresetPage(config,input.pageKind,url.href))throw bad("허용된 원천의 프리셋 페이지에서만 검증할 수 있습니다.");
   const {chromium}=await import("playwright"),{Collector,readReaderDocument,checkSourceIpBlock}=await import("./collector.mjs");
-  const browser=await chromium.launch({headless:true,...(transport?.launchOptions()||{}),...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{})});
+  const browser=await chromium.launch({headless:true,...(transport?.directBrowser?{chromiumSandbox:true}:{}),...(process.env.BROWSER_PATH?{executablePath:process.env.BROWSER_PATH}:{}),...(transport?.launchOptions()||{})});
   try{
     const context=await browser.newContext({serviceWorkers:"block",acceptDownloads:false,...(transport?.proxyOptions()||{})});
-    await Collector.prototype.installNetworkGuard.call({network},context,{allowedMainHost:url.hostname});
+    await installReaderSupport(context);
+    await Collector.prototype.installNetworkGuard.call({network,transport},context,{allowedMainHost:url.hostname});
     context.on("page",page=>{if(context.pages().length>1)void page.close();});
     const page=await context.newPage(),response=await page.goto(url.href,{waitUntil:"domcontentloaded",timeout:15000});
     const reader=await page.evaluate(readReaderDocument);await checkSourceIpBlock(reader,url.href,network);if(response?.status()!==200)throw Object.assign(Error("원본 검증 페이지에 접근하지 못했습니다."),{status:409});if(reader.challenge||reader.verificationRequired)throw Object.assign(Error("원본 페이지의 정상 접근 확인을 먼저 완료하세요."),{status:409});

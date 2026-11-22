@@ -11,7 +11,7 @@ const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
 async function until(check){for(let n=0;n<200;n++){if(await check())return;await tick();}throw Error("Timed out waiting for chapter boundary");}
 async function fixture(t,slots=1){
   const root=await mkdtemp(join(tmpdir(),"active-order-")),store=await new FolderStore(root).init(),reads=[],gates=new Map();
-  const collectorFactory=()=>({store,delayMs:0,clock:()=>Date.now(),async close(){},async installNetworkGuard(){},async openContext(){return{newPage:async()=>({})};},
+  const collectorFactory=()=>({store,delayMs:0,waitBetweenChapters:async()=>{},clock:()=>Date.now(),async close(){},async installNetworkGuard(){},async openContext(){return{newPage:async()=>({})};},
     async collectionPlan(_page,job){const chapters=[1,2].map(number=>({id:`chapter-${number}`,number,title:`${number}화`,url:job.url+"/"+number}));return{title:"합성 작품",chapters,allChapters:chapters,expectedChapters:2};},
     async chapterText(_page,chapter,signal){const key=chapter.url;reads.push(key);await new Promise((resolve,reject)=>{gates.set(key,resolve);signal.addEventListener("abort",()=>reject(signal.reason),{once:true});});return"SYNTHETIC_BODY_"+chapter.number;},
     async exportBook(){return{};},async run(job,hooks,signal){return runCollection.call(this,job,hooks,signal,job.id);}});

@@ -32,6 +32,15 @@ test("readiness requires a live owned namespace with only tether and its own def
     {addresses:[]},{links:[{ifname:"lo"},{ifname:"usb0",flags:["UP"]}]}])
     assert.equal(namespaceReady({...valid(),...patch}),false);
 });
+test("direct-browser readiness waits for usable IPv6 and a tether-only IPv6 default", () => {
+  const extra = { requireIPv6: true,
+    ipv6Routes: [{ dst: "default", dev: "usb0", gateway: "fe80::1" }],
+    ipv6Addresses: [{ ifname: "usb0", addr_info: [{ family: "inet6", scope: "global", local: "2001:db8::2" }] }] };
+  assert.equal(namespaceReady({ ...valid(), ...extra }), true);
+  for (const patch of [{ ipv6Routes: [] }, { ipv6Routes: [{ dev: "eth0", dst: "default" }] },
+    { ipv6Addresses: [] }, { ipv6Addresses: [{ ifname: "usb0", addr_info: [{ family: "inet6", scope: "global", tentative: true }] }] }])
+    assert.equal(namespaceReady({ ...valid(), ...extra, ...patch }), false);
+});
 test("PID ownership rejects reused process IDs, another command, or another network namespace", () => {
   const expected={pid:123,start:"456",command:["/usr/bin/node","/work/src/tether-proxy.mjs","/run/novel-collector-tether/proxy.sock"],netns:"789"};
   assert.equal(ownProcess(expected,{start:"456",args:expected.command,netns:"789"}),true);

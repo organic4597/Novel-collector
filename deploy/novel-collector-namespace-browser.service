@@ -1,0 +1,20 @@
+[Unit]
+Description=Novel Collector isolated browser broker
+After=novel-collector-tether.service
+
+[Service]
+Type=simple
+User=root
+Group=novelcollector
+ExecStart=/usr/bin/node /usr/local/libexec/novel-collector-namespace-browser-admin --serve
+RuntimeDirectory=novel-collector-namespace-browser
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+KillMode=control-group
+NoNewPrivileges=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

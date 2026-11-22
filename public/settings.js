@@ -57,7 +57,7 @@
       settings.chapterDelayMs < 500 ||
       settings.chapterDelayMs > 10000
     )
-      throw new Error("회차 대기 시간은 500~10,000밀리초로 입력하세요.");
+      throw new Error("목차 조회 대기 시간은 500~10,000밀리초로 입력하세요.");
     if (!["txt", "epub"].includes(settings.defaultFormat))
       throw new Error("저장 형식은 TXT 또는 EPUB를 선택하세요.");
     if (

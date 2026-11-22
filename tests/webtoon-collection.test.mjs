@@ -95,7 +95,7 @@ async function imageFixture(t,{broken=false}={}){
   t.after(async()=>{await browser.close();await rm(root,{recursive:true,force:true});});
   const selected=webtoonPreset(null,"https://sbxh9.com");
   const job=await store.createJob({url:"https://sbxh9.com/webtoon/fixture",format:"cbz",...selected});
-  const collector=new Collector({store,delayMs:0,contentTimeoutMs:1000,launchContext:async()=>{
+  const collector=new Collector({store,delayMs:0,waitBetweenChapters:async()=>{},contentTimeoutMs:1000,launchContext:async()=>{
     const context=await browser.newContext({serviceWorkers:"block"});
     await context.route("https://sbxh9.com/**",async route=>{
       const url=new URL(route.request().url());

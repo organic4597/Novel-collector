@@ -342,7 +342,51 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 4. 연결 준비는 전용 영역 준비 확인 → Hermes의 이동통신망 준비 → USB 테더링 켜기 → 해당 USB 네트워크 경로 구성 → USB·테더링·검증된 이동통신망 확인 순서입니다.
 5. **휴대전화 테더링 연결됨** 상태가 된 뒤 수집합니다. 대기·확인 필요 상태에서는 기존 인터넷으로 대신 수집하지 않습니다.
 
-수집 브라우저와 브라우저 밖 썸네일 요청을 같은 전용 프록시로 연결합니다. 전용 영역의 IPv4 경로와 DNS를 휴대전화로 분리하고 그 영역의 IPv6는 비활성화합니다. 대시보드·저장 파일 제공·업데이트는 기존 연결에 남습니다.
+기존 호환 모드는 수집 브라우저와 브라우저 밖 썸네일 요청을 같은 전용 프록시로 연결하며 전용 영역의 IPv6를 비활성화합니다. HTTP/3을 사용하는 원천에는 아래 직접 실행 모드를 사용합니다. 두 모드 모두 대시보드·저장 파일 제공·업데이트의 기존 연결을 유지합니다.
+
+### HTTP/3 수집 브라우저 직접 실행
+
+수집 브라우저만 이동통신 전용 네트워크 영역에서 실행합니다. 브라우저의 HTTP/3·IPv6는 허용하지만 웹 서비스는 호스트의 유선 경로에 남습니다. 브라우저 밖 썸네일 요청은 기존 이동통신 전용 HTTPS 에이전트를 유지하며 유선으로 대체하지 않습니다.
+
+이 모드는 **수집 브라우저와 휴대전화가 같은 Linux 호스트에 있어야 합니다.** 기존 SSH 소켓 전달 모드에서 설정값만 추가해 원격 네트워크 영역으로 이동할 수는 없습니다. 먼저 해당 호스트에 휴대전화와 전용 영역을 준비합니다.
+
+1. 관리자가 검증한 배포본에서 두 실행 파일을 별도 관리자 경로에 설치합니다. 아래는 최초 설치 예시입니다. 기존 파일이 있으면 소유권·현재 버전·백업을 확인하고 별도 관리자 업데이트로 교체합니다. 웹 업데이터가 쓰는 소스 폴더를 관리자 실행 경로로 지정하지 않습니다.
+
+   ```sh
+   sudo install -o root -g root -m 755 src/namespace-browser.mjs /usr/local/libexec/novel-collector-namespace-browser-admin
+   sudo install -o root -g root -m 755 src/namespace-browser-launch.mjs /usr/local/libexec/novel-collector-namespace-browser
+   ```
+
+2. 관리자가 `/etc/novel-collector-namespace-browser.json`을 root 소유 `0600` 파일로 준비합니다. 인터페이스는 전용 영역의 실제 USB 장치 이름으로, 실행 파일은 검증한 실제 Chromium 경로로 바꿉니다. 임의 셸 명령이나 환경 변수는 받지 않습니다.
+
+   ```json
+   {
+     "namespace": "novel-collector-tether",
+     "interface": "usb0",
+     "user": "novelcollector",
+     "executablePath": "/opt/novel-collector/.runtime/browsers/chromium/chrome"
+   }
+   ```
+
+3. `deploy/novel-collector-namespace-browser.service`의 사용자 그룹과 Node22 경로를 확인한 뒤 관리자 서비스로 등록합니다. 브라우저 관리자는 root 소유 `0660` Unix 소켓만 제공하고, 실제 Chromium은 지정한 일반 계정으로 권한과 capability를 내린 뒤 실행합니다. 외부 디버깅 TCP 포트는 열지 않습니다.
+
+4. 테더링 관리자 환경에 `NC_TETHER_IPV6=1`, 웹 서비스 환경에 다음 항목을 추가합니다.
+
+   ```ini
+   NC_TETHER_BROWSER_LAUNCHER=/usr/local/libexec/novel-collector-namespace-browser
+   ```
+
+   기존 `NC_COLLECTION_TETHER`, 제어·프록시 소켓 설정도 유지합니다. `NoNewPrivileges=true`와 Chromium sandbox를 해제하거나 웹 계정에 sudo 권한을 주지 않습니다.
+
+5. 전용 영역의 전역 IPv6 주소와 해당 USB 장치의 IPv6 기본 경로가 준비된 후 수집합니다. 서비스 계정의 실행 파일 `--check`로 네트워크 준비 상태를 확인할 수 있습니다. 브라우저 실행마다 전용 영역·인터페이스·IPv4/IPv6 기본 경로를 검사하며, 준비가 안 되면 기존 브라우저나 유선으로 대체하지 않습니다.
+
+직접 실행 모드는 선택 기능이므로 설정하지 않은 기존 설치의 프록시 경로를 자동으로 바꾸지 않습니다. 브라우저 관리자·운영 환경 설정은 프로그램 업데이트와 별도로 적용합니다. 수집기 자체는 표시된 소설 뷰어의 닫힌 Shadow DOM을 읽도록 초기화하며 댓글·숨긴 본문·로그인/CAPTCHA 확인 상태를 정상 본문으로 저장하지 않습니다.
+
+### 회차 수집 사이 대기
+
+각 수집 슬롯은 다음 회차를 요청하기 전에 매번 10~60초 중 하나를 무작위로 기다립니다. 마지막 회차 뒤나 이미 저장된 회차만 건너뛰는 경우에는 대기하지 않습니다. 대기 중 일시정지·취소는 즉시 처리하며 기존 요청 제한 대기나 사이트 인증 보류를 해제하지 않습니다. 두 슬롯의 대기는 독립적이므로 사이트 전체 요청이 항상 10초 이상 떨어진다는 뜻은 아닙니다.
+
+기존 `chapterDelayMs` 저장 키와 설정값은 목차 조회 간격으로 보존합니다. 회차 사이의 10~60초 정책을 더 짧게 만드는 값으로 사용하지 않습니다.
 
 ### 연결 단절·차단 복구
 

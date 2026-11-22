@@ -52,7 +52,7 @@ export class Scheduler {
       chapterDelayMs < 0 ||
       chapterDelayMs > 60000
     )
-      throw new Error("회차 간 대기는 0~60000ms여야 합니다.");
+      throw new Error("목차 조회 대기는 0~60000ms여야 합니다.");
     this.store = store;
     this.collector = collector;
     this.collectorFactory = collectorFactory;
@@ -152,7 +152,7 @@ export class Scheduler {
       chapterDelayMs > 60000
     )
       throw Object.assign(
-        new Error("동시 수집은 1~2개, 회차 간 대기는 0~60000ms여야 합니다."),
+        new Error("동시 수집은 1~2개, 목차 조회 대기는 0~60000ms여야 합니다."),
         { status: 400 },
       );
     return this.withControl(() => {

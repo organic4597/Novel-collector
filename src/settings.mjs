@@ -38,7 +38,7 @@ function validate(input) {
       input.chapterDelayMs < 500 ||
       input.chapterDelayMs > 10000)
   )
-    throw failure("회차 대기 시간은 500~10000밀리초여야 합니다.", 400);
+    throw failure("목차 조회 대기 시간은 500~10000밀리초여야 합니다.", 400);
   if (
     Object.hasOwn(input, "defaultFormat") &&
     !["txt", "epub"].includes(input.defaultFormat)

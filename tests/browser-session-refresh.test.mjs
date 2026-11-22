@@ -79,7 +79,7 @@ test("long-running work renews between saved chapters without rescanning the cat
   const pool = new CollectionContexts({ clock: () => now }), first = native(), second = native(), writes = [];
   t.after(() => pool.close());
   const chapters = [1, 2].map(number => ({ id: String(number), number, title: `합성 회차 ${number}`, url: `https://newtoki1.org/novel/1/${number}` }));
-  const collector = { contextPool: pool, slotId: 1, clock: () => now, delayMs: 0,
+  const collector = { contextPool: pool, slotId: 1, clock: () => now, delayMs: 0, waitBetweenChapters: async () => {},
     viewerOrigins: { resolve: () => "https://sbxh9.com/novel/1" },
     openContext: async () => (++opens === 1 ? first.context : second.context),
     installNetworkGuard: async () => {},

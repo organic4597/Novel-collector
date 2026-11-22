@@ -87,14 +87,18 @@ export function latestDhcpLease(text, device, now=Date.now()) {
   try{return {...dhcpLease(latest.values),expiresAt:latest.expires===null?null:new Date(latest.expires).toISOString()};}
   catch{throw fail("TETHER_DHCP_LEASE","DHCP 임대 주소를 확인하세요.");}
 }
-export function namespaceReady({ owned, interface: device, proxy, lease, links, routes, addresses }) {
+export function namespaceReady({ owned, interface: device, proxy, lease, links, routes, addresses,
+  requireIPv6 = false, ipv6Routes = [], ipv6Addresses = [] }) {
   return !!(owned && proxy && ifaceName(device) && lease && Array.isArray(links) && links.length === 2 &&
     links.some(link => link.ifname === "lo") &&
     links.some(link => link.ifname === device && link.flags?.includes("UP") && link.flags?.includes("LOWER_UP")) &&
     Array.isArray(routes) && routes.length === 1 && routes[0].dev === device &&
     routes[0].gateway === lease.gateway && routes[0].dst === "default" &&
     Array.isArray(addresses) && addresses.some(link => link.ifname === device &&
-      link.addr_info?.some(address => address.family === "inet" && address.local === lease.address && address.scope === "global")));
+       link.addr_info?.some(address => address.family === "inet" && address.local === lease.address && address.scope === "global")) &&
+    (!requireIPv6 || ipv6Routes.length === 1 && ipv6Routes[0].dev === device && ipv6Routes[0].dst === "default" &&
+      ipv6Addresses.some(link => link.ifname === device && link.addr_info?.some(address =>
+        address.family === "inet6" && address.scope === "global" && !address.tentative && !address.dadfailed))));
 }
 export function ownProcess(expected, current) {
   return !!(expected && current && Number.isSafeInteger(expected.pid) && expected.pid > 1 &&
@@ -104,8 +108,9 @@ export function ownProcess(expected, current) {
 }
 export class TetherHost {
   constructor({ serial = process.env.NC_TETHER_PHONE_SERIAL, exec = execute, io = fs,
-    launch = spawn, uid = () => process.getuid?.(), platform = process.platform, delay = wait } = {}) {
-    Object.assign(this, { serial, exec, io, launch, uid, platform, delay });
+    launch = spawn, uid = () => process.getuid?.(), platform = process.platform, delay = wait,
+    ipv6 = process.env.NC_TETHER_IPV6 === "1" } = {}) {
+    Object.assign(this, { serial, exec, io, launch, uid, platform, delay, ipv6 });
   }
   check() {
     usbRule(this.serial);
@@ -214,7 +219,8 @@ export class TetherHost {
       throw fail("TETHER_DNS_SCOPE","테더링 전용 DNS 설정을 확인하세요.");
     await this.command(ip,["-n",NS,"link","set","lo","up"]);
     const sysctl = await this.tool("sysctl");
-    await this.command(ip,["netns","exec",NS,sysctl,"-qw","net.ipv6.conf.all.disable_ipv6=1","net.ipv6.conf.default.disable_ipv6=1"]);
+    await this.command(ip,["netns","exec",NS,sysctl,"-qw","net.ipv6.conf.all.disable_ipv6="+(this.ipv6?"0":"1"),
+      "net.ipv6.conf.default.disable_ipv6="+(this.ipv6?"0":"1")]);
     const dhcpConfig="# Novel Collector: namespace-only DHCP; no host script.\ntimeout 25;\nretry 10;\nrequest subnet-mask, routers, domain-name-servers, dhcp-lease-time;\n";
     if(!marker.dhcpFiles){
       for(const path of [DHCP_CONF,DHCP_LEASE,DHCP_PID]){
@@ -299,7 +305,8 @@ export class TetherHost {
       marker={...marker,interface:device,proxy:null,dhcp:null};await this.write(MARKER,marker);
     }
     const sysctl=await this.tool("sysctl");
-    await this.command(ip,["netns","exec",NS,sysctl,"-qw","net/ipv6/conf/"+marker.interface+"/disable_ipv6=1"]);
+    await this.command(ip,["netns","exec",NS,sysctl,"-qw","net/ipv6/conf/"+marker.interface+"/disable_ipv6="+(this.ipv6?"0":"1")]);
+    if(this.ipv6)await this.command(ip,["netns","exec",NS,sysctl,"-qw","net/ipv6/conf/"+marker.interface+"/accept_ra=2"]);
     await this.command(ip,["-n",NS,"link","set","dev",marker.interface,"up"]);
     const dhclient=await this.tool("dhclient"),noScript=await this.tool("true");
     marker=await this.startProcess(ip,marker,"dhcp",[
@@ -315,6 +322,7 @@ export class TetherHost {
     await this.command(ip,["-n",NS,"-4","address","replace",lease.address+"/"+lease.prefix,"dev",lease.interface]);
     await this.command(ip,["-n",NS,"-4","route","replace","default","via",lease.gateway,"dev",lease.interface]);
     await this.io.writeFile(CONFIG+"/resolv.conf",lease.dns.map(value=>"nameserver "+value).join("\n")+"\n",{mode:0o600});
+    if(this.ipv6)await this.io.chmod(CONFIG+"/resolv.conf",0o644);
     await this.write(RUN+"/lease.json",{...lease,bound:true});
     if(marker.proxy && !await this.processOwned(marker.proxy)){
       try{const info=await this.io.lstat(SOCKET);if(!info.isSocket()||info.uid!==0)throw fail("TETHER_OWNERSHIP","프록시 소켓을 확인하세요.");await this.io.unlink(SOCKET);}
@@ -322,7 +330,7 @@ export class TetherHost {
     }
     marker=await this.startProcess(ip,marker,"proxy",[process.execPath,PROXY,SOCKET]);
     let state;
-    for(let attempt=0;attempt<30;attempt++){
+    for(let attempt=0;attempt<(this.ipv6?300:30);attempt++){
       state=await this.status();
       if(state.ready)break;
       await this.delay(100);
@@ -351,7 +359,11 @@ export class TetherHost {
       const current=latestDhcpLease(await this.io.readFile(DHCP_LEASE,"utf8"),device);
       const leaseMatches=lease?.bound&&["interface","address","prefix","gateway","dns"].every(key=>JSON.stringify(lease[key])===JSON.stringify(current[key]));
       const socket=await this.io.lstat(SOCKET).catch(()=>null);
+      const [ipv6Routes,ipv6Addresses]=this.ipv6?await Promise.all([
+        ["-n",NS,"-6","-json","route","show","default"],["-n",NS,"-6","-json","address","show"]
+      ].map(args=>this.command(ip,args).then(JSON.parse))):[[],[]];
       const ready=namespaceReady({owned:true,interface:device,lease:leaseMatches?lease:null,links,routes,addresses,
+        requireIPv6:this.ipv6,ipv6Routes,ipv6Addresses,
         proxy:!!socket?.isSocket() && await this.processOwned(marker.proxy) && await this.processOwned(marker.dhcp)});
       return {ready,interface:device,namespace:NS,socketPath:SOCKET,reason:ready?null:"tether_offline"};
     } catch(error){

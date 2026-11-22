@@ -11,11 +11,14 @@ const validHost = value => typeof value === "string" &&
   /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i.test(value);
 
 export class CollectionTransport {
-  constructor({ network = null, socketPath = "/run/novel-collector-tether/proxy.sock" } = {}) {
+  constructor({ network = null, socketPath = "/run/novel-collector-tether/proxy.sock", browserLauncher = null } = {}) {
     if (typeof socketPath !== "string" || !isAbsolute(socketPath) || Buffer.byteLength(socketPath) > 100 || socketPath.includes("\0"))
       throw new Error("수집 전용 프록시 소켓 경로를 확인하세요.");
+    if (browserLauncher !== null && (typeof browserLauncher !== "string" || !isAbsolute(browserLauncher) ||
+        browserLauncher.includes("\0"))) throw new Error("수집 전용 브라우저 실행 경로를 확인하세요.");
     this.network = network;
     this.socketPath = socketPath;
+    this.browserLauncher = browserLauncher;
     this.server = null;
     this.port = null;
     this.sockets = new Set();
@@ -25,6 +28,7 @@ export class CollectionTransport {
     this.closed = false;
   }
   get enabled() { return !!this.network?.enabled; }
+  get directBrowser() { return this.enabled && this.browserLauncher !== null; }
   assertAvailable() {
     if (!this.enabled) return;
     try {
@@ -85,11 +89,13 @@ export class CollectionTransport {
     if (!this.enabled) return {};
     this.assertAvailable();
     if (!this.port) throw paused();
+    if (this.directBrowser) return {};
     return { proxy: { server: "http://127.0.0.1:" + this.port, bypass: "<-loopback>" } };
   }
   launchOptions() {
     if (!this.enabled) return {};
     this.assertAvailable();
+    if (this.directBrowser) return { executablePath: this.browserLauncher, args: [] };
     return { args: [
       "--disable-quic",
       "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",

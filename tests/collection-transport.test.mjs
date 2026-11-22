@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CollectionTransport } from "../src/collection-transport.mjs";
 
-async function fixture(t, { enabled = true } = {}) {
+async function fixture(t, { enabled = true, browserLauncher = null } = {}) {
   const root = await mkdtemp(join(tmpdir(), "novel-collection-transport-")), socketPath = join(root, "proxy.sock");
   const network = { enabled, available: true, checks: 0, assertAvailable() { this.checks++; if (!this.available) throw Error("not connected"); } };
   const server = http.createServer((_req, res) => { res.writeHead(200); res.end("relay"); });
@@ -23,7 +23,7 @@ async function fixture(t, { enabled = true } = {}) {
     socket.pipe(socket);
   });
   server.listen(socketPath); await once(server, "listening");
-  const transport = new CollectionTransport({ network, socketPath });
+  const transport = new CollectionTransport({ network, socketPath, browserLauncher });
   t.after(async () => {
     await transport.close(); for (const socket of sockets) socket.destroy();
     if (server.listening) await new Promise(resolve => server.close(resolve)); await rm(root, { recursive: true, force: true });
@@ -152,4 +152,20 @@ test("absent Unix proxy cannot fall back to a direct target connection", { timeo
   await assert.rejects(new Promise((resolve, reject) => f.transport.agent.createConnection({ host: "example.com", port: 443 },
     (error, socket) => error ? reject(error) : resolve(socket))), { code: "COLLECTION_NETWORK_PAUSED" });
   assert.equal(f.connections, 0);
+});
+
+test("namespace browser mode uses only its launcher, retains QUIC, and never falls back when held", async t => {
+  const f = await fixture(t, { browserLauncher: "/usr/local/libexec/nc-browser" });
+  await f.transport.start();
+  assert.equal(f.transport.directBrowser, true);
+  assert.deepEqual(f.transport.proxyOptions(), {});
+  assert.equal(f.transport.persistentOptions().executablePath, "/usr/local/libexec/nc-browser");
+  assert.deepEqual(f.transport.launchOptions().args, []);
+  assert.equal(f.connections, 0);
+  assert.ok(f.transport.agent, "auxiliary Node requests must retain the mobile-only agent");
+  f.network.available = false;
+  assert.throws(() => f.transport.launchOptions(), { code: "COLLECTION_NETWORK_PAUSED" });
+  assert.throws(() => f.transport.agent, { code: "COLLECTION_NETWORK_PAUSED" });
+  for (const browserLauncher of ["relative", "/unsafe\0path"])
+    assert.throws(() => new CollectionTransport({ browserLauncher }));
 });

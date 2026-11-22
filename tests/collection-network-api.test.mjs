@@ -58,3 +58,35 @@ test("runtime close aborts pending helper execution",async()=>{
  let signal;const rt=createTetherRuntime({store:store(),rootDir:"/synthetic",env:{NC_COLLECTION_TETHER:"1",NC_TETHER_PHONE_SERIAL:"FAKE_USB"},run:async(file,args,options)=>{signal=options.signal;return{stdout:JSON.stringify({ready:false})};}});
  await rt.network.start();assert.equal(signal.aborted,false);await rt.close();assert.equal(signal.aborted,true);
 });
+test("namespace runtime passes the launcher and IPv6 preparation without changing the dashboard process",async()=>{
+ const calls=[];
+ const rt=createTetherRuntime({store:store(),rootDir:"/synthetic",env:{
+  NC_COLLECTION_TETHER:"1",NC_TETHER_PHONE_SERIAL:"FAKE_USB",
+  NC_TETHER_BROWSER_LAUNCHER:"/usr/local/libexec/novel-collector-namespace-browser"
+ },run:async(file,args,options)=>{
+  calls.push(options.env.NC_TETHER_IPV6);
+  if(args[0]==="--check")return{stdout:JSON.stringify({ready:true})};
+  return{stdout:JSON.stringify(args[0].endsWith("tether-host.mjs")?{ready:true,prepared:true}:
+   {ok:true,tethering:true,usbConnected:true,cellular:true,validated:true})};
+ }});
+ try{
+  await rt.transport.start();await rt.network.start();
+  assert.equal(rt.transport.directBrowser,true);
+  assert.equal(rt.transport.persistentOptions().executablePath,"/usr/local/libexec/novel-collector-namespace-browser");
+  assert.ok(calls.length>0&&calls.every(value=>value==="1"));
+ }finally{await rt.close();}
+});
+test("an unavailable namespace browser broker holds collection even with a valid mobile link",async()=>{
+ const rt=createTetherRuntime({store:store(),rootDir:"/synthetic",env:{
+  NC_COLLECTION_TETHER:"1",NC_TETHER_PHONE_SERIAL:"FAKE_USB",NC_TETHER_BROWSER_LAUNCHER:"/synthetic/launcher"
+ },run:async(file,args)=>{
+  if(args[0]==="--check")throw Error("unavailable");
+  return{stdout:JSON.stringify(args[0].endsWith("tether-host.mjs")?{ready:true}:
+   {ok:true,tethering:true,usbConnected:true,cellular:true,validated:true})};
+ }});
+ try{
+  await rt.transport.start();await rt.network.start();
+  assert.equal(rt.network.snapshot().ready,false);
+  assert.throws(()=>rt.transport.launchOptions(),{code:"COLLECTION_NETWORK_PAUSED"});
+ }finally{await rt.close();}
+});

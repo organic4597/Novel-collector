@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import { isPublicAddress, readReaderDocument, checkSourceIpBlock } from "./collector.mjs";
 import { parseRetryAfter } from "./retry-after.mjs";
 import { DEFAULT_SOURCE_ORIGIN,sourceGateHost } from "./source-site.mjs";
+import { installReaderSupport } from "./reader-shadow.mjs";
 
 export class SourceRequestGate {
   constructor({
@@ -107,6 +108,7 @@ export class SourceRequestGate {
       });
     }
     try {
+      await installReaderSupport(context);
       await context.route("**/*", async (route) => {
         try {
           if (this.active || owner.closing || epoch !== this.epoch) {
@@ -147,7 +149,7 @@ export class SourceRequestGate {
             await route.abort();
             return;
           }
-          if (!owner.network?.enabled) {
+          if (!owner.network?.enabled || owner.transport?.directBrowser) {
           let cached = owner.dnsCache.get(url.hostname);
           if (!cached || owner.now() - cached.time > 60000) {
             const addresses = await lookup(url.hostname, { all: true });

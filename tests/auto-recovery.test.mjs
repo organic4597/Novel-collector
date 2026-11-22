@@ -2,6 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AutoRecovery } from "../src/auto-recovery.mjs";
 const tick = () => new Promise((resolve) => setTimeout(resolve, 15));
+test("guest body recovery needs no account but still honors the request cooldown", async t => {
+  let now=1000,calls=0,held=true;
+  const recovery=new AutoRecovery({
+    scheduler:{active:new Map(),backoff:{snapshot:()=>({active:held,until:new Date(2000).toISOString()})}},
+    accounts:{status:()=>assert.fail("guest recovery must not require saved accounts")},
+    autoAuth:{guestOnly:true,status:()=>({state:"idle"}),start:async()=>{calls++;},wait:async()=>({state:"ready"})},
+    clock:()=>now,pollMs:100,
+  });
+  t.after(()=>recovery.close());
+  const site={host:"newtoki1.org",held:true,kind:"authentication"};
+  recovery.request(site);const entry=recovery.pending.get(site.host);
+  await recovery.attempt(entry);assert.equal(calls,0);
+  held=false;now=2001;
+  await recovery.attempt(entry);assert.equal(calls,1);
+  assert.equal(recovery.status(site.host).state,"ready");
+});
 async function until(predicate) {
   const deadline = Date.now() + 1500;
   while (!predicate()) {

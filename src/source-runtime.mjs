@@ -18,6 +18,7 @@ export function createSourceAuthentication(options) {
 }
 export function sourceAccountChanged({ scheduler, recovery, autoAuth }) {
   return (saved) => {
+    if (autoAuth?.guestOnly) return;
     if (!saved.enabled || !saved.configured) return;
     const host = autoAuth?.gateHost?.(saved.host) || sourceGateHost(saved.host);
     if (autoAuth?.accountHost && autoAuth.accountHost(host) !== saved.host)

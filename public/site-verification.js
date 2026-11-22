@@ -59,16 +59,21 @@
           "CAPTCHA 풀기로 서버 수집 세션을 열어 확인하세요. 완료 후 적용하면 수집 가능 여부를 확인합니다.",
         captcha: true,
       };
-    if (login?.failureKind === "unsupported")return{heading:"자동 확인 경로 확인 필요",reason:"사이트 로그인 화면이나 확인 경로를 자동으로 처리하지 못했습니다.",instructions:"자동 확인이 중단됐습니다. 현재 사이트 계정과 확인 화면을 점검하세요.",settings:true};
+    if (!login?.guestOnly && login?.failureKind === "unsupported")return{heading:"자동 확인 경로 확인 필요",reason:"사이트 로그인 화면이나 확인 경로를 자동으로 처리하지 못했습니다.",instructions:"자동 확인이 중단됐습니다. 현재 사이트 계정과 확인 화면을 점검하세요.",settings:true};
     if (kind === "site_blocked"){
       const checking=["waiting","running"].includes(login?.state),retry=retryTime(login);
       return {
         heading: "사이트 접근 확인 필요",
         reason: "사이트에서 수집 요청을 아직 허용하지 않고 있습니다.",
         instructions:
-          checking?retry>Date.now()?`${new Date(retry).toLocaleTimeString("ko-KR")}에 접근 상태를 자동으로 다시 확인합니다. 수집 요청은 대기합니다.`:"접근 상태를 자동으로 다시 확인합니다. 확인하는 동안 수집 요청은 대기합니다.":"자동 확인이 중단됐습니다. 계정 설정이나 사이트 확인 화면을 점검하세요.",
+          checking?retry>Date.now()?`${new Date(retry).toLocaleTimeString("ko-KR")}에 접근 상태를 자동으로 다시 확인합니다. 수집 요청은 대기합니다.`:"접근 상태를 자동으로 다시 확인합니다. 확인하는 동안 수집 요청은 대기합니다.":login?.guestOnly?"자동 확인이 중단됐습니다. 사이트 접근 상태를 확인하세요.":"자동 확인이 중단됐습니다. 계정 설정이나 사이트 확인 화면을 점검하세요.",
       };
     }
+    if (login?.guestOnly) return {
+      heading: waiting ? "게스트 본문 확인 필요" : "게스트 본문 확인 중",
+      reason: waiting ? "로그인 없이 회차 본문을 확인하지 못했습니다." : "로그인하지 않고 회차 본문을 확인합니다.",
+      instructions: waiting ? "사이트가 인증을 요구하면 수집을 대기합니다." : "실제 본문이 확인되면 수집을 재개합니다. 계정과 PIN은 전송하지 않습니다.",
+    };
     if (!login?.configured || !login.enabled)
       return {
         heading: "사이트 계정 확인 필요",
@@ -188,10 +193,13 @@
         );
       if (message.captcha) {
         const active = (UI.status?.().captchaAutomatic || []).some(item => item.active);
-        const auto = addAction(fragment, site, "captcha-auto", prefix + (active ? "자동 CAPTCHA 진행 중" : "자동 CAPTCHA 재시도"), () =>
-          openCaptcha(site.host, false, true));
-        auto.disabled = active;
-        if (!active)
+        const manualOnly = loginState(site)?.manualCaptchaOnly;
+        if (!manualOnly) {
+          const auto = addAction(fragment, site, "captcha-auto", prefix + (active ? "자동 CAPTCHA 진행 중" : "자동 CAPTCHA 재시도"), () =>
+            openCaptcha(site.host, false, true));
+          auto.disabled = active;
+        }
+        if (manualOnly || !active)
         addAction(fragment, site, "captcha", prefix + "CAPTCHA 풀기", () =>
           openCaptcha(site.host),
         );

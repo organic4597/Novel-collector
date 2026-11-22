@@ -8,7 +8,7 @@ import {FolderStore} from "../src/store.mjs";
 import {SiteAttention} from "../src/site-attention.mjs";
 import {Collector,readReaderDocument} from "../src/collector.mjs";
 import {sourceGateHost} from "../src/source-site.mjs";
-import {createSourceAuthentication,activeSourceStatus} from "../src/source-runtime.mjs";
+import {createSourceAuthentication,activeSourceStatus,sourceAccountChanged} from "../src/source-runtime.mjs";
 import {SiteBrowser} from "../src/site-browser.mjs";
 import {AutoRecovery} from "../src/auto-recovery.mjs";
 
@@ -16,6 +16,10 @@ test("actual source hosts are their own gates and legacy identity routes to the 
   assert.equal(sourceGateHost("sbxh9.com"),"sbxh9.com");assert.equal(sourceGateHost("newtoki1.org"),"sbxh9.com");
   assert.equal(sourceGateHost("toki32.com"),"toki32.com");
   assert.equal(activeSourceStatus({originFor:()=>"https://toki32.com"}).host,"sbxh9.com");
+});
+test("saving an account does not force login recovery while collection is guest-only",()=>{
+  const changed=sourceAccountChanged({autoAuth:{guestOnly:true},scheduler:{},recovery:{request:()=>assert.fail("guest collection must not request account login")}});
+  changed({host:"sbxh9.com",enabled:true,configured:true});
 });
 test("migration merges legacy and actual source holds without accepting an old released proof",async t=>{
   const root=await mkdtemp(join(tmpdir(),"main-source-attention-"));t.after(()=>rm(root,{recursive:true,force:true}));const store=await new FolderStore(root).init();

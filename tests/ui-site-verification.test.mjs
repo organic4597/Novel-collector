@@ -24,6 +24,28 @@ test("access banner distinguishes scheduled automatic checks from stopped checks
   assert.match(stopped.w.document.getElementById("site-attention-instructions").textContent,/중단/);
   assert.ok(!stopped.w.document.getElementById("site-attention-instructions").textContent.includes("자동으로 다시 확인"));
 });
+test("guest proof does not ask for account setup or show automatic login actions",async t=>{
+  const f=await fixture(t,{autoLogin:automatic("running",{guestOnly:true,configured:false,enabled:false})});
+  assert.match(f.w.document.getElementById("site-attention-heading").textContent,/게스트/);
+  assert.match(f.w.document.getElementById("site-attention-reason").textContent,/로그인하지 않고/);
+  assert.equal(action(f.w,"settings"),undefined);assert.equal(action(f.w,"retry"),undefined);
+  assert.equal(f.calls.length,0);
+});
+test("guest access and unsupported failures never suggest supplying an account",async t=>{
+  for(const kind of ["site_blocked","unsupported"]){
+    const f=await fixture(t,{kind,autoLogin:automatic("needs_attention",{guestOnly:true,failureKind:kind,configured:false,enabled:false})});
+    assert.doesNotMatch(banner(f.w).textContent,/계정 설정|자동 로그인/);
+    assert.equal(action(f.w,"settings"),undefined);
+    assert.equal(action(f.w,"retry"),undefined);
+  }
+});
+test("native mobile CAPTCHA keeps its manual screen without advertising host HTTP retries",async t=>{
+  const f=await fixture(t,{kind:"captcha",autoLogin:automatic("needs_attention",{guestOnly:true,manualCaptchaOnly:true,failureKind:"captcha"})});
+  assert.equal(action(f.w,"captcha-auto"),undefined);
+  assert.ok(action(f.w,"captcha"));
+  action(f.w,"captcha").click();await tick();
+  assert.ok(f.calls.some(call=>call.path==="/api/captcha-session/open"));
+});
 async function fixture(
   t,
   {

@@ -4,10 +4,14 @@ import { setTimeout as wait } from "node:timers/promises";
 import { SiteAutoAuth } from "../src/site-auto-auth.mjs";
 
 const host = "newtoki1.org";
+test("mobile login options require the browser's own network stack",()=>{
+  const auto=new SiteAutoAuth({network:{enabled:true,assertAvailable(){}}});
+  assert.equal(auto.networkLoginOptions().browserOnly,true);
+});
 const sourceCredentialFixture = "source-test-only";
 function fixture(
   t,
-  { failLogin = false, disabled = false, busy = false } = {},
+  { failLogin = false, disabled = false, busy = false, guestOnly = false, proofFailure = null } = {},
 ) {
   let now = 1000,
     opened = null;
@@ -17,13 +21,16 @@ function fixture(
     get: () => ({ ...site, verifiedSlots: site.verifiedSlots.slice() }),
   };
   const accounts = {
-    status: async () => ({ configured: true, enabled: !disabled }),
-    getCredentials: async () => ({
+    status: async () => { assert.equal(guestOnly, false, "guest checks must not require an account"); return { configured: true, enabled: !disabled }; },
+    getCredentials: async () => {
+      assert.equal(guestOnly, false, "guest checks must not read credentials");
+      return ({
       host,
       username: "user",
       password: "secret-test-only",
       pin: "5286",
-    }),
+      });
+    },
   };
   const siteBrowser = {
     async open({ host, slot }) {
@@ -32,11 +39,13 @@ function fixture(
       calls.push(["open", slot]);
     },
     async authenticate(callback) {
+      assert.equal(guestOnly, false, "guest checks must not open a login flow");
       calls.push(["authenticate", opened.slot]);
       await callback({}, opened);
     },
     async check() {
       calls.push(["check", opened.slot]);
+      if (proofFailure) throw proofFailure;
       site.verifiedSlots.push(opened.slot);
       if (site.verifiedSlots.length === 2) site.held = false;
       opened = null;
@@ -51,6 +60,7 @@ function fixture(
     },
   };
   const login = async (_input) => {
+    assert.equal(guestOnly, false, "guest checks must not submit login or PIN");
     if (failLogin)
       throw Object.assign(new Error("secret-test-only 5286"), {
         code: "NEEDS_ATTENTION",
@@ -64,6 +74,7 @@ function fixture(
     attention,
     scheduler: {},
     login,
+    guestOnly,
     clock: () => now,
   });
   t.after(() => auto.close());
@@ -102,6 +113,27 @@ test("automatic login deduplicates the host and verifies each pending slot befor
     ],
   );
   assert.equal(f.site.held, false);
+});
+
+test("guest collection verifies every held slot without reading or requiring saved credentials", async t => {
+  const f=fixture(t,{guestOnly:true,disabled:true});
+  await f.auto.start(host);
+  assert.equal((await settled(f.auto)).state,"ready");
+  assert.deepEqual(f.calls,[["open",1],["check",1],["open",2],["check",2]]);
+  assert.equal(f.site.held,false);
+  assert.equal(await f.auto.loginPage({url:()=>`https://${host}/novel/1/2`}),null);
+});
+
+test("guest checks keep real authentication CAPTCHA and access blockers held without attempting login", async t => {
+  for(const kind of ["authentication","captcha","site_blocked"]){
+    const f=fixture(t,{guestOnly:true,proofFailure:Object.assign(Error("synthetic proof blocked"),{kind})});
+    await f.auto.start(host);
+    const state=await settled(f.auto);
+    assert.equal(state.state,"needs_attention");
+    assert.equal(state.failureKind,kind);
+    assert.equal(f.site.held,true);
+    assert.deepEqual(f.calls,[["open",1],["check",1],["close"]]);
+  }
 });
 
 test("CAPTCHA failure keeps the host held, closes its browser and exposes no credentials; retries have a cooldown", async (t) => {

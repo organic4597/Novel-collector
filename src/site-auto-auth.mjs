@@ -91,7 +91,7 @@ async function prepareCatalogLogin(page, host, signal) {
 export class SiteAutoAuth {
   networkLoginOptions() {
     if(!this.network?.enabled)return {};
-    return{validateHost:async host=>{this.network.assertAvailable();return["sbxh9.com","toki32.com"].includes(host);}};
+    return{browserOnly:true,validateHost:async host=>{this.network.assertAvailable();return["sbxh9.com","toki32.com"].includes(host);}};
   }
   constructor({
     accounts,
@@ -104,6 +104,7 @@ export class SiteAutoAuth {
     accountHostFor = (host) => host,
     gateHostFor = (host) => host,
     loginFromCatalog = false,
+    guestOnly = false,
   }) {
     Object.assign(this, {
       accounts,
@@ -116,6 +117,7 @@ export class SiteAutoAuth {
       accountHostFor,
       gateHostFor,
       loginFromCatalog,
+      guestOnly,
     });
     this.states = new Map();
     this.active = new Map();
@@ -172,8 +174,8 @@ export class SiteAutoAuth {
       throw fail("현재 수집 사이트와 계정 설정을 확인하세요.", 409);
     if (this.closed) throw fail("사이트 로그인 서비스가 종료 중입니다.", 503);
     if (this.active.has(host)) return this.status(host);
-    const config = await this.accounts.status(accountHost);
-    if (!config?.enabled || config.configured === false)
+    const config = this.guestOnly ? null : await this.accounts.status(accountHost);
+    if (!this.guestOnly && (!config?.enabled || config.configured === false))
       throw fail("사이트 계정을 저장하고 자동 로그인을 활성화하세요.", 503);
     const site = await this.attention.get(host);
     if (!site?.held)
@@ -231,9 +233,9 @@ export class SiteAutoAuth {
       if (signal.aborted || this.closed)
         throw fail("사이트 로그인 확인이 중단됐습니다.", 409);
       const accountHost = this.accountHost(host);
-      const credentials = await this.accounts.getCredentials(accountHost);
-      if (!credentials) throw fail("사이트 계정 설정을 확인하세요.", 503);
-      if (credentials.host !== accountHost)
+      const credentials = this.guestOnly ? null : await this.accounts.getCredentials(accountHost);
+      if (!this.guestOnly && !credentials) throw fail("사이트 계정 설정을 확인하세요.", 503);
+      if (!this.guestOnly && credentials.host !== accountHost)
         throw fail("사이트 계정과 수집 주소를 확인하세요.", 409);
       for (const slot of [...this.states.get(host).pendingSlots]) {
         if (signal.aborted)
@@ -242,13 +244,13 @@ export class SiteAutoAuth {
         const opened = await this.siteBrowser.open({ host, slot });
         ownedSlot = slot;
         this.ownedSlots.set(host, slot);
-        this.update(host, { phase: `${slot}번 브라우저 로그인 확인 중` });
+        this.update(host, { phase: this.guestOnly ? `${slot}번 게스트 회차 확인 중` : `${slot}번 브라우저 로그인 확인 중` });
         let loginResult = { reused: true };
         // Collection identities and authentication origins are separate.
         // Only credentials belonging to this exact viewer can enter its jar.
         if ((opened?.viewerHost || host) !== accountHost)
           throw fail("사이트 계정과 수집 주소를 확인하세요.", 409);
-        await this.siteBrowser.authenticate(async (page, target) => {
+        if (!this.guestOnly) await this.siteBrowser.authenticate(async (page, target) => {
           if (
             target.host !== host ||
             target.slot !== slot ||
@@ -268,7 +270,7 @@ export class SiteAutoAuth {
         });
         this.update(host, { phase: `${slot}번 회차 본문 확인 중` });
         const proof = await this.siteBrowser.check({
-          reload: this.loginFromCatalog || !loginResult.reused,
+          reload: !this.guestOnly && (this.loginFromCatalog || !loginResult.reused),
         });
         if (!proof?.verified)
           throw Object.assign(
@@ -284,7 +286,7 @@ export class SiteAutoAuth {
           ),
           slotResults: [
             ...this.states.get(host).slotResults,
-            { slot, status: "ready", reused: loginResult.reused === true },
+            { slot, status: "ready", reused: !this.guestOnly && loginResult.reused === true },
           ],
         });
       }
@@ -298,7 +300,7 @@ export class SiteAutoAuth {
         });
       this.update(host, {
         state: "ready",
-        phase: "사이트 로그인과 회차 본문 확인 완료",
+        phase: this.guestOnly ? "게스트 회차 본문 확인 완료" : "사이트 로그인과 회차 본문 확인 완료",
         error: null,
         retryAt: null,
         failureKind: null,
@@ -307,11 +309,13 @@ export class SiteAutoAuth {
       const retryAt = this.recordFailure(host, error);
       this.update(host, {
         state: "needs_attention",
-        phase: "사이트 직접 확인 필요",
+        phase: this.guestOnly ? "게스트 회차 확인 필요" : "사이트 직접 확인 필요",
         error:
           error.kind === "captcha"
             ? "사이트 보안 확인이 필요합니다. 인증 화면에서 직접 진행하세요."
-            : "자동 로그인 또는 회차 본문 확인을 완료하지 못했습니다. 계정 설정이나 인증 화면을 확인하세요.",
+            : this.guestOnly
+              ? "로그인 없이 회차 본문을 확인하지 못했습니다. 사이트 접근 또는 인증 상태를 확인하세요."
+              : "자동 로그인 또는 회차 본문 확인을 완료하지 못했습니다. 계정 설정이나 인증 화면을 확인하세요.",
         retryAt,
         failureKind: failureKind(error),
         slotResults:
@@ -391,6 +395,7 @@ export class SiteAutoAuth {
 
   async loginPage(page, signal) {
     if (this.closed) throw fail("사이트 로그인 서비스가 종료 중입니다.", 503);
+    if (this.guestOnly) return null;
     let url;
     try {
       url = new URL(page.url());

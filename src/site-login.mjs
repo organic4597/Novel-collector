@@ -306,7 +306,9 @@ export async function ensureSiteLogin({
   signal,
   timeoutMs = 20000,
   validateHost = publicHost,
+  browserOnly = false,
 }) {
+  if (browserOnly) return ensureSiteLoginDom({page,credentials,signal,timeoutMs});
   try {
     const host = siteAccountHost(credentials?.host);
     if (

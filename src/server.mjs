@@ -769,6 +769,8 @@ export async function startServer({
   runtimeMode = process.env.NC_RUNTIME_MODE ?? "release",
   ownerHubUrl = process.env.OWNER_HUB_URL ?? "",
   backgroundWork = process.env.NC_BACKGROUND_WORK,
+  guestCollection = process.env.NC_COLLECTION_GUEST === undefined
+    ? null : process.env.NC_COLLECTION_GUEST === "1",
 } = {}) {
   const automaticWork = backgroundWorkEnabled(runtimeMode, backgroundWork);
   const store = await new FolderStore(join(rootDir, "data")).init();
@@ -810,6 +812,9 @@ export async function startServer({
   }});
   const {network:collectionNetwork,transport:collectionTransport}=tether;
   await collectionTransport.start();
+  guestCollection ??= collectionTransport.directBrowser;
+  const collectionProfile = process.env.PROFILE_DIR ?? join(rootDir, "data", "browser-profile");
+  const activeCollectionProfile = guestCollection ? join(collectionProfile, "guest") : collectionProfile;
 
   const agentToken = await secretFile(
     join(rootDir, "secrets", "agent-token.txt"),
@@ -819,7 +824,7 @@ export async function startServer({
   const { createCaptchaAnalyzer } = await import("./captcha-analyzer.mjs");
   const minScore = Number(process.env.CAPTCHA_MIN_SCORE);
   const minMargin = Number(process.env.CAPTCHA_MIN_MARGIN);
-  const captchaSupport = new CaptchaBrowserSupport({
+  const captchaSupport = collectionTransport.directBrowser ? null : new CaptchaBrowserSupport({
     ...(collectionNetwork.enabled?{allowRequest:async value=>{collectionNetwork.assertAvailable();const url=new URL(value);return url.protocol==="https:"&&!url.username&&!url.password&&["sbxh9.com","toki32.com"].includes(url.hostname);}}:{}),
     backoff,
     analyze: createCaptchaAnalyzer({
@@ -836,7 +841,7 @@ export async function startServer({
     presets: extractionPresets,
     rootDir: join(rootDir, "data", "discovery"),
     browserPath: process.env.BROWSER_PATH,
-    profileDir: join(rootDir, "profile", "discovery"),
+    profileDir: join(rootDir, "profile", guestCollection ? "discovery-guest" : "discovery"),
     backoff,
     attention,
     viewerOrigins,
@@ -861,12 +866,11 @@ export async function startServer({
     contextPool: retainedBrowser.contextPool,
     store,
     browserPath: process.env.BROWSER_PATH,
-    profileDir:
-      process.env.PROFILE_DIR ?? join(rootDir, "data", "browser-profile"),
+    profileDir: activeCollectionProfile,
     delayMs: settings.get().chapterDelayMs,
     onMetadata: (bookId, value) => metadata.register(bookId, value),
     backoff,
-    authenticatePage: (page, signal) =>
+    authenticatePage: guestCollection ? null : (page, signal) =>
       autoAuth?.loginPage(page, signal) ?? null,
     viewerOrigins,
   });
@@ -890,6 +894,7 @@ export async function startServer({
     recovery: sourceRecovery,
     captchaSession,
   } = createSourceSessions({
+    guestOnly: guestCollection,
     network: collectionNetwork,
     transport: collectionTransport,
     captchaSupport,
@@ -901,8 +906,7 @@ export async function startServer({
     accounts,
     viewerOrigins,
     browserPath: process.env.BROWSER_PATH,
-    profileDir:
-      process.env.PROFILE_DIR ?? join(rootDir, "data", "browser-profile"),
+    profileDir: activeCollectionProfile,
   });
   autoAuth = sourceAuth;
   recovery = sourceRecovery;

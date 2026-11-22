@@ -129,6 +129,21 @@ test("already logged-in member session is reused without entering credentials", 
   assert.deepEqual(f.actions, []);
 });
 
+test("browser-only login never submits credentials through the host Node HTTP client", async t => {
+  const f=pageFixture(t);
+  f.page.context=()=>assert.fail("the host-side APIRequestContext must not be used");
+  assert.deepEqual(await ensureSiteLogin({page:f.page,credentials,browserOnly:true}),{authenticated:true,reused:false});
+  assert.equal(f.actions.filter(action=>action[0]==="fill").length,2);
+  assert.equal(f.digits.length,4);
+});
+
+test("browser-only login retains CAPTCHA blocking instead of falling back to Node HTTP", async t => {
+  const f=pageFixture(t,{challenge:true});
+  f.page.context=()=>assert.fail("no host HTTP fallback");
+  await assert.rejects(ensureSiteLogin({page:f.page,credentials,browserOnly:true}),error=>error.kind==="captcha");
+  assert.deepEqual(f.actions,[]);
+});
+
 test("CAPTCHA or challenge detection prevents every form interaction", async (t) => {
   const f = pageFixture(t, { challenge: true });
   await assert.rejects(

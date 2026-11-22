@@ -198,7 +198,7 @@ async function openFixture(browser, base, width, theme = "light") {
     let result = {};
     if (path === "/api/status")
       result = {
-        siteAttention: [],
+        siteAttention: data.siteAttention || [],
         maxConcurrency: 2,
         activeJobIds: ["running-one"],
         source: { host: "sbxh9.com" },
@@ -510,7 +510,7 @@ async function contrastFailures(page, view) {
     const section = document.getElementById(view + "-view");
     const elements = [
       ...section.querySelectorAll(
-        "h1, .page-heading p, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
+        "h1, .page-heading p, #site-attention-heading, #site-attention-reason, #site-attention-instructions, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
       ),
       ...document.querySelectorAll(
         ".nav-item.active, #connection-label, #theme-toggle",
@@ -544,6 +544,53 @@ async function contrastFailures(page, view) {
       });
   }, view);
 }
+
+test("guest access states fit both themes and mobile while native CAPTCHA retains a keyboard-operable manual dialog",
+  {skip:!process.env.BROWSER_PATH},async()=>{
+    await withBrowser(async(browser,base)=>{
+      for(const theme of ["light","dark"])for(const width of [375,1440]){
+        const {context,page,data,errors}=await openFixture(browser,base,width,theme);
+        try{
+          const site={host:"sbxh9.com",held:true,kind:"authentication",requiredSlots:[1,2],verifiedSlots:[],
+            autoLogin:{guestOnly:true,manualCaptchaOnly:true,configured:false,enabled:false,state:"running"}};
+          data.siteAttention=[site];
+          await page.evaluate(()=>window.CollectorUI.refresh());
+          await shown(page,"#site-attention-banner");
+          for(const state of ["running","needs_attention"]){
+            site.autoLogin.state=state;
+            await page.evaluate(()=>window.CollectorUI.refresh());
+            await page.waitForFunction(text=>document.getElementById("site-attention-heading").textContent===text,
+              state==="running"?"게스트 본문 확인 중":"게스트 본문 확인 필요");
+            assert.equal(await page.locator("#site-attention-actions button").count(),0);
+            assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+            assert.deepEqual(await contrastFailures(page,"queue"),[]);
+          }
+          site.kind="captcha";site.autoLogin.failureKind="captcha";
+          await page.evaluate(()=>window.CollectorUI.refresh());
+          const manual=page.locator('[data-action="captcha"]');
+          await manual.waitFor();
+          assert.equal(await page.locator('[data-action="captcha-auto"]').count(),0);
+          const box=await manual.boundingBox();assert.ok(box.height>=44&&box.width>=44);
+          await manual.focus();
+          assert.ok(await manual.evaluate(element=>{
+            const style=getComputedStyle(element);
+            return style.outlineStyle!=="none"&&parseFloat(style.outlineWidth)>0;
+          }));
+          await page.keyboard.press("Enter");
+          await shown(page,"#captcha-session-dialog");
+          await page.waitForFunction(()=>document.getElementById("captcha-session-error").textContent.includes("서버 세션을 열지 못했습니다."));
+          assert.ok(data.calls.some(call=>call.path==="/api/captcha-session/open"));
+          await page.keyboard.press("Escape");
+          await page.locator("#captcha-session-dialog").waitFor({state:"hidden"});
+          assert.equal(await page.locator("#site-attention-banner").isVisible(),true);
+          data.siteAttention=[];
+          await page.evaluate(()=>window.CollectorUI.refresh());
+          await page.locator("#site-attention-banner").waitFor({state:"hidden"});
+          assert.deepEqual(errors,[]);
+        }finally{await context.close();}
+      }
+    });
+  });
 
 test(
   "all eight dashboard views fit desktop and mobile in both themes with usable targets and readable contrast",

@@ -19,6 +19,8 @@ export function siteAuthStatus(site, { accounts, autoAuth, recovery } = {}) {
     return {
       ...site,
       autoLogin: {
+        ...(autoAuth.guestOnly ? { guestOnly: true } : {}),
+        ...(autoAuth.siteBrowser?.network?.enabled && !autoAuth.siteBrowser.captchaSupport ? { manualCaptchaOnly: true } : {}),
         accountHost: state.accountHost || site.host,
         configured: Boolean(account.configured),
         enabled: Boolean(account.enabled),

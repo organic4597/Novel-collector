@@ -168,12 +168,12 @@ export class AutoRecovery {
     if (this.network?.snapshot().active) { this.schedule(entry, Math.max(this.pollMs, 2000)); return; }
     let ownsBrowser = false;
     try {
-      const account = await this.accounts.status(
+      const account = this.autoAuth.guestOnly ? null : await this.accounts.status(
         this.autoAuth.accountHost?.(host) || host,
       );
       const state = await this.autoAuth.status(host);
       if (this.closed) return;
-      if (!account.enabled || !account.configured) {
+      if (!this.autoAuth.guestOnly && (!account.enabled || !account.configured)) {
         this.finish(entry, { state: "idle" });
         return;
       }

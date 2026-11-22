@@ -90,3 +90,11 @@ test("an unavailable namespace browser broker holds collection even with a valid
   assert.throws(()=>rt.transport.launchOptions(),{code:"COLLECTION_NETWORK_PAUSED"});
  }finally{await rt.close();}
 });
+test("explicit route mode takes precedence over legacy tether activation without changing the phone",async()=>{
+ let calls=0;const rt=createTetherRuntime({store:store(),rootDir:"/synthetic",env:{
+  NC_COLLECTION_ROUTES:"1",NC_COLLECTION_TETHER:"1",NC_TETHER_PHONE_SERIAL:"FAKE_USB",
+  NC_VPN_BROWSER_LAUNCHERS:'["/synthetic/vpn"]'
+ },run:async()=>{calls++;throw Error("must not prepare phone or VPN on wired startup");}});
+ try{await rt.transport.start();await rt.network.start();assert.equal(rt.network.snapshot().route,"wired");assert.equal(calls,0);}
+ finally{await rt.close();}
+});

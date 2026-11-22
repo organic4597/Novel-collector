@@ -17,7 +17,7 @@ export async function holdCollectionNetwork(scheduler) {
         held = true;
         return {
           status: browser ? "needs_attention" : "queued",
-          phase: "테더링 연결 대기",
+          phase: scheduler.network?.routeMode ? "수집 연결 대기" : "테더링 연결 대기",
           error: null,
           resumeCatalog: true,
           backoffResumeChapterId: job.currentChapterId ?? job.backoffResumeChapterId ?? null,
@@ -33,7 +33,7 @@ export async function holdCollectionNetwork(scheduler) {
       scheduler.active.delete(id);
     } else {
       entry.controller?.abort(Object.assign(
-        Error("테더링 연결이 복구될 때까지 수집을 기다립니다."),
+        Error(scheduler.network?.routeMode ? "검증된 수집 연결을 기다립니다." : "테더링 연결이 복구될 때까지 수집을 기다립니다."),
         { code: "COLLECTION_NETWORK_PAUSED" },
       ));
     }

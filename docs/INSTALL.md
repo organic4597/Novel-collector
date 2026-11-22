@@ -411,6 +411,54 @@ NC_TETHER_PROXY_SOCKET=/run/novel-collector-tether/proxy.sock
 NC_TETHER_BROWSER_LAUNCHER=/usr/local/libexec/novel-collector-namespace-browser
 ```
 
+### 선택형 유선 차단 후 VPN·확인된 테더링
+
+기존 모바일 전용 설치는 그대로 유지됩니다. 아래 모드는 별도로 승인한 서버 환경 설정에서만 선택합니다. 프로그램 업데이트만으로 VPN 설치·관리자 서비스 시작·휴대전화 설정 변경은 수행하지 않습니다.
+
+```ini
+NC_COLLECTION_ROUTES=1
+NC_VPN_BROWSER_LAUNCHERS=["/usr/local/libexec/novel-collector-vpn-browser"]
+```
+
+- 처음에는 유선 게스트 브라우저로 수집합니다. 실제 화면의 `NGINX_CIDR_REALIP` 차단을 확인하면 유선을 제외하고 등록한 국내 VPN 실행기를 순서대로 확인합니다. 단순 HTTP 403·로그인 요구·CAPTCHA·HTTP 429는 경로 교체 사유가 아닙니다.
+- VPN 후보는 관리자 실행기의 `--check`가 전용 방화벽과 KR 출구를 확인한 경우만 사용합니다. 등록은 관리자 설정에서만 가능하고 웹 API로 명령·VPN 프로필을 전달하지 않습니다. Gluetun·vopono는 접속 도구이며 같은 VPN 서버를 사용하면 출구도 같습니다.
+- VPN이 없으면 기존 `NC_TETHER_CONTROL_SOCKET`과 `NC_TETHER_BROWSER_LAUNCHER`로 USB·테더링·이동통신·인터넷 검증 상태와 모바일 전용 브라우저 경로를 읽기 전용으로 확인합니다. 모두 확인된 때만 사용하며 `prepare/connect/on/off`를 호출하지 않습니다. 나중에 모바일 연결이 확인되면 수집 대기를 해제할 수 있습니다.
+- 전환 전에 이전 브라우저와 보관 슬롯을 폐기하고 10~60초 간격을 둡니다. 회차 저장 자료·재개 위치·수동 일시정지는 보존합니다. 대체 경로에서도 확인된 IP 차단은 해당 후보를 제외하며 무한 순환하지 않습니다.
+- 차단된 유선은 `data/collection-routes.json`에 기록해 재시작 뒤에도 자동 재사용하지 않습니다. 설정의 수집 경로 재확인은 VPN·이미 연결된 모바일의 상태만 다시 확인합니다. VPN 단절 시 임의의 유선 복귀는 하지 않으며, 모든 후보가 실패하면 수집을 보류합니다.
+- 이 모드는 저장 계정·PIN을 사용하지 않는 별도 게스트 프로필을 강제합니다. 대체 경로에서 호스트 Node HTTP 요청은 차단하며, 표지 등 보조 요청은 전송 경로를 마련할 때까지 미뤄질 수 있습니다. 대시보드·저장 작품·업데이트는 기존 유선을 사용합니다.
+
+#### 국내 VPN 브라우저 관리자 준비
+
+관리자는 먼저 검토한 OpenVPN 프로필로 Gluetun 또는 vopono의 **독립 네트워크 네임스페이스**를 준비해야 합니다. 실제 접속 서버·인증서·키·프로필은 비공개 관리자 파일로 유지하고 릴리스에 넣지 않습니다. 임의의 `.ovpn` 스크립트 옵션을 관리자 권한으로 실행하지 않습니다.
+
+VPN 브라우저 브로커의 `/etc/novel-collector-vpn-browser.json` 예시입니다. 주소·포트·프로토콜·네임스페이스·실행 경로는 실제 검증값으로 교체해야 합니다. `203.0.113.20`은 문서용 주소이며 접속 가능한 서버가 아닙니다.
+
+```json
+{
+  "mode": "vpn",
+  "namespace": "nc-vpn",
+  "interface": "tun0",
+  "uplink": "eth0",
+  "remote": { "ip": "203.0.113.20", "port": 1194, "protocol": "udp" },
+  "user": "novelcollector",
+  "executablePath": "/opt/novel-collector-runtime/browsers/chrome"
+}
+```
+
+이 파일은 root 소유의 일반 파일, 권한 `0600`으로 준비합니다. 네임스페이스의 IPv6를 비활성화하고 전용 DNS를 준비합니다. 브로커는 일반 웹 서비스와 분리합니다. 관리자는 `namespace-browser.mjs`와 의존 파일 `vpn-firewall.mjs`를 root만 쓸 수 있는 고정 설치 디렉터리에 복사한 뒤 `node namespace-browser.mjs --serve-vpn`으로 실행합니다. 웹 서비스 계정이 쓸 수 있는 소스 경로를 관리자 권한으로 직접 실행하지 않고, 별도 관리자 서비스의 시작·쓰기 권한을 먼저 검토합니다.
+
+브로커는 지정된 VPN 네임스페이스에만 `inet nc_collection_vpn` 출력 체인을 만들고 기본 DROP을 적용합니다. 허용되는 출력은 loopback, 지정한 IPv4 터널, 지정한 VPN 서버의 단일 포트뿐입니다. 일반 `established` 허용은 넣지 않아 터널 종료 후 기존 흐름도 유선으로 빠져나가지 않습니다. 기존 체인이 예상과 다르면 변경하거나 지우지 않고 거절합니다. 방화벽·IPv6·터널 경로·외부 HTTPS KR 출구를 검증하지 못하면 Chromium을 실행하지 않습니다. 필요한 호스트 도구는 `ip`, `nft`, `sysctl`, `curl`, `setpriv`입니다.
+
+웹 서비스용 실행기는 root 소유·일반 사용자 쓰기 불가인 파일로 준비합니다. 아래의 소스 경로는 실제 설치 위치로 바꿉니다.
+
+```sh
+#!/bin/sh
+exec /usr/bin/env NC_NAMESPACE_BROWSER_SOCKET=/run/novel-collector-vpn-browser/control.sock \
+  /usr/bin/node /opt/novel-collector/src/namespace-browser-launch.mjs "$@"
+```
+
+관리자 소켓은 root 소유·지정 그룹 `0660`을 유지하고 브라우저는 기존 일반 계정·NoNewPrivileges·sandbox로 실행합니다. 웹 서비스를 root로 바꾸거나 Chromium sandbox·TLS 검증을 끄지 않습니다. 관리자가 준비한 VPN 경로가 없으면 업데이트 후에도 VPN 수집은 대기할 뿐이며, 업데이트 파일만 적용한 상태를 VPN 운영 준비 완료로 판단하지 않습니다.
+
 프록시 소켓의 기존 전용 그룹 권한도 별도로 확인합니다. 관리자는 실제 서비스 계정으로 제어·프록시·브라우저 소켓 접근과 준비 상태를 확인한 후 전환합니다. 이 문서의 설정은 자동으로 설치하거나 실행하지 않습니다.
 
 ### 연결 단절·차단 복구

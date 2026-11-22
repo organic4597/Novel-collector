@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { isAbsolute, normalize, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import net from "node:net";
+import { prepareVpnNetwork } from "./vpn-firewall.mjs";
 
 const execute = promisify(execFile);
 const fail = () => Object.assign(Error("수집 전용 브라우저 네트워크를 확인하세요."), {
@@ -14,7 +15,16 @@ const safePath = value => typeof value === "string" && isAbsolute(value) &&
   value !== "/" && normalize(value) === value && !value.includes("\0");
 function validConfig(value) {
   return value && typeof value === "object" && !Array.isArray(value) &&
-    Object.keys(value).every(key => ["namespace", "interface", "user", "executablePath"].includes(key)) &&
+    Object.keys(value).every(key => ["namespace", "interface", "user", "executablePath",
+      "mode", "uplink", "remote"].includes(key)) &&
+    (value.mode === undefined || ["tether", "vpn"].includes(value.mode)) &&
+    (value.mode === "vpn" ? (
+      /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$/.test(value.uplink || "") &&
+      value.uplink !== "lo" && value.uplink !== value.interface &&
+      value.remote && Object.keys(value.remote).every(key => ["ip", "port", "protocol"].includes(key)) &&
+      net.isIPv4(value.remote.ip) && Number.isSafeInteger(value.remote.port) &&
+      value.remote.port > 0 && value.remote.port <= 65535 && ["tcp", "udp"].includes(value.remote.protocol)
+    ) : value.uplink === undefined && value.remote === undefined) &&
     /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(value.namespace || "") &&
     /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,14}$/.test(value.interface || "") && value.interface !== "lo" &&
     /^[a-z_][a-z0-9_-]{0,31}$/.test(value.user || "") && value.user !== "root" &&
@@ -35,18 +45,26 @@ export function namespaceBrowserPlan(config, state, account, args) {
       !Number.isSafeInteger(account.gid) || account.gid < 1 || !safePath(account.home) ||
       !Array.isArray(args) || args.length > 200 || !args.includes("--remote-debugging-pipe") ||
       args.some(arg => typeof arg !== "string" || arg.includes("\0")) ||
-      args.some(arg => ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security"].includes(arg) ||
+       args.some(arg => /^--(?:no-sandbox|disable-setuid-sandbox|disable-web-security)(?:=|$)/.test(arg) ||
         /^--remote-debugging-(?:port|address)(?:=|$)/.test(arg)) ||
       args.join("\0").length > 65536) throw fail();
   const device = config.interface;
   const links = state.links;
+  const vpn = config.mode === "vpn";
   const ready = state.hostInode && state.namespaceInode && state.hostInode !== state.namespaceInode &&
-    Array.isArray(links) && links.length === 2 && links.some(link => link.ifname === "lo") &&
+    Array.isArray(links) && links.length === (vpn ? 3 : 2) && links.some(link => link.ifname === "lo") &&
     links.some(link => link.ifname === device && link.flags?.includes("UP") && link.flags?.includes("LOWER_UP")) &&
-    [state.routes, state.ipv6Routes].every(routes => Array.isArray(routes) && routes.length === 1 &&
+    (vpn ? (
+      links.some(link => link.ifname === config.uplink) &&
+      state.routes?.length === 1 && state.routes[0].dev === device &&
+      state.ipv6Routes?.length === 0 && state.firewallVerified === true &&
+      state.country === "KR" && state.ipv6Disabled === true &&
+      state.addresses?.some(link => link.ifname === device && link.addr_info?.some(address =>
+        address.family === "inet" && address.scope === "global"))
+    ) : [state.routes, state.ipv6Routes].every(routes => Array.isArray(routes) && routes.length === 1 &&
       routes[0].dst === "default" && routes[0].dev === device) &&
     state.addresses?.some(link => link.ifname === device && link.addr_info?.some(address =>
-      address.family === "inet6" && address.scope === "global" && !address.tentative && !address.dadfailed));
+      address.family === "inet6" && address.scope === "global" && !address.tentative && !address.dadfailed)));
   if (!ready) throw fail();
   return {
     file: "/usr/sbin/ip",
@@ -72,18 +90,20 @@ export async function prepareNamespaceBrowser(args, {
     env: { PATH: "/usr/sbin:/usr/bin:/sbin:/bin", LC_ALL: "C" },
   })).stdout.trim();
   const [links, routes, ipv6Routes, addresses] = await Promise.all([
-    ["-j", "link", "show"], ["-j", "-4", "route", "show", "default"],
+    ["-j", "link", "show"], config.mode === "vpn" ? ["-j", "-4", "route", "get", "1.1.1.1"] : ["-j", "-4", "route", "show", "default"],
     ["-j", "-6", "route", "show", "default"], ["-j", "addr", "show"],
   ].map(argv => command("/usr/sbin/ip", ["-n", config.namespace, ...argv]).then(JSON.parse)));
   const fields = (await command("/usr/bin/getent", ["passwd", config.user])).split(":");
   if (fields.length !== 7 || fields[0] !== config.user) throw fail();
   const account = { uid: Number(fields[2]), gid: Number(fields[3]), home: fields[5] };
   const checkOnly = args.length === 1 && args[0] === "--check";
+  const vpnProof = config.mode === "vpn" ? await prepareVpnNetwork(config, command) : {};
   const plan = namespaceBrowserPlan(config, {
-    links, routes, ipv6Routes, addresses, namespaceInode: (await io.stat(namespacePath)).ino,
+    links, routes, ipv6Routes, addresses, ...vpnProof, namespaceInode: (await io.stat(namespacePath)).ino,
     hostInode: (await io.stat("/proc/self/ns/net")).ino,
   }, account, checkOnly ? ["--remote-debugging-pipe"] : args);
-  return { ready: true, namespace: config.namespace, interface: config.interface, plan, account };
+  return { ready: true, namespace: config.namespace, interface: config.interface, plan, account,
+    ...(config.mode === "vpn" ? { mode: "vpn", country: vpnProof.country } : {}) };
 }
 
 export class NamespaceBrowserBroker {
@@ -144,7 +164,8 @@ export class NamespaceBrowserBroker {
     if (this.closed || socket.destroyed) return;
     if (check) {
       socket.resume();
-      socket.end(JSON.stringify({ ready: true, namespace: result.namespace, interface: result.interface }) + "\n");
+      socket.end(JSON.stringify({ ready: true, namespace: result.namespace, interface: result.interface,
+        ...(result.mode === "vpn" ? { mode: "vpn", country: result.country } : {}) }) + "\n");
       return;
     }
     const child = this.launch(result.plan.file, result.plan.args, {
@@ -189,11 +210,16 @@ export class NamespaceBrowserBroker {
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   let broker;
   Promise.resolve().then(async () => {
-    if (process.getuid?.() !== 0 || process.argv.length !== 3 || process.argv[2] !== "--serve") throw fail();
-    const config = await readNamespaceConfig("/etc/novel-collector-namespace-browser.json");
+    if (process.getuid?.() !== 0 || !["--serve", "--serve-vpn"].includes(process.argv[2]) || process.argv.length !== 3) throw fail();
+    const vpn = process.argv[2] === "--serve-vpn";
+    const configPath = vpn ? "/etc/novel-collector-vpn-browser.json" : "/etc/novel-collector-namespace-browser.json";
+    const config = await readNamespaceConfig(configPath);
+    if (vpn && config.mode !== "vpn") throw fail();
     const fields = (await execute("/usr/bin/getent", ["passwd", config.user])).stdout.trim().split(":");
     if (fields.length !== 7 || !Number.isSafeInteger(Number(fields[3])) || Number(fields[3]) < 1) throw fail();
-    broker = new NamespaceBrowserBroker({ gid: Number(fields[3]) });
+    broker = new NamespaceBrowserBroker({ gid: Number(fields[3]),
+      ...(vpn ? { runtimeDir: "/run/novel-collector-vpn-browser" } : {}),
+      prepare: args => prepareNamespaceBrowser(args, { configPath }) });
     for (const signal of ["SIGTERM", "SIGINT"])
       process.once(signal, () => { void broker.close().then(() => process.exit(0), () => process.exit(1)); });
     await broker.start();

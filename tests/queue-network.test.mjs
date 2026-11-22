@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {Scheduler} from "../src/queue.mjs";
 import {CollectionNetwork} from "../src/collection-network.mjs";
+import {CollectionRoutes} from "../src/collection-routes.mjs";
 const offline={enabled:true,snapshot:()=>({active:true})};
 function fixture({network=offline,jobs=[],listJobs,patchJob}={}){
  const records=new Map(jobs.map(j=>[j.id,{...j}]));let listed=0,failures=0;
@@ -57,4 +58,27 @@ test("an absent active record is not recreated by a network hold",async()=>{
 });
 test("ordinary failure while offline defers instead of recording a source failure",async()=>{
  const f=fixture();await f.scheduler.requestFailed(null,Error("request aborted"));assert.equal(f.failures(),0);
+});
+test("route failover holds both workers, preserves the resume chapter and ignores a late old-route block",async t=>{
+ let f;
+ const network=new CollectionRoutes({
+  store:{path:x=>x,json:async()=>null,atomic:async()=>{}},
+  routes:[{id:"vpn-1",kind:"vpn",launcher:"/synthetic/vpn",probe:async()=>({ready:true})}],
+  wait:async()=>{},onChange:async state=>{if(state.active)await f.scheduler.holdNetwork();}
+ });
+ t.after(()=>network.close());
+ f=fixture({network,jobs:[{id:"a",status:"running",completed:7,currentChapterId:"c235"}]});
+ const controller=new AbortController();f.scheduler.active.set("a",{job:f.records.get("a"),controller});
+ await network.start();
+ const error=Object.assign(Error("blocked"),{code:"SOURCE_IP_BLOCKED",siteHost:"sbxh9.com",blockCode:"NGINX_CIDR_REALIP",routeGeneration:0});
+ await f.scheduler.requestFailed("a",error);
+ assert.equal(network.snapshot().route,"vpn-1");
+ assert.equal(controller.signal.aborted,true);
+ assert.equal(f.records.get("a").status,"queued");
+ assert.equal(f.records.get("a").completed,7);
+ assert.equal(f.records.get("a").backoffResumeChapterId,"c235");
+ f.records.set("a",{...f.records.get("a"),status:"running"});
+ const next=new AbortController();f.scheduler.active.set("a",{job:f.records.get("a"),controller:next});
+ await f.scheduler.requestFailed("a",error);
+ assert.equal(next.signal.aborted,false);assert.equal(f.failures(),0);
 });

@@ -188,6 +188,7 @@ export class SourceRequestGate {
     const siteHost = new URL(url).hostname;
     this.assertAvailable(siteHost);
     const target = this.resolveUrl(url);
+    const generation = this.owner.network?.generation;
     const response = await page.goto(target, {
       waitUntil: "domcontentloaded",
       timeout: 45000,
@@ -195,7 +196,7 @@ export class SourceRequestGate {
     this.assertAvailable(siteHost);
     if(response?.status()>=400&&![401,403].includes(response.status())) await this.assertResponse(response,siteHost);
     const reader = await page.evaluate(readReaderDocument);
-    await checkSourceIpBlock(reader, target, this.owner.network);
+    await checkSourceIpBlock(reader, target, this.owner.network, generation);
     await this.assertResponse(response, siteHost);
     try {
       this.normalizeUrl(page.url());

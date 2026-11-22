@@ -5,11 +5,13 @@ import {join} from "node:path";
 import {CollectionNetwork} from "./collection-network.mjs";
 import {CollectionTransport} from "./collection-transport.mjs";
 import {TetherControl} from "./tether-control.mjs";
+import {createRouteRuntime} from "./collection-routes.mjs";
 
 const execute=promisify(execFile);
 const failure=(code,message)=>Object.assign(new Error(message),{code,status:503});
 
 export function createTetherRuntime({store,rootDir,onChange=()=>{},env=process.env,run=execute}) {
+  if(env.NC_COLLECTION_ROUTES==="1")return createRouteRuntime({store,env,onChange,run});
   const enabled=env.NC_COLLECTION_TETHER==="1";
   const childEnv={...env,...(env.NC_TETHER_BROWSER_LAUNCHER?{NC_TETHER_IPV6:"1"}:{})};
   const cancellation=new AbortController();

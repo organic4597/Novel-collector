@@ -207,8 +207,12 @@ export class Scheduler {
   async requestFailed(jobId, error) {
     await refreshCollectionLink(this.network,error);
     if (this.network?.enabled && error.code === "SOURCE_IP_BLOCKED") {
+      if (this.network.routeMode && error.routeGeneration !== undefined &&
+          error.routeGeneration !== this.network.generation)
+        return { networkPaused: true, triggered: false };
       await Promise.all([
-        this.network.block({ siteHost: error.siteHost, blockCode: error.blockCode ?? error.ipBlockCode }),
+        this.network.block({ siteHost: error.siteHost, blockCode: error.blockCode ?? error.ipBlockCode,
+          generation: error.routeGeneration }),
         this.holdNetwork(),
       ]);
       return { networkPaused: true, triggered: false };

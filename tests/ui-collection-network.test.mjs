@@ -34,6 +34,19 @@ test("disabled mode offers no direct-mode switch or connect operation",async t=>
 test("connection failure is shown as text without stopping settings",async t=>{
  const f=await fixture(t,{connect:async()=>{throw Error("연결 확인 실패");}});f.$("collection-network-connect").click();await flush();assert.equal(f.$("collection-network-error").textContent,"연결 확인 실패");assert.equal(f.$("settings-save").disabled,false);
 });
+test("failover status names the actual route and recheck never promises phone activation",async t=>{
+ const f=await fixture(t,{network:{enabled:true,active:false,phase:"ready",mode:"failover",route:"wired"}});
+ assert.match(f.$("collection-network-status").textContent,/유선/);
+ assert.equal(f.$("collection-network-connect").textContent,"수집 경로 재확인");
+ assert.match(f.$("collection-network-help").textContent,/실제 연결/);
+ f.setNetwork({enabled:true,active:false,phase:"ready",mode:"failover",route:"vpn-1"});
+ assert.match(f.$("collection-network-status").textContent,/국내 VPN/);
+ f.setNetwork({enabled:true,active:true,phase:"needs_attention",mode:"failover",route:null,reason:"연결 없음"});
+ assert.match(f.$("collection-network-status").textContent,/수집 보류/);
+ f.$("collection-network-connect").click();await flush();
+ assert.equal(f.calls.filter(c=>c.path==="/api/collection-network/connect").length,1);
+ assert.match(f.$("collection-network-message").textContent,/경로 확인/);
+});
 test("dashboard reports tether hold while connected and library navigation remains available",async t=>{
  const dom=new JSDOM(await readFile(new URL("../public/index.html",import.meta.url),"utf8"),{url:"http://localhost:8788",runScripts:"outside-only",pretendToBeVisual:true});t.after(()=>dom.window.close());const w=dom.window;
  w.HTMLElement.prototype.scrollIntoView=function(){};

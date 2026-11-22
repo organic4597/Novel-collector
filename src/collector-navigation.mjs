@@ -8,6 +8,7 @@ export async function navigate(
   const { makeBookId, abortIfNeeded, readReaderDocument, attention, contentNotReadyError, checkSourceIpBlock } = helpers;
   makeBookId(url);
   const transport = this.viewerOrigins?.resolve(url) || url;
+  const generation = this.network?.generation;
   if (!preserveAuthentication || !this.navigationAuthentication.has(page))
     this.navigationAuthentication.set(page, { attempted: false });
   for (let reload = 0; reload < 2; reload++) {
@@ -25,7 +26,7 @@ export async function navigate(
     const problem = await this.responseProblem(response);
     if(problem && ![401,403].includes(problem.httpStatus)) throw problem;
     let reader = await page.evaluate(readReaderDocument);
-    await checkSourceIpBlock(reader, transport, this.network);
+    await checkSourceIpBlock(reader, transport, this.network, generation);
     if (
       problem &&
       (![401, 403].includes(problem.httpStatus) || !this.authenticatePage)
@@ -44,7 +45,7 @@ export async function navigate(
     if (await this.captchaReaders?.get(page)?.settle()) {
       abortIfNeeded(signal);
       reader = await page.evaluate(readReaderDocument);
-      await checkSourceIpBlock(reader, transport, this.network);
+      await checkSourceIpBlock(reader, transport, this.network, generation);
       if (reader.novelCaptcha) return;
     }
     if (reader.challenge || reader.verificationKind === "captcha")

@@ -180,13 +180,14 @@ export function readReaderDocument(doc = document) {
   };
 }
 
-export async function checkSourceIpBlock(reader, url, network) {
+export async function checkSourceIpBlock(reader, url, network, routeGeneration = network?.generation) {
   if (reader?.ipBlockCode !== "NGINX_CIDR_REALIP") return;
   const error = Object.assign(new Error("원본 사이트가 접속 IP 대역을 차단했습니다. 수집 연결을 확인합니다."), {
     code: "SOURCE_IP_BLOCKED", status: 503, siteHost: new URL(url).hostname,
     blockCode: reader.ipBlockCode,
+    routeGeneration,
   });
-  if (network?.enabled) await network.block(error);
+  if (network?.enabled) await network.block({ ...error, generation: routeGeneration });
   throw error;
 }
 
@@ -404,10 +405,18 @@ export class Collector {
 
   async openContext() {
     this.network?.assertAvailable();
+    const generation = this.network?.generation;
     if(this.network?.enabled&&!this.transport?.enabled)throw Object.assign(Error("테더링 전송이 준비되지 않았습니다."),{code:"COLLECTION_NETWORK_PAUSED",status:503});
     this.authenticationChecked = false;
     this.navigationAuthentication = new WeakMap();
-    if (this.launchContext) return installReaderSupport(await this.launchContext());
+    const verify = async context => {
+      if (generation !== this.network?.generation || this.network?.snapshot?.()?.active) {
+        await context.close().catch(() => {});
+        throw Object.assign(Error("수집 경로가 변경됐습니다."), { code: "COLLECTION_NETWORK_PAUSED", status: 503 });
+      }
+      return installReaderSupport(context);
+    };
+    if (this.launchContext) return verify(await this.launchContext());
     const { chromium } = await import("playwright");
     const context = await chromium.launchPersistentContext(this.profileDir, {
       executablePath: this.browserPath || undefined,
@@ -420,7 +429,7 @@ export class Collector {
       ...(this.transport?.persistentOptions() || {}),
       args: ["--disable-dev-shm-usage", ...(this.transport?.launchOptions().args || [])],
     });
-    return installReaderSupport(context);
+    return verify(context);
   }
 
   async installNetworkGuard(
@@ -428,6 +437,7 @@ export class Collector {
     { allowImages = false, allowedMainHost = null } = {},
   ) {
     const cache = new Map();
+    const generation = this.network?.generation;
     const previous = networkGuards.get(context) || [];
     if (previous.length) {
       if (typeof context.unroute !== "function")
@@ -436,6 +446,7 @@ export class Collector {
     const handler = async (route) => {
       try {
         this.network?.assertAvailable();
+        if (generation !== this.network?.generation) throw Error("stale collection route");
         if (this.backoff?.snapshot().active) {
           await route.abort();
           return;
@@ -487,6 +498,8 @@ export class Collector {
           return;
         }
         }
+        this.network?.assertAvailable();
+        if (generation !== this.network?.generation) throw Error("stale collection route");
         await route.continue();
       } catch {
         await route.abort().catch(() => {});
@@ -649,6 +662,7 @@ export class Collector {
   }
 
   async readChapterText(page, chapter, signal, { imageProof = false } = {}) {
+    const generation = this.network?.generation;
     await this.navigate(page, chapter.url, signal);
     let deadline = Date.now() + this.contentTimeoutMs;
     let resumed = false;
@@ -656,7 +670,7 @@ export class Collector {
       abortIfNeeded(signal);
       this.network?.assertAvailable();
       let reader = await page.evaluate(readReaderDocument);
-      await checkSourceIpBlock(reader, chapter.url, this.network);
+      await checkSourceIpBlock(reader, chapter.url, this.network, generation);
       if (await this.captchaReaders.get(page)?.settle()) {
         abortIfNeeded(signal);
         if (!resumed) {
@@ -664,7 +678,7 @@ export class Collector {
           deadline = Date.now() + this.contentTimeoutMs;
         }
         reader = await page.evaluate(readReaderDocument);
-        await checkSourceIpBlock(reader, chapter.url, this.network);
+        await checkSourceIpBlock(reader, chapter.url, this.network, generation);
         if (reader.novelCaptcha) {
           await delay(100, signal);
           continue;

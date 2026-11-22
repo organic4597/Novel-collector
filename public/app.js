@@ -167,7 +167,7 @@ async function poll() {
       state.status.queuePaused
         ? "서버 연결됨 · 전체 일시정지"
         : state.status.collectionNetwork?.active
-          ? "서버 연결됨 · 테더링 연결 대기"
+          ? state.status.collectionNetwork.mode === "failover" ? "서버 연결됨 · 수집 연결 대기" : "서버 연결됨 · 테더링 연결 대기"
           : state.status.backoff?.active
           ? "서버 연결됨 · 요청 대기 중"
           : "서버 연결됨 · 수집 예약 실행 중",
@@ -572,7 +572,7 @@ function jobCard(job, queued, inHistory = false) {
         "p",
         "job-eta",
         state.status.collectionNetwork?.active
-          ? "예상 완료 시각은 테더링 연결 후 다시 계산합니다."
+          ? state.status.collectionNetwork.mode === "failover" ? "예상 완료 시각은 수집 연결 확인 후 다시 계산합니다." : "예상 완료 시각은 테더링 연결 후 다시 계산합니다."
           : state.status.backoff?.active
           ? "예상 완료 시각은 요청 대기 후 다시 계산합니다."
           : duration

@@ -803,16 +803,25 @@ export async function startServer({
     directory: join(rootDir, "secrets", "site-accounts"),
   });
   await accounts.load();
-  let autoAuth, recovery;
+  let autoAuth, recovery, activeSiteBrowser;
   let scheduler, discovery;
   const tether=createTetherRuntime({store,rootDir,onChange:async state=>{
-    activity.add({scope:"network",message:state.active?`테더링 수집 대기 · ${state.reason||state.phase}`:"테더링 수집 연결 확인 완료"});
-    if(state.active){await scheduler?.holdNetwork();await discovery?.suspendRequests();}
+    activity.add({scope:"network",message:state.mode==="failover"
+      ?state.active?`수집 연결 대기 · ${state.reason||state.phase}`:`수집 경로 확인 완료 · ${state.route}`
+      :state.active?`테더링 수집 대기 · ${state.reason||state.phase}`:"테더링 수집 연결 확인 완료"});
+    if(state.active){
+      await scheduler?.holdNetwork();await discovery?.suspendRequests();
+      if(state.mode==="failover"){
+        await activeSiteBrowser?.closeSession("network");
+        await retainedBrowser.contextPool.invalidate();
+      }
+    }
     else {scheduler?.requestTick();for(const site of attention.snapshot().sites)recovery?.request(site);}
   }});
   const {network:collectionNetwork,transport:collectionTransport}=tether;
   await collectionTransport.start();
-  guestCollection ??= collectionTransport.directBrowser;
+  if(collectionNetwork.routeMode)guestCollection=true;
+  else guestCollection ??= collectionTransport.directBrowser;
   const collectionProfile = process.env.PROFILE_DIR ?? join(rootDir, "data", "browser-profile");
   const activeCollectionProfile = guestCollection ? join(collectionProfile, "guest") : collectionProfile;
 
@@ -910,6 +919,7 @@ export async function startServer({
   });
   autoAuth = sourceAuth;
   recovery = sourceRecovery;
+  activeSiteBrowser = siteBrowser;
   const app = createApp({
     collectionNetwork,
     collectionTransport,

@@ -390,10 +390,21 @@
     const authenticated = UI.authenticated();
     const network = authenticated ? UI.status?.()?.collectionNetwork : null;
     const enabled = network?.enabled === true;
+    const failover = network?.mode === "failover";
+    $("collection-network-intro").textContent = failover
+      ? "유선 IP 차단이 확인되면 국내 VPN을 시도합니다. 대시보드와 저장 작품 열람은 기존 인터넷을 유지합니다."
+      : "원본 사이트 요청은 휴대전화 테더링을 사용하고, 대시보드와 저장 작품 열람은 기존 인터넷을 유지합니다.";
+    $("collection-network-help").textContent = failover
+      ? "모바일 테더링은 실제 연결이 확인된 경우에만 시도합니다. 모든 대체 경로가 실패하면 유선으로 돌아가지 않고 수집을 보류합니다."
+      : "테더링이 끊기면 수집만 대기하며 유선으로 자동 전환하지 않습니다. 수동 일시정지는 연결 복구 후에도 유지됩니다.";
+    $("collection-network-connect").textContent = failover ? "수집 경로 재확인" : "테더링 연결 확인";
     $("collection-network-status").textContent = !authenticated
       ? "로그인 후 수집 연결 상태를 확인합니다."
       : !network ? "수집 연결 상태 확인 중"
       : !enabled ? "테더링 전용 수집 미설정"
+      : failover ? network.phase === "ready"
+        ? `${network.route === "wired" ? "유선" : network.route === "tether" ? "확인된 모바일 테더링" : "국내 VPN"} 연결됨 · 수집 가능`
+        : network.phase === "verifying" ? "대체 수집 경로 확인 중" : "검증된 수집 연결 없음 · 수집 보류"
       : networkLabels[network.phase] || "테더링 연결 확인 중 · 수집만 대기";
     const until = Date.parse(network?.retryAt);
     const remaining = Number.isFinite(until) ? Math.max(0, Math.ceil((until - Date.now()) / 1000)) : 0;
@@ -417,7 +428,9 @@
     try {
       await UI.api("/api/collection-network/connect", { method: "POST", body: JSON.stringify({}) });
       if (!alive(generation) || sequence !== networkSequence) return;
-      $("collection-network-message").textContent = "테더링 연결 확인을 요청했습니다. 확인되는 동안 수집만 기다립니다.";
+      $("collection-network-message").textContent = UI.status?.()?.collectionNetwork?.mode === "failover"
+        ? "수집 경로 확인을 요청했습니다. 휴대전화 설정은 변경하지 않습니다."
+        : "테더링 연결 확인을 요청했습니다. 확인되는 동안 수집만 기다립니다.";
       await UI.refresh?.();
     } catch (error) {
       if (alive(generation) && sequence === networkSequence)
@@ -442,7 +455,7 @@
     $("system-operation").textContent = status.queuePaused
       ? "전체 일시정지 · 직접 시작할 때까지 유지"
       : status.collectionNetwork?.active
-        ? "테더링 연결을 기다리는 중 · 대시보드 이용 가능"
+         ? status.collectionNetwork.mode === "failover" ? "수집 연결 확인 중 · 대시보드 이용 가능" : "테더링 연결을 기다리는 중 · 대시보드 이용 가능"
         : status.backoff?.active
         ? "서버 요청 제한으로 대기 중"
         : active

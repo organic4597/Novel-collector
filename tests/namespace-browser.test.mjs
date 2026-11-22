@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
 import { spawn } from "node:child_process";
+import { CollectionContexts } from "../src/collection-contexts.mjs";
 
 const config = { namespace: "nc-synthetic", interface: "usb0", user: "collector",
   executablePath: "/opt/runtime/chrome" };
@@ -43,7 +44,7 @@ test("namespace browser fails closed for a host namespace, foreign interface, wr
   ]) assert.throws(() => namespaceBrowserPlan(config, { ...state(), ...patch }, account, ["--remote-debugging-pipe"]),
     { code: "COLLECTION_NAMESPACE_UNAVAILABLE" });
   assert.throws(() => namespaceBrowserPlan(config, state(), { ...account, uid: 0 }, ["--remote-debugging-pipe"]));
-  for (const flag of ["--no-sandbox", "--disable-setuid-sandbox", "--disable-web-security", "--remote-debugging-port=9222"])
+  for (const flag of ["--no-sandbox", "--no-sandbox=true", "--disable-setuid-sandbox", "--disable-web-security=1", "--remote-debugging-port=9222"])
     assert.throws(() => namespaceBrowserPlan(config, state(), account, ["--remote-debugging-pipe", flag]));
 });
 
@@ -55,6 +56,23 @@ test("namespace configuration is root-owned data, not a shell command or an envi
     await assert.rejects(readNamespaceConfig("/synthetic/config.json", { ...io, lstat: async () => ({ ...file, ...patch }) }));
   for (const patch of [{ namespace: "../host" }, { interface: "--help" }, { executablePath: "relative" }, { user: "root" }])
     await assert.rejects(readNamespaceConfig("/synthetic/config.json", { ...io, readFile: async () => JSON.stringify({ ...config, ...patch }) }));
+});
+
+test("VPN browser requires an isolated IPv4 tunnel, verified kill switch, KR egress and no IPv6 escape", () => {
+  const vpn = { ...config, mode: "vpn", interface: "tun0", uplink: "eth0",
+    remote: { ip: "203.0.113.20", port: 1194, protocol: "udp" } };
+  const valid = { hostInode: 100, namespaceInode: 200,
+    links: [{ ifname: "lo" }, { ifname: "eth0", flags: ["UP", "LOWER_UP"] },
+      { ifname: "tun0", flags: ["UP", "LOWER_UP"] }],
+    routes: [{ dev: "tun0" }], ipv6Routes: [],
+    addresses: [{ ifname: "tun0", addr_info: [{ family: "inet", scope: "global" }] }],
+    firewallVerified: true, country: "KR", ipv6Disabled: true };
+  const plan = namespaceBrowserPlan(vpn, valid, account, ["--remote-debugging-pipe"]);
+  assert.equal(plan.args[2], vpn.namespace);
+  for (const patch of [{ firewallVerified: false }, { country: "JP" }, { ipv6Disabled: false },
+    { routes: [{ dev: "eth0" }] }, { ipv6Routes: [{ dev: "eth0" }] },
+    { links: [...valid.links, { ifname: "foreign" }] }])
+    assert.throws(() => namespaceBrowserPlan(vpn, { ...valid, ...patch }, account, ["--remote-debugging-pipe"]));
 });
 
 test("browser broker carries native pipe bytes over a private socket and rejects unknown requests", async t => {
@@ -95,4 +113,23 @@ test("browser broker carries native pipe bytes over a private socket and rejects
   const count = preparations;
   assert.equal(await exchange({ command: "/bin/sh" }), "");
   assert.equal(preparations, count);
+});
+
+test("route invalidation closes busy retained browsers and rejects an in-flight old-route launch", async () => {
+  const pool = new CollectionContexts();
+  let release, closed = 0;
+  const context = { close: async () => { closed++; } };
+  const page = { context: () => context, isClosed: () => false, url: () => "about:blank" };
+  const opening = pool.acquire({ slot: 1, origin: "https://sbxh9.com",
+    open: () => new Promise(done => { release = done; }) });
+  await pool.invalidate();
+  release({ context, page });
+  await assert.rejects(opening);
+  assert.equal(closed, 1);
+  const nextContext = { close: async () => { closed++; } };
+  const nextPage = { context: () => nextContext, isClosed: () => false, url: () => "about:blank" };
+  const lease = await pool.acquire({ slot: 1, origin: "https://sbxh9.com", open: async () => ({ context: nextContext, page: nextPage }) });
+  await pool.invalidate();
+  assert.equal(closed, 2);
+  await lease.release(); await pool.close();
 });

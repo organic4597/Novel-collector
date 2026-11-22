@@ -3,10 +3,11 @@ import net from "node:net";
 import { lstat } from "node:fs/promises";
 import { createReadStream, createWriteStream } from "node:fs";
 
-const path = "/run/novel-collector-namespace-browser/control.sock";
+const path = process.env.NC_NAMESPACE_BROWSER_SOCKET || "/run/novel-collector-namespace-browser/control.sock";
 const args = process.argv.slice(2);
 const check = args.length === 1 && args[0] === "--check";
 try {
+  if (!/^\/run\/[A-Za-z0-9_-]+\/control\.sock$/.test(path)) throw Error("unsafe socket path");
   const info = await lstat(path);
   if (!info.isSocket() || info.isSymbolicLink() || info.uid !== 0 || (info.mode & 0o007))
     throw Error("unsafe socket");

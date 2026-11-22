@@ -48,6 +48,7 @@ export class CollectionContexts {
     this.refreshWork = null;
     this.lastRefreshAt = null;
     this.nextRefreshAt = null;
+    this.connectionEpoch = 0;
   }
 
   refreshDue(entry) {
@@ -317,9 +318,10 @@ export class CollectionContexts {
     };
     this.set(slot, reservation);
     let opened;
+    const connectionEpoch = this.connectionEpoch;
     try {
       opened = await open();
-      if (this.closing || !this.usable({ ...opened, origin }, true))
+      if (this.closing || connectionEpoch !== this.connectionEpoch || !this.usable({ ...opened, origin }, true))
         throw Error();
       const record = this.record({ ...opened, slot, origin });
       this.set(slot, record);
@@ -370,6 +372,12 @@ export class CollectionContexts {
         else this.park(current);
       },
     };
+  }
+
+  async invalidate() {
+    ++this.connectionEpoch;
+    const closed = await Promise.all([...this.entries.values()].map(entry => this.retire(entry)));
+    if (closed.some(done => !done)) throw fail("이전 수집 연결의 브라우저 종료를 기다립니다.", 503);
   }
 
   close() {

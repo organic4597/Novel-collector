@@ -198,6 +198,7 @@ async function openFixture(browser, base, width, theme = "light") {
     let result = {};
     if (path === "/api/status")
       result = {
+        collectionNetwork: data.collectionNetwork,
         siteAttention: data.siteAttention || [],
         maxConcurrency: 2,
         activeJobIds: ["running-one"],
@@ -510,7 +511,7 @@ async function contrastFailures(page, view) {
     const section = document.getElementById(view + "-view");
     const elements = [
       ...section.querySelectorAll(
-        "h1, .page-heading p, #site-attention-heading, #site-attention-reason, #site-attention-instructions, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
+        "h1, .page-heading p, #site-attention-heading, #site-attention-reason, #site-attention-instructions, #collection-network-intro, #collection-network-status, #collection-network-help, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
       ),
       ...document.querySelectorAll(
         ".nav-item.active, #connection-label, #theme-toggle",
@@ -544,6 +545,36 @@ async function contrastFailures(page, view) {
       });
   }, view);
 }
+
+test("route status and keyboard recheck work in both themes at desktop and mobile widths", async () => {
+  await withBrowser(async (browser, base) => {
+    for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
+      const f = await openFixture(browser, base, width, theme);
+      try {
+        f.data.collectionNetwork = { enabled: true, mode: "failover", phase: "ready", active: false, route: "wired" };
+        await f.page.evaluate(() => window.CollectorUI.refresh());
+        await visit(f.page, "settings");
+        assert.match(await f.page.locator("#collection-network-status").innerText(), /유선/);
+        f.data.collectionNetwork.route = "vpn-1";
+        await f.page.evaluate(() => window.CollectorUI.refresh());
+        assert.match(await f.page.locator("#collection-network-status").innerText(), /국내 VPN/);
+        f.data.collectionNetwork = { ...f.data.collectionNetwork, route: null, phase: "verifying", active: true };
+        await f.page.evaluate(() => window.CollectorUI.refresh());
+        assert.equal(await f.page.locator("#collection-network-connect").isDisabled(), true);
+        f.data.collectionNetwork.phase = "needs_attention";
+        await f.page.evaluate(() => window.CollectorUI.refresh());
+        const button = f.page.locator("#collection-network-connect");
+        await button.focus(); await button.press("Enter");
+        await f.page.locator("#collection-network-message").filter({ hasText: "경로 확인" }).waitFor();
+        assert.equal(f.data.calls.filter(call => call.path === "/api/collection-network/connect").length, 1);
+        assert.deepEqual(await contrastFailures(f.page, "settings"), []);
+        assert.equal(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+        await snapshot(f.page, `route-status-${theme}-${width}`);
+        assert.deepEqual(f.errors, []);
+      } finally { await f.context.close(); }
+    }
+  });
+});
 
 test("guest access states fit both themes and mobile while native CAPTCHA retains a keyboard-operable manual dialog",
   {skip:!process.env.BROWSER_PATH},async()=>{

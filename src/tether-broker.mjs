@@ -21,8 +21,10 @@ export function publicTetherState(value){
  return out;
 }
 export class TetherBroker {
- constructor({runtimeDir="/run/novel-collector-tether-broker",gateway=null,...config}={}){
+ constructor({runtimeDir="/run/novel-collector-tether-broker",gateway=null,controlGid=null,...config}={}){
   if(typeof runtimeDir!=="string"||!isAbsolute(runtimeDir)||Buffer.byteLength(join(runtimeDir,"control.sock"))>100||runtimeDir.includes("\0"))throw fail("TETHER_BROKER_CONFIG");
+  if(controlGid!==null&&(!Number.isSafeInteger(controlGid)||controlGid<0||controlGid>=4294967295||config.target||gateway?.target))throw fail("TETHER_BROKER_CONFIG");
+  this.controlGid=controlGid;
   this.runtimeDir=runtimeDir;this.socketPath=join(runtimeDir,"control.sock");this.ownerPath=join(runtimeDir,"broker-owner.json");
   this.gateway=gateway||new TetherGateway({...config,runtimeDir:join(runtimeDir,"export"),controlSocket:this.socketPath});
   if(!["start","isReady","close","runHost","runPhone"].every(name=>typeof this.gateway[name]==="function"))throw fail("TETHER_BROKER_CONFIG");
@@ -41,7 +43,8 @@ export class TetherBroker {
  }
  async prepare(){
   let fresh=false;
-  try{const info=await fs.lstat(this.runtimeDir);if(!info.isDirectory()||info.isSymbolicLink()||info.uid!==process.getuid()||(info.mode&0o077))throw fail("TETHER_BROKER_OWNERSHIP");}
+  try{const info=await fs.lstat(this.runtimeDir);if(!info.isDirectory()||info.isSymbolicLink()||info.uid!==process.getuid()||
+   ((info.mode&0o077)!==0&&!(this.controlGid!==null&&info.gid===this.controlGid&&(info.mode&0o7777)===0o710)))throw fail("TETHER_BROKER_OWNERSHIP");}
   catch(e){if(e.code!=="ENOENT")throw e;await fs.mkdir(this.runtimeDir,{mode:0o700});fresh=true;}
   if(!fresh){
    const names=await fs.readdir(this.runtimeDir);
@@ -53,6 +56,7 @@ export class TetherBroker {
    }
   }
   await this.saveOwner({pid:process.pid,claim:this.claim,socket:null});
+  if(this.controlGid!==null){await fs.chown(this.runtimeDir,process.getuid(),this.controlGid);await fs.chmod(this.runtimeDir,0o710);}
  }
  ensureForward(){
   if(this.closed)return Promise.resolve(false);if(this.forwardWork)return this.forwardWork;
@@ -95,7 +99,9 @@ export class TetherBroker {
    this.server.on("connection",socket=>{this.sockets.add(socket);socket.on("error",()=>{});socket.once("close",()=>this.sockets.delete(socket));});
    await new Promise((done,reject)=>{this.server.once("error",reject);const old=process.umask(0o077);try{this.server.listen(this.socketPath,done);}finally{process.umask(old);}});
    if(this.closed)throw fail("TETHER_BROKER_CLOSED");
-   await fs.chmod(this.socketPath,0o600);this.socketIdentity=identity(await fs.lstat(this.socketPath));
+   this.socketIdentity=identity(await fs.lstat(this.socketPath));
+   if(this.controlGid!==null)await fs.chown(this.socketPath,process.getuid(),this.controlGid);
+   await fs.chmod(this.socketPath,this.controlGid===null?0o600:0o660);
    await this.saveOwner({pid:process.pid,claim:this.claim,socket:this.socketIdentity});
    void this.ensureForward();
    this.monitor=setInterval(()=>{void this.ensureForward();},10000);this.monitor.unref();
@@ -122,7 +128,9 @@ if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.u
  let broker;
  Promise.resolve().then(()=>{
   if(process.getuid?.()!==0)throw fail("TETHER_BROKER_PRIVILEGES");
-  broker=new TetherBroker({rootDir,target:process.env.NC_TETHER_EXPORT_TARGET||"",remoteGroup:process.env.NC_TETHER_EXPORT_GROUP||"novelcollector",
+  const gid=process.env.NC_TETHER_CONTROL_GID;
+  if(gid!==undefined&&!/^(0|[1-9][0-9]{0,9})$/.test(gid))throw fail("TETHER_BROKER_CONFIG");
+  broker=new TetherBroker({rootDir,target:process.env.NC_TETHER_EXPORT_TARGET||"",remoteGroup:process.env.NC_TETHER_EXPORT_GROUP||"novelcollector",controlGid:gid===undefined?null:Number(gid),
    serial:process.env.NC_TETHER_PHONE_SERIAL,python:process.env.NC_TETHER_PYTHON||join(homedir(),".hermes","android_agent",".venv","bin","python"),node:process.execPath});
   process.once("SIGTERM",()=>{void broker.close().then(()=>process.exit(0),()=>process.exit(1));});process.once("SIGINT",()=>{void broker.close().then(()=>process.exit(0),()=>process.exit(1));});
   return broker.start();

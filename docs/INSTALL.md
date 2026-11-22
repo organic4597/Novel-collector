@@ -388,6 +388,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\start.ps1
 
 기존 `chapterDelayMs` 저장 키와 설정값은 목차 조회 간격으로 보존합니다. 회차 사이의 10~60초 정책을 더 짧게 만드는 값으로 사용하지 않습니다.
 
+### 수집기와 휴대전화가 같은 호스트일 때
+
+게이트웨이는 웹 업데이터가 쓸 수 없는 관리자 소유 경로에 설치합니다. `NC_TETHER_EXPORT_TARGET`은 설정하지 않고, 관리자 게이트웨이 환경에 `NC_TETHER_CONTROL_GID`를 웹 서비스 전용 그룹의 숫자 GID로 지정합니다. 예를 들어 `id -g novelcollector`의 결과를 사용합니다. 다른 호스트로 전달하는 모드와 동시에 지정할 수 없습니다.
+
+이 선택 모드는 제어 소켓 폴더를 관리자 소유 `0710`, `control.sock`을 관리자 소유·지정 그룹 `0660`으로 만듭니다. 지정 그룹은 소켓에 접근하지만 폴더 목록과 `0600` 소유권 파일은 읽지 못하며 폴더·소켓을 교체할 수 없습니다. 지정하지 않으면 기존 관리자 전용 `0700`·`0600`을 유지합니다. 웹 서비스에는 실제 로컬 제어 소켓 경로를 지정합니다.
+
+```ini
+NC_COLLECTION_TETHER=1
+NC_TETHER_CONTROL_SOCKET=/run/novel-collector-tether-broker/control.sock
+NC_TETHER_PROXY_SOCKET=/run/novel-collector-tether/proxy.sock
+NC_TETHER_BROWSER_LAUNCHER=/usr/local/libexec/novel-collector-namespace-browser
+```
+
+프록시 소켓의 기존 전용 그룹 권한도 별도로 확인합니다. 관리자는 실제 서비스 계정으로 제어·프록시·브라우저 소켓 접근과 준비 상태를 확인한 후 전환합니다. 이 문서의 설정은 자동으로 설치하거나 실행하지 않습니다.
+
 ### 연결 단절·차단 복구
 
 - USB·테더링 단절 시 수집을 대기로 전환하고 저장 회차를 보존합니다. 수동 일시정지는 자동 해제하지 않습니다.

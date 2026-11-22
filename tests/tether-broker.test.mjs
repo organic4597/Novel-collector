@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {mkdtemp,mkdir,readFile,writeFile,lstat,rm,symlink} from "node:fs/promises";
+import {mkdtemp,mkdir,readFile,writeFile,lstat,rm,symlink,chmod} from "node:fs/promises";
+import {execFile} from "node:child_process";
+import {promisify} from "node:util";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import http from "node:http";
@@ -29,6 +31,39 @@ test("private Unix broker starts without phone actions and client never receives
  const host=await client.callHost("status");assert.equal(host.ready,true);assert.equal(host.secret,undefined);assert.equal(host.serial,undefined);
  const phone=await client.callPhone("on");assert.equal(phone.tethering,true);assert.equal(phone.token,undefined);assert.equal(phone.device_id,undefined);
  assert.equal(typeof broker.server.address(),"string");
+});
+test("explicit local control group can connect without reading private broker files and survives restart",async t=>{
+ const runtimeDir=await fixture(t),controlGid=process.getgid();
+ let broker=new TetherBroker({runtimeDir,controlGid,gateway:fakeGateway()});await broker.start();await broker.close();
+ broker=new TetherBroker({runtimeDir,controlGid,gateway:fakeGateway()});await broker.start();t.after(()=>broker.close());
+ for(const[path,mode]of[[runtimeDir,0o710],[broker.socketPath,0o660],[broker.ownerPath,0o600]]){
+  const info=await lstat(path);assert.equal(info.mode&0o777,mode);assert.equal(info.uid,process.getuid());
+  if(path!==broker.ownerPath)assert.equal(info.gid,controlGid);
+ }
+ const client=new TetherControl({socketPath:broker.socketPath,ownerUid:process.getuid()});t.after(()=>client.close());
+ assert.equal((await client.callHost("status")).ready,true);
+});
+test("non-root local control client uses only the selected group, not broad root permissions",{skip:process.getuid()!==0},async t=>{
+ const runtimeDir=await fixture(t),controlGid=process.getgid();
+ await chmod(join(runtimeDir,".."),0o711);
+ const broker=new TetherBroker({runtimeDir,controlGid,gateway:fakeGateway()});await broker.start();t.after(()=>broker.close());
+ const code=`const http=require("node:http"),fs=require("node:fs");
+ try{fs.readFileSync(process.argv[2]);process.exit(2);}catch(e){if(e.code!=="EACCES")process.exit(3);}
+ try{fs.readdirSync(require("node:path").dirname(process.argv[1]));process.exit(2);}catch(e){if(e.code!=="EACCES")process.exit(3);}
+ const req=http.request({socketPath:process.argv[1],path:"/host/status",method:"POST",headers:{"Content-Length":0}},res=>{
+ let body="";res.on("data",c=>body+=c);res.on("end",()=>{if(res.statusCode!==200||!JSON.parse(body).ready)process.exit(4);});});
+ req.on("error",()=>process.exit(5));req.end();`;
+ await promisify(execFile)(process.execPath,["-e",code,broker.socketPath,broker.ownerPath],{uid:65534,gid:controlGid,timeout:5000});
+ if(controlGid!==65534)await assert.rejects(promisify(execFile)(process.execPath,["-e",code,broker.socketPath,broker.ownerPath],{uid:65534,gid:65534,timeout:5000}),{code:5});
+});
+test("local group configuration rejects invalid gids and cannot enable remote export sharing",()=>{
+ for(const controlGid of[-1,1.5,"0",4294967295])assert.throws(()=>new TetherBroker({controlGid,gateway:fakeGateway()}),{code:"TETHER_BROKER_CONFIG"});
+ assert.throws(()=>new TetherBroker({controlGid:process.getgid(),target:"root@remote",gateway:fakeGateway()}),{code:"TETHER_BROKER_CONFIG"});
+});
+test("group access never accepts a writable runtime directory",async t=>{
+ const runtimeDir=await fixture(t);await mkdir(runtimeDir,{mode:0o770});
+ const broker=new TetherBroker({runtimeDir,controlGid:process.getgid(),gateway:fakeGateway()});
+ await assert.rejects(broker.start(),{code:"TETHER_BROKER_OWNERSHIP"});
 });
 test("fixed action allowlist rejects payload query and unsupported methods before execution",async t=>{
  const gateway=fakeGateway(),broker=new TetherBroker({runtimeDir:await fixture(t),gateway});await broker.start();t.after(()=>broker.close());

@@ -174,3 +174,36 @@ test("manual recheck can reuse a repaired VPN, but never a source-blocked route 
   await f.network.bootstrap();
   assert.equal(f.network.snapshot().active, true);
 });
+
+test("restart checks the next route if the previously selected VPN throws", async t => {
+  const f = fixture({ saved: { schema: 1, wiredBlocked: true, route: "vpn1", rejected: [] } });
+  t.after(() => f.network.close());
+  f.network.routes[0].probe = async () => { throw Error("VPN unavailable"); };
+  await f.network.start();
+  assert.equal(f.network.snapshot().route, "vpn2");
+  assert.equal(f.network.snapshot().ready, true);
+});
+
+test("manual recheck on a connected VPN performs one shared real probe", async t => {
+  const f = fixture(); t.after(() => f.network.close());
+  await f.network.start(); await f.network.block(block(0));
+  f.calls.length = 0;
+  let release;
+  f.network.routes[0].probe = () => {
+    f.calls.push("probe"); return new Promise(done => { release = done; });
+  };
+  const a = f.network.bootstrap(), b = f.network.refresh();
+  await new Promise(done => setImmediate(done));
+  assert.equal(f.network.snapshot().checking, true);
+  assert.deepEqual(f.calls, ["probe"]);
+  release({ ready: true }); await Promise.all([a, b]);
+  assert.equal(f.network.snapshot().checking, false);
+  assert.equal(f.network.snapshot().route, "vpn1");
+});
+
+test("route snapshot reports only real configured fallback counts", async t => {
+  const f = fixture(); t.after(() => f.network.close());
+  await f.network.start();
+  assert.equal(f.network.snapshot().vpnConfigured, 2);
+  assert.equal(f.network.snapshot().mobileConfigured, true);
+});

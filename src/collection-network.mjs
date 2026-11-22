@@ -112,8 +112,9 @@ export class CollectionNetwork {
   }
 
   bootstrap() {
-    if (!this.enabled || this.closed || RECOVERY.has(this.state.phase) || this.state.phase === "ready")
+    if (!this.enabled || this.closed || RECOVERY.has(this.state.phase))
       return this.work || Promise.resolve(this.snapshot());
+    if (this.state.phase === "ready") return this.refresh();
     const epoch = ++this.epoch;
     const held = this.change({ phase: "reconnecting", retryAt: null, cycleUsed: false,
       reason: "휴대전화 테더링 연결 준비 중" });

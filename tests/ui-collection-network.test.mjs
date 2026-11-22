@@ -37,7 +37,7 @@ test("connection failure is shown as text without stopping settings",async t=>{
 test("failover status names the actual route and recheck never promises phone activation",async t=>{
  const f=await fixture(t,{network:{enabled:true,active:false,phase:"ready",mode:"failover",route:"wired"}});
  assert.match(f.$("collection-network-status").textContent,/유선/);
- assert.equal(f.$("collection-network-connect").textContent,"수집 경로 재확인");
+ assert.equal(f.$("collection-network-connect").textContent,"유선 사용 중");
  assert.match(f.$("collection-network-help").textContent,/실제 연결/);
  f.setNetwork({enabled:true,active:false,phase:"ready",mode:"failover",route:"vpn-1"});
  assert.match(f.$("collection-network-status").textContent,/국내 VPN/);
@@ -46,6 +46,17 @@ test("failover status names the actual route and recheck never promises phone ac
  f.$("collection-network-connect").click();await flush();
  assert.equal(f.calls.filter(c=>c.path==="/api/collection-network/connect").length,1);
  assert.match(f.$("collection-network-message").textContent,/경로 확인/);
+});
+test("failover shows actual configuration, pending probes and a disabled wired recheck",async t=>{
+ const f=await fixture(t,{network:{enabled:true,active:false,phase:"ready",mode:"failover",route:"wired",vpnConfigured:0,mobileConfigured:false}});
+ assert.equal(f.$("collection-network-connect").disabled,true);
+ assert.match(f.$("collection-network-candidates").textContent,/VPN 후보 0개.*모바일.*미설정/);
+ f.setNetwork({enabled:true,active:false,phase:"ready",mode:"failover",route:"vpn-2",checking:true,vpnConfigured:2,mobileConfigured:true});
+ assert.equal(f.$("collection-network-connect").disabled,true);
+ assert.match(f.$("collection-network-status").textContent,/상태 확인 중/);
+ assert.match(f.$("collection-network-candidates").textContent,/VPN 후보 2개/);
+ f.setNetwork({enabled:true,active:false,phase:"ready",mode:"failover",route:"vpn-2",checking:false,vpnConfigured:2,mobileConfigured:true});
+ assert.equal(f.$("collection-network-connect").disabled,false);
 });
 test("dashboard reports tether hold while connected and library navigation remains available",async t=>{
  const dom=new JSDOM(await readFile(new URL("../public/index.html",import.meta.url),"utf8"),{url:"http://localhost:8788",runScripts:"outside-only",pretendToBeVisual:true});t.after(()=>dom.window.close());const w=dom.window;

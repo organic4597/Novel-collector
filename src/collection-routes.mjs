@@ -31,6 +31,7 @@ export class CollectionRoutes {
     this.closed = false;
     this.started = false;
     this.work = null;
+    this.probing = null;
     this.timer = null;
     this.watchTether = false;
     this.cancellation = new AbortController();
@@ -39,7 +40,10 @@ export class CollectionRoutes {
     const ready = !this.closed && this.phase === "ready";
     return { enabled: true, active: !ready, ready, phase: this.closed ? "closed" : this.phase,
       reason: ready ? null : this.reason, retryAt: null, cycleUsed: this.state.wiredBlocked,
-      siteHost: null, route: this.state.route, mode: this.routeMode, generation: this.generation };
+      siteHost: null, route: this.state.route, mode: this.routeMode, generation: this.generation,
+      checking: !!this.probing || this.phase === "verifying",
+      vpnConfigured: this.routes.filter(route => route.kind === "vpn").length,
+      mobileConfigured: this.routes.some(route => route.kind === "tether") };
   }
   assertAvailable() { if (!this.snapshot().ready) throw paused(); }
   async save() { await this.store.atomic(this.path, structuredClone(this.state)); }
@@ -62,9 +66,9 @@ export class CollectionRoutes {
     this.state.route = null;
     await this.save();
   }
-  async select() {
+  async select(skip = null) {
     for (const route of this.routes) {
-      if (this.closed || this.state.rejected.includes(route.id)) continue;
+      if (this.closed || route.id === skip || this.state.rejected.includes(route.id)) continue;
       let proof;
       try { proof = await route.probe(); } catch {}
       if (this.closed) return;
@@ -73,7 +77,7 @@ export class CollectionRoutes {
     await this.fail(true);
     await this.notice();
   }
-  transition({ gap = false } = {}) {
+  transition({ gap = false, skip = null } = {}) {
     if (this.work) return this.work;
     this.phase = "verifying";
     this.reason = "유선 우회 없이 VPN·확인된 모바일 연결을 검사합니다.";
@@ -83,7 +87,7 @@ export class CollectionRoutes {
       await this.notice();
       if (this.closed) return;
       if (gap) await this.wait(this.cancellation.signal);
-      if (!this.closed) await this.select();
+      if (!this.closed) await this.select(skip);
     }).catch(async () => { if (!this.closed) await this.fail(); });
     const tracked = task.finally(() => { if (this.work === tracked) this.work = null; });
     this.work = tracked;
@@ -104,9 +108,15 @@ export class CollectionRoutes {
           route: saved.route, rejected: saved.rejected.filter(id => ids.has(id)) };
       }
       if (!this.state.wiredBlocked) await this.ready("wired");
-      else if (this.current && !this.state.rejected.includes(this.current.id) &&
-          (await this.current.probe())?.ready === true) await this.ready(this.current.id);
-      else await this.transition();
+      else {
+        const previous = this.current?.id;
+        let proof;
+        if (this.current && !this.state.rejected.includes(this.current.id)) {
+          try { proof = await this.current.probe(); } catch {}
+        }
+        if (proof?.ready === true) await this.ready(this.current.id);
+        else await this.transition({ skip: previous });
+      }
     } catch { await this.fail(); }
     this.armMonitor();
     return this.snapshot();
@@ -122,7 +132,14 @@ export class CollectionRoutes {
     this.state.route = null;
     return this.transition({ gap: true });
   }
-  async refresh() {
+  refresh() {
+    if (this.probing) return this.probing;
+    const task = Promise.resolve().then(() => this.checkCurrent());
+    const tracked = task.finally(() => { if (this.probing === tracked) this.probing = null; });
+    this.probing = tracked;
+    return tracked;
+  }
+  async checkCurrent() {
     if (this.closed || this.work) return this.snapshot();
     if (this.phase !== "ready" || !this.current) {
       const tether = this.watchTether && this.routes.find(route => route.kind === "tether" &&
@@ -145,7 +162,8 @@ export class CollectionRoutes {
     return this.snapshot();
   }
   bootstrap() {
-    if (this.closed || this.work || this.phase === "ready") return this.work || Promise.resolve(this.snapshot());
+    if (this.closed || this.work) return this.work || Promise.resolve(this.snapshot());
+    if (this.phase === "ready") return this.refresh();
     return this.transition();
   }
   armMonitor() {
@@ -204,5 +222,8 @@ export function createRouteRuntime({ store, env = process.env, onChange, run = e
   }
   const network = new CollectionRoutes({ store, routes, onChange, wait, pollMs });
   return { network, transport: network,
-    close: async () => { network.close(); cancellation.abort(); control?.close(); await network.work?.catch(() => {}); } };
+    close: async () => {
+      network.close(); cancellation.abort(); control?.close();
+      await Promise.allSettled([network.work, network.probing]);
+    } };
 }

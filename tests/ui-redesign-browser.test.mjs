@@ -511,7 +511,7 @@ async function contrastFailures(page, view) {
     const section = document.getElementById(view + "-view");
     const elements = [
       ...section.querySelectorAll(
-        "h1, .page-heading p, #site-attention-heading, #site-attention-reason, #site-attention-instructions, #collection-network-intro, #collection-network-status, #collection-network-help, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
+        "h1, .page-heading p, #site-attention-heading, #site-attention-reason, #site-attention-instructions, #collection-network-intro, #collection-network-status, #collection-network-candidates, #collection-network-help, .metric-label, .discover-title-link, .book-title, .status-pill, .discover-author, .discover-count, .discover-meta, .discover-tags span, .book-meta, input:not([type=checkbox]), select, .primary, .secondary, .quiet",
       ),
       ...document.querySelectorAll(
         ".nav-item.active, #connection-label, #theme-toggle",
@@ -551,13 +551,20 @@ test("route status and keyboard recheck work in both themes at desktop and mobil
     for (const width of [390, 1280]) for (const theme of ["light", "dark"]) {
       const f = await openFixture(browser, base, width, theme);
       try {
-        f.data.collectionNetwork = { enabled: true, mode: "failover", phase: "ready", active: false, route: "wired" };
+        f.data.collectionNetwork = { enabled: true, mode: "failover", phase: "ready", active: false, route: "wired", vpnConfigured: 2, mobileConfigured: true };
         await f.page.evaluate(() => window.CollectorUI.refresh());
         await visit(f.page, "settings");
         assert.match(await f.page.locator("#collection-network-status").innerText(), /유선/);
+        assert.equal(await f.page.locator("#collection-network-connect").isDisabled(), true);
+        assert.match(await f.page.locator("#collection-network-candidates").innerText(), /VPN 후보 2개/);
         f.data.collectionNetwork.route = "vpn-1";
         await f.page.evaluate(() => window.CollectorUI.refresh());
         assert.match(await f.page.locator("#collection-network-status").innerText(), /국내 VPN/);
+        f.data.collectionNetwork.checking = true;
+        await f.page.evaluate(() => window.CollectorUI.refresh());
+        assert.equal(await f.page.locator("#collection-network-connect").isDisabled(), true);
+        assert.match(await f.page.locator("#collection-network-status").innerText(), /상태 확인 중/);
+        f.data.collectionNetwork.checking = false;
         f.data.collectionNetwork = { ...f.data.collectionNetwork, route: null, phase: "verifying", active: true };
         await f.page.evaluate(() => window.CollectorUI.refresh());
         assert.equal(await f.page.locator("#collection-network-connect").isDisabled(), true);
